@@ -41,10 +41,11 @@ class FakeAdb:
         self.prune_writes = 0
         # Serials whose dead service was re-bound by a settings toggle.
         self.revived: set[str] = set()
-        # HTTP protocol the installed helper speaks (the bundled build speaks 2).
-        self.protocol: dict[str, int] = {SERIAL: 2, OTHER: 2}
-        # Last token delivered by `am broadcast`, per serial.
+        # HTTP protocol the installed helper speaks (the bundled build speaks 3).
+        self.protocol: dict[str, int] = {SERIAL: 3, OTHER: 3}
+        # Last token delivered by the shell-UID-checked ContentProvider.
         self.tokens: dict[str, str] = {}
+        self.token_delivery_allowed = True
         # Process table lines (PID ARGS) of UiAutomation holders, per serial.
         self.holders: dict[str, list[str]] = {SERIAL: [], OTHER: []}
         self.killed: list[tuple[str, int]] = []
@@ -89,7 +90,7 @@ class FakeAdb:
             elif rest[0] == "install":
                 if self.install_result == "Success":
                     self.installed[serial] = self.bundled_version
-                    self.protocol[serial] = 2
+                    self.protocol[serial] = 3
                     out = "Success\n"
                 else:
                     out, code = self.install_result, 1
@@ -106,10 +107,19 @@ class FakeAdb:
                 self.forwards = [f for f in self.forwards if not (f[0] == serial and f[1] == port)]
             elif rest[:2] == ["shell", "input"]:
                 pass
-            elif rest[:3] == ["shell", "am", "broadcast"]:
-                assert rest[3:8] == ["-n", hm.TOKEN_RECEIVER, "-a", hm.TOKEN_ACTION, "--es"]
-                self.tokens[serial] = rest[9]
-                out = "Broadcasting: Intent { act=com.artemis.helper.SET_TOKEN }\nBroadcast completed: result=0\n"
+            elif rest[:3] == ["shell", "content", "call"]:
+                assert rest[3:-1] == [
+                    "--uri",
+                    hm.TOKEN_PROVIDER_URI,
+                    "--method",
+                    "set_session_token",
+                    "--arg",
+                ]
+                if self.token_delivery_allowed:
+                    self.tokens[serial] = rest[-1]
+                    out = "Result: Bundle[{result=token_set, token_set=true}]\n"
+                else:
+                    out, code = "Permission Denial\n", 1
             elif rest[:3] == ["shell", "am", "start"]:
                 self.settings_opened = getattr(self, "settings_opened", 0) + 1
             elif rest[:2] == ["shell", "ps"]:
@@ -158,8 +168,8 @@ class FakePing:
                     "success": True,
                     "version_code": self.adb.installed[serial],
                     "version_name": "1.1.0",
-                    "protocol_version": self.adb.protocol.get(serial, 2),
-                    "auth_required": self.adb.protocol.get(serial, 2) >= 2,
+                    "protocol_version": self.adb.protocol.get(serial, 3),
+                    "auth_required": self.adb.protocol.get(serial, 3) >= 2,
                     "token_set": serial in self.adb.tokens,
                 }
         return None
@@ -252,6 +262,15 @@ def test_provision_up_to_date_is_cheap_and_keeps_other_services(env):
     assert result.ok and result.action == "up_to_date"
     assert adb.enabled_services[SERIAL] == f"com.android.talkback/.TalkBackService:{SERVICE_NAME}"
     assert not _calls(adb, ["-s", SERIAL, "install"])
+
+
+def test_is_service_enabled_accepts_fully_qualified_component_name(env):
+    adb, _, manager = env
+    adb.enabled_services[SERIAL] = (
+        "com.android.talkback/.TalkBackService:"
+        "com.artemis.helper/com.artemis.helper.ArtemisAccessibilityService"
+    )
+    assert manager.is_service_enabled(SERIAL) is True
 
 
 def test_provision_without_bundled_apk_fails_only_when_not_installed(env):
@@ -575,7 +594,7 @@ def test_attach_pushes_the_host_token_and_records_it(env, tmp_path):
     adb, _, manager = env
     session = manager.attach(SERIAL)
     token = manager.host_token()
-    assert len(token) == 48 and session.token == token and session.protocol_version == 2
+    assert len(token) == 48 and session.token == token and session.protocol_version == 3
     assert adb.tokens[SERIAL] == token
     assert (tmp_path / "token" / "session.token").read_text() == token
     # A second manager on the same host (another process) presents the same token.
@@ -596,13 +615,22 @@ def test_push_token_is_repeated_on_demand(env):
     assert adb.tokens[SERIAL] == manager.host_token()
 
 
+def test_attach_fails_if_token_provider_does_not_confirm_delivery(env):
+    adb, _, manager = env
+    adb.token_delivery_allowed = False
+    with pytest.raises(HelperUnavailable, match="securely deliver the session token"):
+        manager.attach(SERIAL)
+    assert adb.tokens.get(SERIAL) is None
+    assert adb.forwards == []
+
+
 def test_old_protocol_is_reinstalled_when_the_caller_may_provision(env):
     adb, _, manager = env
     adb.installed[SERIAL] = 9  # newer versionCode than the bundle, but the old contract
     adb.protocol[SERIAL] = 1
     session = manager.attach(SERIAL)
     assert _calls(adb, ["-s", SERIAL, "install"])
-    assert session.protocol_version == 2 and session.version_code == 2
+    assert session.protocol_version == 3 and session.version_code == 2
 
 
 def test_old_protocol_blocks_a_lazy_attach_without_installing(env):
@@ -656,7 +684,7 @@ def test_status_reports_protocol_and_token(env):
     adb, _, manager = env
     manager.attach(SERIAL)
     status = manager.status(SERIAL)
-    assert status["protocol_version"] == 2 and status["protocol_supported"] is True
+    assert status["protocol_version"] == 3 and status["protocol_supported"] is True
     assert status["token_set"] is True and status["auto_install"] is True
 
 

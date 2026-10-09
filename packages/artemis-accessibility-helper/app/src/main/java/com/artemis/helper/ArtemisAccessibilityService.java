@@ -30,8 +30,9 @@ public class ArtemisAccessibilityService extends AccessibilityService {
     /**
      * Bumped whenever the HTTP contract changes in a way an older host cannot use.
      * 2: token authentication, byte-accurate bodies, visible-only dumps, fields=.
+     * 3: shell-UID-verified ContentProvider token delivery.
      */
-    public static final int PROTOCOL_VERSION = 2;
+    public static final int PROTOCOL_VERSION = 3;
     // Channel importance is frozen by Android once a channel exists, so a quieter
     // channel needs a new id; the pre-1.1.3 channel is deleted on start.
     private static final String LEGACY_CHANNEL_ID = "artemis_helper_channel";

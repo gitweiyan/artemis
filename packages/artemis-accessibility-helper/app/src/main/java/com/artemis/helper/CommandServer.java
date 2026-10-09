@@ -28,7 +28,7 @@ import java.util.concurrent.Executors;
  * - Line-delimited JSON-RPC over a raw TCP socket
  *
  * Every endpoint except {@code /ping} requires the session token the host pushed
- * through {@link TokenReceiver} (header {@code X-Artemis-Token}, query parameter
+ * through {@link TokenProvider} (header {@code X-Artemis-Token}, query parameter
  * {@code token}, or JSON field {@code token}). Loopback is reachable by every app
  * on the device, so without the token this service would hand any local app a
  * full-screen reader and a gesture injector.

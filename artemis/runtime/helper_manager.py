@@ -86,12 +86,12 @@ logger = get_logger(__name__)
 
 PACKAGE_NAME = "com.artemis.helper"
 SERVICE_NAME = f"{PACKAGE_NAME}/.ArtemisAccessibilityService"
-TOKEN_RECEIVER = f"{PACKAGE_NAME}/.TokenReceiver"
-TOKEN_ACTION = f"{PACKAGE_NAME}.SET_TOKEN"
+SERVICE_COMPONENT = f"{PACKAGE_NAME}/{PACKAGE_NAME}.ArtemisAccessibilityService"
+TOKEN_PROVIDER_URI = f"content://{PACKAGE_NAME}.token"
 #: Loopback port the service binds on the device. Never used as a host port.
 DEVICE_PORT = 18888
-#: Oldest helper HTTP contract this host can talk to (see PROTOCOL_VERSION in the APK).
-MIN_PROTOCOL_VERSION = 2
+#: Oldest helper contract this host can talk to (see PROTOCOL_VERSION in the APK).
+MIN_PROTOCOL_VERSION = 3
 TOKEN_FILE_NAME = "session.token"
 
 HELPER_PACKAGE_DIR = (
@@ -341,29 +341,34 @@ class AccessibilityHelperManager:
     def push_token(self, serial: str) -> bool:
         """Deliver the host token to the helper on ``serial`` (idempotent).
 
-        The broadcast is explicit (component named) so it reaches the manifest
-        receiver on every Android version, and it is sent by the adb shell user,
-        the only sender the receiver's permission guard admits.
+        The exported provider verifies the Binder caller is the ADB shell UID.
+        This avoids OEMs that deny broadcasts to receivers guarded by
+        WRITE_SECURE_SETTINGS while keeping ordinary apps from setting a token.
         """
         result = self._adb(
             serial,
             "shell",
-            "am",
-            "broadcast",
-            "-n",
-            TOKEN_RECEIVER,
-            "-a",
-            TOKEN_ACTION,
-            "--es",
-            "token",
+            "content",
+            "call",
+            "--uri",
+            TOKEN_PROVIDER_URI,
+            "--method",
+            "set_session_token",
+            "--arg",
             self.host_token(),
         )
         output = f"{result.stdout or ''}\n{result.stderr or ''}"
-        ok = result.returncode == 0 and "Broadcast completed" in output
+        delivered = (
+            result.returncode == 0 and re.search(r"\bresult=token_set\b", output) is not None
+        )
+        port = self.existing_forward(serial)
+        ping = self.ping(port) if delivered and port is not None else None
+        ok = delivered and bool(ping and ping.get("token_set"))
         if not ok:
             logger.warning(
-                f"Pushing the session token to the accessibility helper on {serial} failed: "
-                f"adb exited with code {result.returncode}."
+                f"Pushing the session token to the accessibility helper on {serial} failed "
+                f"(adb exit code {result.returncode}; delivery confirmed={delivered}; "
+                f"helper token confirmed={bool(ping and ping.get('token_set'))})."
             )
         return ok
 
@@ -408,7 +413,17 @@ class AccessibilityHelperManager:
             serial, "shell", "settings", "get", "secure", "enabled_accessibility_services"
         )
         enabled = (result.stdout or "").strip()
-        return SERVICE_NAME in enabled.split(":") if enabled and enabled != "null" else False
+        if not enabled or enabled == "null":
+            return False
+        for component in enabled.split(":"):
+            package, separator, class_name = component.strip().partition("/")
+            if not separator:
+                continue
+            if class_name.startswith("."):
+                class_name = package + class_name
+            if package == PACKAGE_NAME and f"{package}/{class_name}" == SERVICE_COMPONENT:
+                return True
+        return False
 
     def existing_forward(self, serial: str) -> int | None:
         """Host port of an adb forward that already targets the helper on ``serial``."""
@@ -952,7 +967,13 @@ class AccessibilityHelperManager:
             token: str | None = None
             if info.get("auth_required", protocol >= 2):
                 token = self.host_token()
-                self.push_token(serial)
+                if not self.push_token(serial):
+                    if owns_forward:
+                        self._remove_forward(serial, local_port)
+                    raise HelperUnavailable(
+                        f"Could not securely deliver the session token to the accessibility "
+                        f"helper on {serial}; check the helper version and ADB shell access."
+                    )
 
             version = info.get("version_code")
             session = HelperSession(
@@ -1022,8 +1043,7 @@ __all__ = [
     "ProvisionEvent",
     "ProvisionResult",
     "SERVICE_NAME",
-    "TOKEN_ACTION",
-    "TOKEN_RECEIVER",
+    "TOKEN_PROVIDER_URI",
     "auto_install_allowed",
     "helper_manager",
     "load_bundled_helper",

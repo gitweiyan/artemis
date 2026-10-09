@@ -259,6 +259,7 @@ if __name__ == "__main__":
 不占用 UiAutomation 连接。使用 UiAutomation 的工具需要启用 `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`，否则可能使该服务暂停运行。
 手机上会出现一条折叠的"Artemis test helper is running"通知，以及"设置 > 无障碍"里的一个新条目，都是它。
 它只监听手机本机回环地址，不向外发送任何数据。
+主机通过 ADB shell 向 helper 注入进程内的会话令牌；读取屏幕和执行操作的本机 HTTP 请求都必须通过该令牌校验。
 
 * 预先安装（避免首个任务多等约 3 秒）：`uv run artemis helper install`
 * 查看状态：`uv run artemis helper status` / `uv run artemis doctor`
