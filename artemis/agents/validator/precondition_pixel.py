@@ -35,6 +35,7 @@ from artemis.context import ArtemisContext
 from artemis.graph.state import State
 from artemis.services.llm import acomplete_structured
 from artemis.utils import visualization
+from third_party.mobile_use.llm_service import GetLLM
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -54,7 +55,7 @@ _MAX_ATTEMPTS = 3
 _RETRY_DELAY_SECONDS = 0.3
 
 
-def _init_llm_and_prompt(ctx: ArtemisContext, get_llm_fn):
+def _init_llm_and_prompt(ctx: ArtemisContext, get_llm_fn: GetLLM):
     """Resolves the VLM and loads the prompt template (once per validation).
 
     The judge node is normally available, but when it is not, the operator is the
@@ -254,7 +255,7 @@ async def validate_action_precondition_pixel(
     original_coords: list[int] | None = None,
     state: State | None = None,
     *,
-    get_llm_fn,
+    get_llm_fn: GetLLM,
 ) -> tuple[bool, ValidationErrorCategory, str]:
     """Pixel-level Safety Net entry point (see module docstring)."""
     action_name = action_item.get("action")

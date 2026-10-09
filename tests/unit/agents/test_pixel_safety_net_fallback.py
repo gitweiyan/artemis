@@ -22,6 +22,7 @@ of ``LLMConfig``. When the primary judge was unavailable the fallback raised
 unvalidated while the log claimed only that the check was bypassed.
 """
 
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -52,6 +53,8 @@ def test_the_fallback_name_resolves_in_the_real_config():
     cfg = get_default_llm_config()
 
     assert cfg.get_agent("operator") is not None
-    # 'validator' is the name that used to be used, and it has no config field.
-    with pytest.raises(AttributeError):
-        cfg.get_agent("validator")
+    # 'validator' is the name that used to be used; it has no config field, and
+    # the lookup now says so instead of leaking an AttributeError that callers
+    # read as "bypass the check".
+    with pytest.raises(ValueError):
+        cfg.get_agent(cast(Any, "validator"))

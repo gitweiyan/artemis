@@ -142,6 +142,14 @@ class LLMConfig(LLMConfigBase):
 
     def get_agent(self, item: AgentNode) -> LLMWithFallback:
         """Retrieve model configuration for a specific agent node with sensible defaults."""
+        if item not in type(self).model_fields:
+            # A bare getattr raises AttributeError, which callers read as "this
+            # safety net could not initialise" and then fail open — the pixel
+            # safety net silently bypassed itself that way for whole runs.
+            raise ValueError(
+                f"Unknown agent node {item!r}. Known nodes:"
+                f" {', '.join(sorted(type(self).model_fields))}"
+            )
         val = getattr(self, item)
         if val is None:
             if item == "history_analyzer":
@@ -155,6 +163,10 @@ class LLMConfig(LLMConfigBase):
                 return lightweight_judge_default(self.operator)
             elif item == "output_analyzer":
                 return self.log_analyzer
+            raise ValueError(
+                f"Agent node {item!r} is unset and inherits no default;"
+                " give it one in LLMConfig.get_agent."
+            )
         return val
 
 
