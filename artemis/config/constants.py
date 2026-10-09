@@ -146,6 +146,5 @@ AgentNode = Literal[
     "history_analyzer",
     "validator_pixel_safety_net",
     "planner_validation",
-    "validator",
     "output_analyzer",
 ]
