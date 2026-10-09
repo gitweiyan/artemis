@@ -184,8 +184,13 @@ async def run_async_planner_validation(
         ]
 
         # Advisory review on the lightweight judge node (shared default with
-        # the pixel safety net), never the heavyweight Planner model.
-        llm = get_llm(ctx=ctx, name="planner_validation").with_structured_output(ValidationResult)
+        # the pixel safety net), never the heavyweight Planner model. The verdict
+        # is bound as a tool call: the library default (`response_format:
+        # json_schema`) is rejected with 400 by OpenAI-compatible endpoints, and
+        # the `except` below would turn that into a silent approval.
+        llm = get_llm(ctx=ctx, name="planner_validation").with_structured_output(
+            ValidationResult, method="function_calling", tool_choice="auto"
+        )
 
         result: ValidationResult = await invoke_llm_with_timeout_message(llm.ainvoke(messages))
 
