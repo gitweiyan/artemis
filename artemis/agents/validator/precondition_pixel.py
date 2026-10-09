@@ -55,11 +55,22 @@ _RETRY_DELAY_SECONDS = 0.3
 
 
 def _init_llm_and_prompt(ctx: ArtemisContext, get_llm_fn):
-    """Resolves the VLM and loads the prompt template (once per validation)."""
+    """Resolves the VLM and loads the prompt template (once per validation).
+
+    The judge node is normally available, but when it is not, the operator is the
+    run's main vision model and therefore the correct fallback. The previous
+    fallback name ("validator") is not a field of ``LLMConfig``, so it raised
+    ``AttributeError`` instead of recovering, and the caller — which treats any
+    failure here as ``PIXEL_BYPASSED`` — let every coordinate action through
+    unvalidated.
+    """
     try:
         llm = get_llm_fn(ctx, name="validator_pixel_safety_net")
-    except Exception:
-        llm = get_llm_fn(ctx, name="validator")
+    except Exception as e:
+        logger.warning(
+            f"Pixel safety net judge unavailable ({e}); falling back to the operator model."
+        )
+        llm = get_llm_fn(ctx, name="operator")
 
     prompt_path = Path(__file__).parent.joinpath("pixel_safety_net.md")
     prompt = prompt_path.read_text(encoding="utf-8")
