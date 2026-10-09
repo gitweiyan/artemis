@@ -63,8 +63,14 @@ async def test_planner_validation():
 
 
 def test_planner_validation_node_defaults_to_lightweight_judge():
-    """Unconfigured planner_validation resolves to the same flash-lite default
-    as the pixel safety net (cheap, temperature 0)."""
+    """Unconfigured planner_validation resolves to the same judge default as the
+    pixel safety net (temperature 0).
+
+    Both are cheap, high-frequency verdicts, so they share one default and run on
+    the operator's endpoint instead of a hardcoded Google model. The earlier
+    assertion here (`"lite" in node.model`) pinned that hardcoded provider, which
+    is why a non-Google run had its plan validation fail on every call.
+    """
     from artemis.config import get_default_llm_config
 
     llm_cfg = get_default_llm_config()
@@ -73,7 +79,9 @@ def test_planner_validation_node_defaults_to_lightweight_judge():
     assert node.model == safety_net.model
     assert node.provider == safety_net.provider
     assert node.temperature == 0.0
-    assert "lite" in node.model
+    # Reachable without a credential the rest of the run does not use.
+    assert node.provider == llm_cfg.operator.provider
+    assert node.fallback.provider == llm_cfg.operator.provider
 
 
 if __name__ == "__main__":
