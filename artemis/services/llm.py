@@ -611,6 +611,39 @@ def repair_tool_call_pairing(messages: Sequence[BaseMessage]) -> Sequence[BaseMe
     return repaired if changed else messages
 
 
+def summarize_message_shape(messages: Sequence[BaseMessage]) -> str:
+    """Compact role/tool shape of a request, in message order.
+
+    A provider rejection names no message and no id, so this is what makes the
+    shape human-readable in the log — e.g.
+    ``system -> human -> assistant[calls=tc-A,tc-B] -> tool[tc-A] -> human -> tool[tc-B]``
+    shows an image carrier sitting between two tool results at a glance.
+    """
+    parts: list[str] = []
+    for message in messages:
+        calls = getattr(message, "tool_calls", None) or []
+        if calls:
+            parts.append(f"assistant[calls={','.join(str(c.get('id')) for c in calls)}]")
+        elif isinstance(message, ToolMessage):
+            parts.append(f"tool[{message.tool_call_id}]")
+        else:
+            parts.append(str(getattr(message, "type", type(message).__name__)))
+    return " -> ".join(parts)
+
+
+def _log_request_shape_on_rejection(error: BaseException, args: tuple) -> None:
+    """Print the request shape when the provider refuses the request itself.
+
+    Only for ``bad_request``: a rejected shape is opaque and repeats on every
+    retry, while transient failures (rate limit, unavailable) say enough already.
+    """
+    if not args or not isinstance(args[0], list):
+        return
+    if classify_failure(error).category is not FailureCategory.BAD_REQUEST:
+        return
+    llm_logger.warning(f"Provider rejected the request shape: {summarize_message_shape(args[0])}")
+
+
 def _guard_tool_call_pairing(args: tuple) -> tuple:
     """Apply :func:`repair_tool_call_pairing` to a call's message argument.
 
@@ -816,6 +849,7 @@ class RobustChatModelWrapper:
         except (KeyboardInterrupt, asyncio.CancelledError):
             raise
         except Exception as stream_error:
+            _log_request_shape_on_rejection(stream_error, args)
             if full_response is not None:
                 # Mid-stream failure: the partial output must never reach
                 # message history. Tell the UI to discard it, then let the
