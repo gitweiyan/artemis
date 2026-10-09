@@ -24,10 +24,24 @@ public final class TokenProvider extends ContentProvider {
         return true;
     }
 
+    /**
+     * Whether the Binder caller is a privileged adb shell.
+     *
+     * <p>uid 2000 is what {@code adb shell} runs as, and no ordinary app can hold
+     * it. Root (uid 0) is admitted too: {@code adb root} and userdebug/eng builds
+     * put the shell there, and root already owns the device -- the check exists to
+     * keep unprivileged apps out of the token store, not to fence root off.
+     */
+    private static boolean isTrustedCaller() {
+        int uid = Binder.getCallingUid();
+        return uid == Process.SHELL_UID || uid == Process.ROOT_UID;
+    }
+
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
-        if (Binder.getCallingUid() != Process.SHELL_UID) {
-            throw new SecurityException("Only the ADB shell may set the helper session token");
+        if (!isTrustedCaller()) {
+            throw new SecurityException(
+                    "Only the ADB shell (or root) may set the helper session token");
         }
         if (!METHOD_SET_TOKEN.equals(method) || arg == null || !TOKEN_PATTERN.matcher(arg).matches()) {
             throw new IllegalArgumentException("Invalid session token request");
