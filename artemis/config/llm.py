@@ -57,9 +57,35 @@ __all__ = [
 ]
 
 
-def lightweight_judge_default() -> "LLMWithFallback":
+def lightweight_judge_default(reference: "LLMWithFallback | None" = None) -> "LLMWithFallback":
     """Factory default for the lightweight judge nodes (pixel safety net and
-    planner validation): a flash-lite model at temperature 0."""
+    planner validation): a flash-lite model at temperature 0.
+
+    When ``reference`` is given the judge mirrors that node's endpoint and model
+    instead of a hardcoded Google one. These judges run on every coordinate
+    action and after every milestone edit, so a run configured entirely against a
+    non-Google endpoint used to need a Google credential just for them: the
+    planner validator failed silently and the pixel safety net could not build
+    its judge at all, which the caller swallows as a bypass. ``reference`` is
+    normally the operator, which also guarantees a vision-capable model for the
+    pixel judge.
+
+    Users who want these two nodes on something cheaper (or stronger) than their
+    ``default`` can now pin them under ``nodes`` in ``artemis.jsonc``; an
+    explicit pin is used verbatim, without forcing temperature 0.
+    """
+    if reference is not None:
+        fallback = getattr(reference, "fallback", None)
+        return LLMWithFallback(
+            provider=reference.provider,
+            model=reference.model,
+            temperature=0.0,
+            fallback=LLM(
+                provider=getattr(fallback, "provider", None) or reference.provider,
+                model=getattr(fallback, "model", None) or reference.model,
+                temperature=0.0,
+            ),
+        )
     return LLMWithFallback(
         provider="google",
         model="gemini-3.5-flash-lite",
@@ -123,11 +149,24 @@ class LLMConfig(LLMConfigBase):
             elif item in ("validator_pixel_safety_net", "planner_validation"):
                 # Both are cheap, high-frequency judges: the pixel safety net
                 # runs before actions, the planner validator after every
-                # milestone edit. They share one lightweight default.
-                return lightweight_judge_default()
+                # milestone edit. They share one lightweight default, pinned to
+                # the operator's endpoint so they never require a provider the
+                # rest of the run does not use.
+                return lightweight_judge_default(self.operator)
             elif item == "output_analyzer":
                 return self.log_analyzer
         return val
+
+
+#: Optional LLMConfig nodes: when `default` is expanded they stay absent, so
+#: `get_agent` lends them the config of a related node (operator, log_analyzer)
+#: or the lightweight judge default. Pinning one under `nodes` still wins.
+_OPTIONAL_AGENT_NODES = (
+    "history_analyzer",
+    "validator_pixel_safety_net",
+    "planner_validation",
+    "output_analyzer",
+)
 
 
 def _expand_default_into_nodes(config_dict: dict) -> dict:
@@ -181,6 +220,19 @@ def _expand_default_into_nodes(config_dict: dict) -> dict:
                 else:
                     node_cfg[k] = v
         result[node] = node_cfg
+
+    # These nodes are optional in LLMConfig: left absent, get_agent() lends them
+    # another node's config (see get_agent). They were previously dropped even
+    # when the user pinned them under `nodes`, so the pin was silently ignored.
+    for node in _OPTIONAL_AGENT_NODES:
+        if node in nodes_override:
+            node_cfg = dict(default_model_cfg)
+            for k, v in nodes_override[node].items():
+                if isinstance(v, dict) and isinstance(node_cfg.get(k), dict):
+                    node_cfg[k] = {**node_cfg[k], **v}
+                else:
+                    node_cfg[k] = v
+            result[node] = node_cfg
 
     utils_dict: dict[str, Any] = {}
     for util in all_utils_nodes:
