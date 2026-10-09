@@ -409,15 +409,26 @@ def _format_check_items(check_items: list) -> str:
 
 
 async def _structured_report(llm, messages) -> CheckReport:
-    structured_llm = llm.with_structured_output(CheckReport)
+    # Function calling with ``tool_choice="auto"`` is the structured-output mode
+    # every provider implements. langchain-openai defaults to
+    # ``method="json_schema"``, which DeepSeek rejects outright ("This
+    # response_format type is unavailable now", upstream issue #45 / PR #148) —
+    # the 2026-10-08 run had already reasoned to a ``passed`` verdict and lost it
+    # to that 400. ``auto`` rather than a forced choice keeps thinking modes happy.
+    structured_llm = llm.with_structured_output(
+        CheckReport, method="function_calling", tool_choice="auto"
+    )
     # A conversation must end with a user turn: Gemini rejects requests whose
     # last message is the model's own answer ("Requests ending with a model
     # turn are not supported"), which is exactly the state after the loop's
-    # final tool-free reply. Nudge with an explicit verdict request instead.
+    # final tool-free reply. Nudge with an explicit verdict request instead —
+    # naming the tool, because ``tool_choice="auto"`` leaves the choice to the model.
     if messages and isinstance(messages[-1], AIMessage):
         messages = [
             *messages,
-            HumanMessage(content="Now provide your structured verdict report."),
+            HumanMessage(
+                content="Now call the CheckReport tool with your structured verdict report."
+            ),
         ]
     result = await invoke_llm_with_timeout_message(structured_llm.ainvoke(messages))
     if isinstance(result, CheckReport):
@@ -483,7 +494,7 @@ async def _run_check_loop(
             messages.append(
                 HumanMessage(
                     content=(
-                        "This is your final iteration; provide your structured verdict report now."
+                        "This is your final iteration; call CheckReport with your verdict report now."
                     )
                 )
             )
