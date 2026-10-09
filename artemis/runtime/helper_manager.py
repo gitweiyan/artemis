@@ -121,7 +121,9 @@ _ENABLE_ATTEMPTS = 5
 _ENABLE_SETTLE_SECONDS = 0.4
 _REVIVE_SETTLE_SECONDS = 0.3
 
-AdbRunner = Callable[[list[str]], subprocess.CompletedProcess]
+AdbRunner = Callable[..., subprocess.CompletedProcess]
+#: Called as ``runner(argv)``, or ``runner(argv, timeout=…)`` for the probes that
+#: must fail fast rather than spend the transport's full deadline.
 Pinger = Callable[[int], dict[str, Any] | None]
 #: Progress callback: ``(event, details)`` with events ``installing`` / ``upgrading`` /
 #: ``enabling`` fired *before* the slow step so a UI can show what is happening.
@@ -134,6 +136,23 @@ MANUAL_ENABLE_PATH = (
     "Artemis Accessibility Helper > turn it on"
 )
 ACCESSIBILITY_SETTINGS_INTENT = "android.settings.ACCESSIBILITY_SETTINGS"
+
+#: The helper version probe. ``dumpsys package`` dumps far more than the answer,
+#: and a device stall inside it is charged to the whole session (30 s plus a
+#: mid-run backend switch on 2026-10-09), so the light
+#: ``pm list packages --show-versioncode`` goes first; ROMs that do not know the
+#: flag fall back to the old command.
+_LIGHT_VERSION_PROBE = ("shell", "pm", "list", "packages", "--show-versioncode", PACKAGE_NAME)
+_HEAVY_VERSION_PROBE = ("shell", "dumpsys", "package", PACKAGE_NAME)
+#: Probe deadline: a probe that has not answered by now will not answer usefully,
+#: and "slow" must never be read as "not installed".
+PROBE_TIMEOUT_SECONDS = 6.0
+
+
+def _pm_list_version(stdout: str | None) -> int | None:
+    """versionCode from ``pm list packages --show-versioncode <pkg>`` output."""
+    match = re.search(rf"package:{re.escape(PACKAGE_NAME)}\s+versionCode:(\d+)", stdout or "")
+    return int(match.group(1)) if match else None
 
 
 def _canonical_component(component: str) -> str | None:
@@ -458,16 +477,63 @@ class AccessibilityHelperManager:
         return None
 
     def installed_version(self, serial: str) -> int | None:
-        """versionCode of the helper on the device, or ``None`` when it is not installed."""
-        result = self._adb(serial, "shell", "dumpsys", "package", PACKAGE_NAME)
-        output = result.stdout or ""
-        if result.returncode != 0 or "Unable to find package" in output:
-            return None
+        """versionCode of the helper on the device, or ``None`` when it cannot be read.
+
+        Decision makers use :meth:`_probe_version` instead: this public view
+        collapses "absent" and "the device did not answer" into ``None``, which
+        is fine for a status display and wrong for an install decision.
+        """
+        return self._probe_version(serial)[0]
+
+    def _probe_version(self, serial: str) -> tuple[int | None, bool]:
+        """``(versionCode, certain)`` for the helper package on ``serial``.
+
+        ``certain=False`` means the device did not answer inside the probe
+        deadline, or answered in a shape we cannot read: the caller must then
+        treat the helper as *possibly installed*. A 30 s stall inside the old
+        ``dumpsys package`` probe was read as "helper broken" and cost a real run
+        30 s plus a mid-run switch to UIAutomator2 (2026-10-09, session
+        ``aee01b7a``), and a stalled probe must never trigger a reinstall.
+        """
+        try:
+            light = self._probe(serial, *_LIGHT_VERSION_PROBE)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning(
+                f"The helper version probe on {serial} did not answer within "
+                f"{PROBE_TIMEOUT_SECONDS:g}s ({exc}); keeping the helper as installed-but-unknown."
+            )
+            return None, False
+
+        version = _pm_list_version(light.stdout)
+        if version is not None:
+            return version, True
+        if light.returncode == 0 and not (light.stdout or "").strip():
+            return None, True  # the device answered, and the package is not there
+
+        try:
+            heavy = self._probe(serial, *_HEAVY_VERSION_PROBE)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning(
+                f"The helper fallback probe on {serial} did not answer within "
+                f"{PROBE_TIMEOUT_SECONDS:g}s ({exc}); keeping the helper as installed-but-unknown."
+            )
+            return None, False
+        output = f"{heavy.stdout or ''}\n{heavy.stderr or ''}"
+        if "Unable to find package" in output:
+            return None, True
         match = re.search(r"versionCode=(\d+)", output)
-        if match is None:
-            # dumpsys answered but without a version block: the package is absent.
-            return None
-        return int(match.group(1))
+        if match is not None:
+            return int(match.group(1)), True
+        return None, False
+
+    def _probe(self, serial: str, *args: str) -> subprocess.CompletedProcess:
+        """Run a *probe* command with a short deadline instead of the normal one.
+
+        Probes answer questions the session can live without for a moment, so
+        they fail fast: a stalled device costs the probe deadline, not the
+        transport's 30 s.
+        """
+        return self._run_adb(["-s", serial, *args], timeout=PROBE_TIMEOUT_SECONDS)
 
     def is_service_enabled(self, serial: str) -> bool:
         result = self._adb(
@@ -755,12 +821,22 @@ class AccessibilityHelperManager:
                 logger.debug(f"Provision event callback failed: {exc}")
 
         with self._provision_mutex(serial):
-            installed = self.installed_version(serial)
+            installed, version_known = self._probe_version(serial)
+            if not version_known and not force:
+                # The device did not answer the probe. Installing on that basis
+                # would replace a healthy helper and could downgrade a newer one,
+                # so leave the package alone and let the enable check below speak
+                # for a helper that is actually there.
+                logger.warning(
+                    f"Could not read the installed helper version on {serial} within "
+                    f"{PROBE_TIMEOUT_SECONDS:g}s; leaving the installed package as it is."
+                )
             action = "up_to_date"
-            needs_install = (
-                force
-                or installed is None
-                or (bundled is not None and installed < bundled.version_code)
+            needs_install = force or (
+                version_known
+                and (
+                    installed is None or (bundled is not None and installed < bundled.version_code)
+                )
             )
             if needs_install and not install:
                 if installed is None:
@@ -950,7 +1026,14 @@ class AccessibilityHelperManager:
             attempts = _PING_ATTEMPTS_AFTER_PROVISION if provision else _PING_ATTEMPTS_LAZY
             info = self._wait_for_ping(local_port, attempts)
             suppressed_by: str | None = None
-            if info is None and self.installed_version(serial) is not None:
+            installed_now: int | None = None
+            version_known = True
+            if info is None:
+                # Only pay for the probe when the service is silent, and treat a
+                # probe that could not answer as "installed": re-binding an
+                # enabled service is cheap and reversible, giving up on it is not.
+                installed_now, version_known = self._probe_version(serial)
+            if info is None and (not version_known or installed_now is not None):
                 # Silent although installed. The usual cause is a UiAutomation
                 # holder (uiautomator2 / Appium) that made Android unbind every
                 # accessibility service; only then a killed service.
