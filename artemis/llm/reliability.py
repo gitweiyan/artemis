@@ -66,12 +66,24 @@ class Failure:
 
 
 def extract_status_code(error: BaseException) -> int | None:
-    """Best-effort extraction of an HTTP-ish status code from an exception."""
-    code = getattr(error, "code", None) or getattr(error, "status_code", None)
-    try:
-        return int(code) if code is not None else None
-    except (TypeError, ValueError):
-        return None
+    """Best-effort extraction of an HTTP-ish status code from an exception.
+
+    ``.code`` is tried first for providers that put the status there, but the
+    OpenAI-compatible SDKs fill ``.code`` from the response *body* — a string like
+    ``"invalid_request_error"`` — and keep the real status on ``.status_code``. A
+    non-numeric ``.code`` must therefore not hide it: doing so left the code
+    unknown, so the message-marker scan classified DeepSeek's permanent 400
+    ("This response_format type is unavailable now") as a transient outage and
+    retried it three times plus a circuit-breaker cooldown.
+    """
+    for candidate in (getattr(error, "code", None), getattr(error, "status_code", None)):
+        if candidate is None:
+            continue
+        try:
+            return int(candidate)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 _RATE_LIMIT_MARKERS = ("rate limit", "quota", "resource_exhausted")
@@ -82,6 +94,40 @@ _AUTH_MARKERS = ("unauthorized", "forbidden", "api key", "credential")
 _TIMEOUT_MARKERS = ("timed out", "timeout", "deadline exceeded", "deadline_exceeded")
 
 
+#: Category implied by an explicit HTTP status, decided before any message scan.
+#: A real status outranks the wording: DeepSeek's permanent
+#: "This response_format type is unavailable now" is a 400, and letting the
+#: "unavailable" marker win turned it into three retries plus a circuit-breaker
+#: cooldown before the request was finally given up on (2026-10-08).
+_CODED_CATEGORIES: dict[int, FailureCategory] = {
+    429: FailureCategory.RATE_LIMIT,
+    500: FailureCategory.PROVIDER_UNAVAILABLE,
+    502: FailureCategory.PROVIDER_UNAVAILABLE,
+    503: FailureCategory.PROVIDER_UNAVAILABLE,
+    504: FailureCategory.PROVIDER_UNAVAILABLE,
+    408: FailureCategory.TIMEOUT,
+    401: FailureCategory.AUTHENTICATION,
+    403: FailureCategory.AUTHENTICATION,
+    400: FailureCategory.BAD_REQUEST,
+    404: FailureCategory.BAD_REQUEST,
+    413: FailureCategory.BAD_REQUEST,
+    415: FailureCategory.BAD_REQUEST,
+    422: FailureCategory.BAD_REQUEST,
+}
+
+#: (retryable, should_fallback) per category — the decisions the taxonomy encodes.
+_CATEGORY_RECOVERY: dict[FailureCategory, tuple[bool, bool]] = {
+    FailureCategory.RATE_LIMIT: (True, True),
+    FailureCategory.PROVIDER_UNAVAILABLE: (True, True),
+    FailureCategory.TIMEOUT: (True, True),
+    FailureCategory.CONNECTION: (True, True),
+    FailureCategory.AUTHENTICATION: (False, True),
+    FailureCategory.BAD_REQUEST: (False, False),
+    FailureCategory.UNKNOWN: (True, True),
+    FailureCategory.CANCELLED: (False, False),
+}
+
+
 def classify_failure(error: BaseException) -> Failure:
     """Convert a provider/transport exception into explicit recovery decisions."""
     if isinstance(error, KeyboardInterrupt) or type(error).__name__ == "CancelledError":
@@ -90,22 +136,24 @@ def classify_failure(error: BaseException) -> Failure:
     code = extract_status_code(error)
     message = str(error).lower()
 
-    if code == 429 or any(marker in message for marker in _RATE_LIMIT_MARKERS):
+    if code is not None and code in _CODED_CATEGORIES:
+        category = _CODED_CATEGORIES[code]
+        retryable, should_fallback = _CATEGORY_RECOVERY[category]
+        return Failure(category, retryable, should_fallback)
+
+    # No usable status: fall back to the exception type and to message wording.
+    if any(marker in message for marker in _RATE_LIMIT_MARKERS):
         return Failure(FailureCategory.RATE_LIMIT, True, True)
-    if code in {500, 502, 503, 504} or any(marker in message for marker in _UNAVAILABLE_MARKERS):
+    if any(marker in message for marker in _UNAVAILABLE_MARKERS):
         return Failure(FailureCategory.PROVIDER_UNAVAILABLE, True, True)
     if isinstance(error, TimeoutError) or any(marker in message for marker in _TIMEOUT_MARKERS):
         return Failure(FailureCategory.TIMEOUT, True, True)
     if isinstance(error, (ConnectionError, OSError)):
         return Failure(FailureCategory.CONNECTION, True, True)
-    if code in {401, 403} or any(marker in message for marker in _AUTH_MARKERS):
+    if any(marker in message for marker in _AUTH_MARKERS):
         # Not retryable against the same endpoint, but a fallback endpoint may
         # use a different (working) credential.
         return Failure(FailureCategory.AUTHENTICATION, False, True)
-    if code in {400, 404, 413, 415, 422}:
-        # Programmer/request errors: retrying is useless and falling back only
-        # hides the bug inside a different model's output.
-        return Failure(FailureCategory.BAD_REQUEST, False, False)
     return Failure(FailureCategory.UNKNOWN, True, True)
 
 

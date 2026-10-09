@@ -4,6 +4,7 @@ from artemis.llm.reliability import (
     CircuitBreaker,
     FailureCategory,
     classify_failure,
+    extract_status_code,
     retry_policy_for,
 )
 
@@ -41,6 +42,52 @@ def test_classifier_categories_and_recovery_decisions():
     unknown = classify_failure(RuntimeError("something odd"))
     assert unknown.category is FailureCategory.UNKNOWN
     assert unknown.retryable
+
+
+def test_openai_style_bad_request_stays_permanent_when_it_says_unavailable():
+    """The HTTP status must beat the message markers.
+
+    ``openai``'s APIError exposes ``.code`` from the response *body* — for
+    DeepSeek that is the string ``"invalid_request_error"``, not a number — while
+    the real status lives on ``.status_code``. Reading ``.code`` first and giving
+    up left the code unknown, so the marker scan saw "unavailable" inside
+    "This response_format type is unavailable now" and retried a permanently
+    rejected request: the 2026-10-08 run burned three retries (5s/10s/20s) plus a
+    circuit-breaker cooldown (~90s) before pausing, and the request-shape
+    diagnostic gated on BAD_REQUEST never ran.
+    """
+
+    class OpenAIishBadRequest(Exception):
+        code = "invalid_request_error"
+        status_code = 400
+
+    error = OpenAIishBadRequest(
+        "Error code: 400 - {'error': {'message': 'This response_format type is"
+        " unavailable now', 'code': 'invalid_request_error'}}"
+    )
+
+    assert extract_status_code(error) == 400
+    failure = classify_failure(error)
+    assert failure.category is FailureCategory.BAD_REQUEST
+    assert not failure.retryable
+    assert not failure.should_fallback
+
+
+def test_status_code_is_used_when_code_is_not_numeric():
+    class CodedStringError(Exception):
+        code = "rate_limit_exceeded"
+        status_code = 429
+
+    assert extract_status_code(CodedStringError("slow down")) == 429
+    assert classify_failure(CodedStringError("slow down")).category is FailureCategory.RATE_LIMIT
+
+
+def test_a_numeric_code_is_still_honoured():
+    class CodeOnlyError(Exception):
+        code = 503
+
+    assert extract_status_code(CodeOnlyError("boom")) == 503
+    assert classify_failure(CodeOnlyError("boom")).category is FailureCategory.PROVIDER_UNAVAILABLE
 
 
 def test_non_retryable_categories_get_single_attempt():
