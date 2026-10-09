@@ -85,7 +85,12 @@ from third_party.mobile_use.utils.logger import get_logger
 logger = get_logger(__name__)
 
 PACKAGE_NAME = "com.artemis.helper"
+#: Component as it may be written to the setting: Android accepts the relative
+#: class form, so this is what the host asks for.
 SERVICE_NAME = f"{PACKAGE_NAME}/.ArtemisAccessibilityService"
+#: The same component fully qualified: what ``enabled_accessibility_services``
+#: holds once Android has normalised it (verified on PEMM00 / Android 13), and
+#: what every comparison normalises to.
 SERVICE_COMPONENT = f"{PACKAGE_NAME}/{PACKAGE_NAME}.ArtemisAccessibilityService"
 TOKEN_PROVIDER_URI = f"content://{PACKAGE_NAME}.token"
 #: Loopback port the service binds on the device. Never used as a host port.
@@ -129,6 +134,41 @@ MANUAL_ENABLE_PATH = (
     "Artemis Accessibility Helper > turn it on"
 )
 ACCESSIBILITY_SETTINGS_INTENT = "android.settings.ACCESSIBILITY_SETTINGS"
+
+
+def _canonical_component(component: str) -> str | None:
+    """``package/class`` with the class fully qualified, or ``None`` if malformed.
+
+    ``enabled_accessibility_services`` is a colon-separated list whose class part
+    may be relative (``pkg/.Service``). Android stores it fully qualified, and a
+    ROM may also hold the fully qualified form for a component that was written
+    relatively, so a raw string comparison against one spelling is wrong in both
+    directions.
+    """
+    package, separator, class_name = component.strip().partition("/")
+    if not separator or not package:
+        return None
+    if class_name.startswith("."):
+        class_name = package + class_name
+    return f"{package}/{class_name}"
+
+
+def _service_entries(raw: str | None) -> list[str]:
+    """The setting's entries, without the ``null`` filler or blanks, as stored."""
+    entries = [entry.strip() for entry in (raw or "").split(":")]
+    return [entry for entry in entries if entry and entry != "null"]
+
+
+def _lists_helper_service(raw: str | None) -> bool:
+    """Whether the setting enables the Artemis helper, in either spelling."""
+    return any(_canonical_component(entry) == SERVICE_COMPONENT for entry in _service_entries(raw))
+
+
+def _without_helper_service(raw: str | None) -> list[str]:
+    """The setting's other entries, kept in the spelling the device stored."""
+    return [
+        entry for entry in _service_entries(raw) if _canonical_component(entry) != SERVICE_COMPONENT
+    ]
 
 
 class HelperUnavailable(RuntimeError):
@@ -344,6 +384,14 @@ class AccessibilityHelperManager:
         The exported provider verifies the Binder caller is the ADB shell UID.
         This avoids OEMs that deny broadcasts to receivers guarded by
         WRITE_SECURE_SETTINGS while keeping ordinary apps from setting a token.
+
+        Returns whether the provider *reported* the token as set, which is all
+        this call can know: ``adb shell content call`` exits 0 even when the
+        provider throws (the exception only reaches stderr, verified on PEMM00 /
+        Android 13), so the exit code is not evidence and the marker in the
+        returned bundle is. Whether the helper that will answer the HTTP calls
+        actually holds the token is a separate question -- :meth:`confirm_token`
+        asks it, because a delivered token and a live tunnel can disagree.
         """
         result = self._adb(
             serial,
@@ -358,19 +406,32 @@ class AccessibilityHelperManager:
             self.host_token(),
         )
         output = f"{result.stdout or ''}\n{result.stderr or ''}"
-        delivered = (
-            result.returncode == 0 and re.search(r"\bresult=token_set\b", output) is not None
-        )
-        port = self.existing_forward(serial)
-        ping = self.ping(port) if delivered and port is not None else None
-        ok = delivered and bool(ping and ping.get("token_set"))
-        if not ok:
+        delivered = re.search(r"\bresult=token_set\b", output) is not None
+        if not delivered:
             logger.warning(
-                f"Pushing the session token to the accessibility helper on {serial} failed "
-                f"(adb exit code {result.returncode}; delivery confirmed={delivered}; "
-                f"helper token confirmed={bool(ping and ping.get('token_set'))})."
+                f"Pushing the session token to the accessibility helper on {serial} failed: "
+                f"{TOKEN_PROVIDER_URI} did not report result=token_set. Helper said: "
+                f"{' '.join(output.split())[:200] or '(nothing)'}"
             )
-        return ok
+        return delivered
+
+    def confirm_token(self, serial: str, local_port: int | None = None) -> bool | None:
+        """Whether the helper answering on ``serial`` reports the session token as set.
+
+        ``None`` means "no verdict": there is no live tunnel for this device, or
+        nothing answered on it, so there is nothing to ask. Callers must not read
+        that as a delivery failure -- :meth:`push_token` reports delivery, which
+        does not need a tunnel at all. ``False`` is the interesting answer: the
+        helper is answering yet holds no token, so it will reject every
+        authenticated request.
+        """
+        port = self.existing_forward(serial) if local_port is None else local_port
+        if port is None:
+            return None
+        info = self.ping(port)
+        if info is None:
+            return None
+        return bool(info.get("token_set"))
 
     # ------------------------------------------------------------------ #
     # Device queries (no side effects)
@@ -412,18 +473,7 @@ class AccessibilityHelperManager:
         result = self._adb(
             serial, "shell", "settings", "get", "secure", "enabled_accessibility_services"
         )
-        enabled = (result.stdout or "").strip()
-        if not enabled or enabled == "null":
-            return False
-        for component in enabled.split(":"):
-            package, separator, class_name = component.strip().partition("/")
-            if not separator:
-                continue
-            if class_name.startswith("."):
-                class_name = package + class_name
-            if package == PACKAGE_NAME and f"{package}/{class_name}" == SERVICE_COMPONENT:
-                return True
-        return False
+        return _lists_helper_service(result.stdout)
 
     def existing_forward(self, serial: str) -> int | None:
         """Host port of an adb forward that already targets the helper on ``serial``."""
@@ -616,14 +666,13 @@ class AccessibilityHelperManager:
                 serial, "shell", "settings", "get", "secure", "enabled_accessibility_services"
             )
             current = (result.stdout or "").strip()
-            services = [s for s in current.split(":") if s and s != "null"] if current else []
-            if SERVICE_NAME in services:
+            if _lists_helper_service(current):
                 # Already enabled (the common, up-to-date case): no settle wait.
                 self._adb(
                     serial, "shell", "settings", "put", "secure", "accessibility_enabled", "1"
                 )
                 return True
-            services.append(SERVICE_NAME)
+            services = [*_service_entries(current), SERVICE_COMPONENT]
             self._adb(
                 serial,
                 "shell",
@@ -655,7 +704,7 @@ class AccessibilityHelperManager:
             serial, "shell", "settings", "get", "secure", "enabled_accessibility_services"
         )
         current = (result.stdout or "").strip()
-        others = [s for s in current.split(":") if s and s != "null" and s != SERVICE_NAME]
+        others = _without_helper_service(current)
         self._adb(
             serial,
             "shell",
@@ -673,7 +722,7 @@ class AccessibilityHelperManager:
             "put",
             "secure",
             "enabled_accessibility_services",
-            ":".join([*others, SERVICE_NAME]),
+            ":".join([*others, SERVICE_COMPONENT]),
         )
         self._adb(serial, "shell", "settings", "put", "secure", "accessibility_enabled", "1")
         logger.info(f"Re-bound the accessibility helper service on {serial}.")
@@ -808,7 +857,7 @@ class AccessibilityHelperManager:
             serial, "shell", "settings", "get", "secure", "enabled_accessibility_services"
         )
         current = (result.stdout or "").strip()
-        services = [s for s in current.split(":") if s and s != "null" and s != SERVICE_NAME]
+        services = _without_helper_service(current)
         self._adb(
             serial,
             "shell",
@@ -973,6 +1022,18 @@ class AccessibilityHelperManager:
                     raise HelperUnavailable(
                         f"Could not securely deliver the session token to the accessibility "
                         f"helper on {serial}; check the helper version and ADB shell access."
+                    )
+                if self.confirm_token(serial, local_port) is False:
+                    # Delivered, and the helper that answers here still has none: a
+                    # stale tunnel to another instance, or a service that restarted
+                    # between the two calls. Attaching would 401 on every request.
+                    if owns_forward:
+                        self._remove_forward(serial, local_port)
+                    raise HelperUnavailable(
+                        f"The accessibility helper on {serial} reported the session token as "
+                        f"unset right after it was delivered; is another helper instance "
+                        f"answering on 127.0.0.1:{local_port}? Reinstall it with: "
+                        f"artemis helper install --serial {serial} --force"
                     )
 
             version = info.get("version_code")

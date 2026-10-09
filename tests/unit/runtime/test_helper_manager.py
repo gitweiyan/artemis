@@ -16,6 +16,7 @@ import pytest
 from artemis.runtime import helper_manager as hm
 from artemis.runtime.helper_manager import (
     DEVICE_PORT,
+    SERVICE_COMPONENT,
     SERVICE_NAME,
     AccessibilityHelperManager,
     BundledHelper,
@@ -24,6 +25,37 @@ from artemis.runtime.helper_manager import (
 
 SERIAL = "pixel-1"
 OTHER = "pixel-2"
+
+
+def _flatten(raw: str) -> str:
+    """``enabled_accessibility_services`` as the ROM stores it.
+
+    Android rewrites the list with every class name fully qualified, whatever
+    form was written to it (verified on PEMM00 / Android 13, where a put of
+    ``com.artemis.helper/.ArtemisAccessibilityService`` reads back as
+    ``com.artemis.helper/com.artemis.helper.ArtemisAccessibilityService``). The
+    fake ROM does the same, so a host that compares raw strings cannot pass here
+    while failing on a device.
+    """
+    entries: list[str] = []
+    for entry in raw.split(":"):
+        entry = entry.strip()
+        if not entry or entry == "null":
+            continue
+        package, separator, class_name = entry.partition("/")
+        if separator and class_name.startswith("."):
+            entry = f"{package}/{package}{class_name}"
+        entries.append(entry)
+    return ":".join(entries)
+
+
+def _names(raw: str | None) -> list[str]:
+    """Component names the setting lists, in the form the device would store."""
+    return [entry for entry in _flatten(raw or "").split(":") if entry]
+
+
+def _enables_the_helper(raw: str | None) -> bool:
+    return SERVICE_COMPONENT in _names(raw)
 
 
 class FakeAdb:
@@ -46,13 +78,18 @@ class FakeAdb:
         # Last token delivered by the shell-UID-checked ContentProvider.
         self.tokens: dict[str, str] = {}
         self.token_delivery_allowed = True
+        # Whether the helper's TokenStore took the token it reported as set: a
+        # stale forward can reach an instance that never saw it (or the process
+        # died in between), so "the provider said token_set" and "the service
+        # reports token_set" are two different observations.
+        self.token_stored = True
         # Process table lines (PID ARGS) of UiAutomation holders, per serial.
         self.holders: dict[str, list[str]] = {SERIAL: [], OTHER: []}
         self.killed: list[tuple[str, int]] = []
 
     def __call__(self, args: list[str]) -> subprocess.CompletedProcess:
         self.calls.append(list(args))
-        out, code = "", 0
+        out, err, code = "", "", 0
         if args[:2] == ["devices", "-l"]:
             lines = ["List of devices attached"]
             for serial, tid in self.transport.items():
@@ -83,9 +120,10 @@ class FakeAdb:
                         self.enabled_services[serial] = ""
                     else:
                         before = self.enabled_services.get(serial, "")
-                        self.enabled_services[serial] = rest[5]
+                        # The ROM rewrites the list with qualified class names.
+                        self.enabled_services[serial] = _flatten(rest[5])
                         # AccessibilityManager binds the service when it is (re)added.
-                        if SERVICE_NAME in rest[5] and SERVICE_NAME not in before:
+                        if _enables_the_helper(rest[5]) and not _enables_the_helper(before):
                             self.revived.add(serial)
             elif rest[0] == "install":
                 if self.install_result == "Success":
@@ -116,10 +154,17 @@ class FakeAdb:
                     "--arg",
                 ]
                 if self.token_delivery_allowed:
-                    self.tokens[serial] = rest[-1]
+                    if self.token_stored:
+                        self.tokens[serial] = rest[-1]
                     out = "Result: Bundle[{result=token_set, token_set=true}]\n"
                 else:
-                    out, code = "Permission Denial\n", 1
+                    # `content` exits 0 even when the provider throws; the exception
+                    # only reaches stderr (verified on PEMM00 / Android 13).
+                    err = (
+                        "Error while accessing provider:com.artemis.helper.token\n"
+                        "java.lang.SecurityException: Only the ADB shell may set the helper "
+                        "session token\n"
+                    )
             elif rest[:3] == ["shell", "am", "start"]:
                 self.settings_opened = getattr(self, "settings_opened", 0) + 1
             elif rest[:2] == ["shell", "ps"]:
@@ -136,7 +181,7 @@ class FakeAdb:
                 raise AssertionError(f"unexpected adb call: {args}")
         else:
             raise AssertionError(f"unexpected adb call: {args}")
-        return subprocess.CompletedProcess(args, code, out, "")
+        return subprocess.CompletedProcess(args, code, out, err)
 
     bundled_version = 2
 
@@ -162,7 +207,7 @@ class FakePing:
                     return None  # suppressed by UiAutomation
                 if self.adb.installed.get(serial) is None:
                     return None
-                if SERVICE_NAME not in (self.adb.enabled_services.get(serial) or ""):
+                if not _enables_the_helper(self.adb.enabled_services.get(serial)):
                     return None
                 return {
                     "success": True,
@@ -237,7 +282,7 @@ def test_provision_installs_and_enables_when_missing(env):
     assert result.installed_version == 2 and result.bundled_version == 2
     install = _calls(adb, ["-s", SERIAL, "install"])
     assert install == [["-s", SERIAL, "install", "-r", "-g", str(manager.bundled.apk_path)]]
-    assert adb.enabled_services[SERIAL] == SERVICE_NAME
+    assert _names(adb.enabled_services[SERIAL]) == [SERVICE_COMPONENT]
 
 
 def test_provision_upgrades_outdated_and_leaves_newer_alone(env):
@@ -260,7 +305,10 @@ def test_provision_up_to_date_is_cheap_and_keeps_other_services(env):
     result = manager.provision(SERIAL)
 
     assert result.ok and result.action == "up_to_date"
-    assert adb.enabled_services[SERIAL] == f"com.android.talkback/.TalkBackService:{SERVICE_NAME}"
+    assert _names(adb.enabled_services[SERIAL]) == [
+        "com.android.talkback/com.android.talkback.TalkBackService",
+        SERVICE_COMPONENT,
+    ]
     assert not _calls(adb, ["-s", SERIAL, "install"])
 
 
@@ -271,6 +319,28 @@ def test_is_service_enabled_accepts_fully_qualified_component_name(env):
         "com.artemis.helper/com.artemis.helper.ArtemisAccessibilityService"
     )
     assert manager.is_service_enabled(SERIAL) is True
+
+
+def test_is_service_enabled_accepts_a_relative_component_name(env):
+    adb, _, manager = env
+    adb.enabled_services[SERIAL] = SERVICE_NAME
+    assert manager.is_service_enabled(SERIAL) is True
+
+
+def test_is_service_enabled_rejects_lookalike_components(env):
+    adb, _, manager = env
+    for lookalike in (
+        # another package whose class name ends the same way
+        "com.artemis.helper.other/.ArtemisAccessibilityService",
+        # a foreign component that happens to spell our class out
+        "com.example/com.artemis.helper.ArtemisAccessibilityService",
+        # a different service of the same package
+        "com.artemis.helper/.OtherService",
+        # no component separator at all
+        "com.artemis.helper",
+    ):
+        adb.enabled_services[SERIAL] = lookalike
+        assert manager.is_service_enabled(SERIAL) is False, lookalike
 
 
 def test_provision_without_bundled_apk_fails_only_when_not_installed(env):
@@ -429,7 +499,7 @@ def test_reattach_revives_a_killed_service_without_installing(env):
     puts = _calls(
         adb, ["-s", SERIAL, "shell", "settings", "put", "secure", "enabled_accessibility_services"]
     )
-    assert [p[-1] for p in puts] == ["null", SERVICE_NAME]  # removed, then re-added
+    assert [p[-1] for p in puts] == ["null", SERVICE_COMPONENT]  # removed, then re-added
 
 
 def test_reattach_raises_when_revive_does_not_help(env):
@@ -482,7 +552,7 @@ def test_uninstall_disables_service_and_removes_package(env):
     manager.attach(SERIAL)
     assert manager.uninstall(SERIAL)
     assert adb.installed[SERIAL] is None
-    assert SERVICE_NAME not in adb.enabled_services[SERIAL]
+    assert not _enables_the_helper(adb.enabled_services[SERIAL])
     assert adb.forwards == []
 
 
@@ -502,7 +572,26 @@ def test_enable_retries_when_the_system_prunes_the_setting(env):
         adb, ["-s", SERIAL, "shell", "settings", "put", "secure", "enabled_accessibility_services"]
     )
     assert len(puts) == 3
-    assert adb.enabled_services[SERIAL] == SERVICE_NAME
+    assert _names(adb.enabled_services[SERIAL]) == [SERVICE_COMPONENT]
+
+
+def test_enable_does_not_append_a_second_spelling_of_the_helper(env):
+    """The already-enabled fast path has to read the setting the way the ROM stores it.
+
+    This ROM writes every component back fully qualified. A host that looks for
+    its own short spelling never finds it, so it appends the component a second
+    time on every run -- and the component it means to add is already there, so
+    nothing gets re-bound either.
+    """
+    adb, _, manager = env
+    adb.enabled_services[SERIAL] = SERVICE_COMPONENT  # exactly what a device reads back
+
+    assert manager._enable_service(SERIAL) is True
+    puts = _calls(
+        adb, ["-s", SERIAL, "shell", "settings", "put", "secure", "enabled_accessibility_services"]
+    )
+    assert puts == []  # nothing to add: no rewrite, no settle wait
+    assert _names(adb.enabled_services[SERIAL]) == [SERVICE_COMPONENT]
 
 
 def test_enable_gives_up_after_bounded_attempts(env):
@@ -615,12 +704,72 @@ def test_push_token_is_repeated_on_demand(env):
     assert adb.tokens[SERIAL] == manager.host_token()
 
 
+def test_push_token_reports_delivery_without_a_tunnel_to_confirm_it(env):
+    """Delivery and confirmation are separate observations.
+
+    The provider is reached over the device's own adb transport, so the token can
+    be delivered while this host has no forward to ask the helper about it. That
+    is not a delivery failure, and reporting it as one sends the caller looking
+    for a permission problem that does not exist.
+    """
+    adb, _, manager = env
+    assert adb.forwards == []
+
+    assert manager.push_token(SERIAL) is True
+    assert adb.tokens[SERIAL] == manager.host_token()
+    assert manager.confirm_token(SERIAL) is None  # nothing to ask, so no verdict
+
+
+def test_confirm_token_is_false_when_the_helper_never_took_the_token(env):
+    adb, _, manager = env
+    manager.attach(SERIAL)
+    adb.tokens.clear()  # the instance behind this tunnel lost it (re-bound service)
+
+    assert manager.confirm_token(SERIAL) is False
+
+
+def test_confirm_token_is_true_after_a_delivery_the_helper_accepted(env):
+    adb, _, manager = env
+    manager.attach(SERIAL)
+
+    assert manager.confirm_token(SERIAL) is True
+
+
 def test_attach_fails_if_token_provider_does_not_confirm_delivery(env):
     adb, _, manager = env
     adb.token_delivery_allowed = False
     with pytest.raises(HelperUnavailable, match="securely deliver the session token"):
         manager.attach(SERIAL)
     assert adb.tokens.get(SERIAL) is None
+    assert adb.forwards == []
+
+
+def test_push_token_reports_no_delivery_when_the_provider_throws_with_exit_code_zero(env):
+    """`content` exits 0 when the provider throws, so the exit code proves nothing.
+
+    Only the marker in the returned bundle does: a host that reads the exit code
+    as the verdict reports success on this device (PEMM00 / Android 13, where the
+    refusal arrives as a SecurityException on stderr and exit code 0).
+    """
+    adb, _, manager = env
+    adb.token_delivery_allowed = False
+
+    assert manager.push_token(SERIAL) is False
+    assert adb.tokens.get(SERIAL) is None
+
+
+def test_attach_fails_when_the_helper_does_not_report_the_token_back(env):
+    """A delivered token that the answering helper does not report is not a session.
+
+    The provider can report success while the instance behind the tunnel never saw
+    the token (a stale forward, or the app process restarted in between), and then
+    every authenticated request 401s. Failing here says why; attaching does not.
+    """
+    adb, _, manager = env
+    adb.token_stored = False  # the provider says token_set, TokenStore stayed empty
+    with pytest.raises(HelperUnavailable, match="reported the session token as unset"):
+        manager.attach(SERIAL)
+    assert manager.session(SERIAL) is None
     assert adb.forwards == []
 
 
