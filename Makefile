@@ -54,6 +54,10 @@ test-device: ## Run Android and end-to-end tests explicitly
 	@echo "📱 Running device and end-to-end tests..."
 	@uv run pytest tests/integration tests/e2e -m "android or e2e"
 
+test-case-battery: ## Run the real-device battery-level e2e case (needs a connected device)
+	@echo "🔋 Running the battery-level device case (pro + flash)..."
+	@uv run pytest tests/e2e/test_device_battery_level.py -m "e2e" -q
+
 test-all: ## Run every test tree; external prerequisites must be available
 	@echo "🧪 Running the complete test tree..."
 	@uv run pytest tests packages/artemis-client/tests -m "integration or not integration"
