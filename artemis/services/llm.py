@@ -1084,6 +1084,48 @@ def _resolve_endpoint(
     )
 
 
+def lens_endpoint(
+    ctx: ArtemisContext,
+    name: str,
+    model_name: str | None = None,
+    *,
+    is_utils: bool = False,
+    temperature: float | None = None,
+) -> ModelEndpoint:
+    """The endpoint a *lens* should use: provider from the role, model from the caller.
+
+    A lens (flash's step summarizer, the memory capsule compressor) knows which
+    model it wants, because the config named one for it: ``flash.step_summarizer
+    .model``, ``memory.chunking.model``. It does *not* know which provider serves
+    that model -- that is the role's config. Building a Google client by hand is
+    what made both lenses unusable on a workspace configured against another
+    endpoint (such a client cannot even be constructed: "API key required for
+    Gemini Developer API"), so the provider is resolved here and Google stays
+    available as an ordinary provider choice.
+    """
+    endpoint = _resolve_endpoint(ctx, name, is_utils=is_utils)
+    update: dict[str, Any] = {}
+    if model_name:
+        update["model_name"] = model_name
+    if temperature is not None:
+        update["temperature"] = temperature
+    return endpoint.model_copy(update=update) if update else endpoint
+
+
+def get_llm_for_model(
+    ctx: ArtemisContext,
+    name: str,
+    model_name: str | None = None,
+    *,
+    is_utils: bool = False,
+    temperature: float | None = None,
+) -> BaseChatModel:
+    """Instantiate a lens model on the provider its role config names."""
+    return _build_from_endpoint(
+        ctx, lens_endpoint(ctx, name, model_name, is_utils=is_utils, temperature=temperature)
+    )
+
+
 def _get_llm(
     ctx: ArtemisContext,
     name: str,
@@ -1095,6 +1137,11 @@ def _get_llm(
     endpoint = _resolve_endpoint(ctx, name, is_utils=is_utils, use_fallback=use_fallback)
     if temperature is not None:
         endpoint = endpoint.model_copy(update={"temperature": temperature})
+    return _build_from_endpoint(ctx, endpoint)
+
+
+def _build_from_endpoint(ctx: ArtemisContext, endpoint: ModelEndpoint) -> BaseChatModel:
+    """Instantiate ``endpoint`` with the gateway's callbacks and retry wrapper."""
     raw_model = ModelFactory.get_model(endpoint)
 
     handler = DataEngineCallbackHandler(ctx)

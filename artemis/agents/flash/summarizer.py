@@ -36,7 +36,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from artemis.context import ArtemisContext
 from artemis.memory.step_memory import JobKey, StepMemoryService
-from artemis.services.llm import RobustChatModelWrapper, get_google_llm, get_llm
+from artemis.services.llm import RobustChatModelWrapper, get_llm, get_llm_for_model
 from artemis.services.token_meter import record_llm_usage
 from artemis.utils.task_tree import format_actions_clean
 from artemis.utils.visualization import draw_action_overlay_on_image
@@ -164,13 +164,7 @@ class VisualStepSummarizer(StepMemoryService):
         # Initialize lightweight VLM: prioritize explicit model_name
         target_model = model_name or "gemini-2.5-flash-lite"
         self._model_name = target_model
-        try:
-            if model_name:
-                self._llm = get_google_llm(model_name=target_model, temperature=0.0)
-            else:
-                self._llm = get_llm(ctx, name="summarizer", is_utils=True)
-        except Exception:
-            self._llm = get_google_llm(model_name=target_model, temperature=0.0)
+        self._llm = self._build_lens(ctx, model_name)
         try:
             configured = getattr(self._llm, "model", None) or getattr(self._llm, "model_name", None)
             if isinstance(configured, str) and configured:
@@ -337,6 +331,30 @@ class VisualStepSummarizer(StepMemoryService):
             if value is not None and not isinstance(value, bool)
         )
 
+    def _build_lens(self, ctx: ArtemisContext, model_name: str | None):
+        """Build the lens on the provider the summarizer role is configured with.
+
+        The model name is this caller's choice (``flash.step_summarizer.model``);
+        the provider is the config's. Building a Google client by hand is what
+        made Flash die during construction on a workspace configured against
+        another endpoint ("API key required for Gemini Developer API") -- F1.
+        Its other half is here too: a lens that cannot be built must not end the
+        run, so the summarizer degrades to no step summaries (each dispatch then
+        fails loudly per step instead of the session never starting).
+        """
+        try:
+            if model_name:
+                return get_llm_for_model(
+                    ctx, "summarizer", model_name, is_utils=True, temperature=0.0
+                )
+            return get_llm(ctx, name="summarizer", is_utils=True)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                f"Visual step summarizer lens unavailable on this run ({exc}); "
+                f"continuing without step summaries."
+            )
+            return None
+
     def _meter_lens_call(self, response: Any) -> None:
         """Meter one raw-model lens call as an ``llm_usage`` trace, best-effort.
 
@@ -458,6 +476,11 @@ class VisualStepSummarizer(StepMemoryService):
                 HumanMessage(content=content_blocks),
             ]
 
+            if self._llm is None:
+                raise RuntimeError(
+                    "no step-summarizer lens on this run: it could not be built from the LLM "
+                    "config (see the warning logged at construction)"
+                )
             response = await asyncio.wait_for(self._llm.ainvoke(messages), timeout=25.0)
             self._meter_lens_call(response)
             summary_raw = response.content if isinstance(response.content, str) else ""

@@ -45,7 +45,6 @@ from uuid import uuid4
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from artemis.llm.google import is_google_provider
 from artemis.memory.step_memory import JobKey, StepLens, StepMemoryService
 from artemis.memory.transcript import format_session_offset
 from third_party.mobile_use.utils.logger import get_logger
@@ -259,6 +258,18 @@ def _visual_summary_marker() -> str:
     return HISTORY_SUMMARY_PREFIX.strip()
 
 
+def _lens_provider(ctx: Any) -> str | None:
+    """The provider this context's memory lenses resolve to (``None`` if unknown)."""
+    from artemis.services.llm import lens_endpoint
+
+    try:
+        provider = lens_endpoint(ctx, "summarizer", is_utils=True).provider
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug(f"Lens provider resolution skipped: {exc}")
+        return None
+    return str(getattr(provider, "value", provider) or "") or None
+
+
 class StepCapsuleLens(StepLens):
     """Chunk-level lens producing bands ①+② in one call.
 
@@ -323,19 +334,32 @@ class StepCapsuleLens(StepLens):
 
     def _get_llm(self):
         if self._llm is None:
-            from artemis.services.llm import get_google_llm
-
-            self._llm = get_google_llm(model_name=self._model_name, temperature=0.0)
+            self._llm = self._build_lens(self._model_name)
         return self._llm
 
     def _get_fallback_llm(self):
         if self._fallback_llm is None and self._fallback_model_name:
+            self._fallback_llm = self._build_lens(self._fallback_model_name)
+        return self._fallback_llm
+
+    def _build_lens(self, model_name: str):
+        """Build a capsule lens on the provider the summarizer role is configured with.
+
+        ``chunking.model`` names the model; the provider comes from the config.
+        This used to call ``get_google_llm`` directly (documented issue S2), so a
+        workspace configured against another endpoint could not build the lens at
+        all and L2/L3 compression silently degraded. Without a ctx there is no
+        config to read, and the raw path stays the documented last resort.
+        """
+        if self._ctx is None:
             from artemis.services.llm import get_google_llm
 
-            self._fallback_llm = get_google_llm(
-                model_name=self._fallback_model_name, temperature=0.0
-            )
-        return self._fallback_llm
+            return get_google_llm(model_name=model_name, temperature=0.0)
+        from artemis.services.llm import get_llm_for_model
+
+        return get_llm_for_model(
+            self._ctx, "summarizer", model_name, is_utils=True, temperature=0.0
+        )
 
     @property
     def has_fallback(self) -> bool:
@@ -953,8 +977,10 @@ class HistoryChunkManager:
         """Fallback model for capsule generation when `chunking.model` is down.
 
         Resolved from the LLM config's summarizer role (which inherits the
-        global default fallback unless overridden). Only same-provider (google)
-        fallbacks apply — the capsule lens rides the raw google model path.
+        global default fallback unless overridden). Only a fallback on the
+        *lens's own provider* applies: the lens rides whatever provider the
+        config names, so a Gemini fallback under an OpenAI lens would be as
+        unreachable as the lens used to be.
         """
         try:
             llm_cfg = getattr(ctx, "llm_config", None) if ctx is not None else None
@@ -965,7 +991,7 @@ class HistoryChunkManager:
             fallback = getattr(getattr(llm_cfg, "summarizer", None), "fallback", None)
             provider = str(getattr(fallback, "provider", "") or "")
             model = getattr(fallback, "model", None)
-            if model and is_google_provider(provider) and model != self._model_name:
+            if model and provider and provider == _lens_provider(ctx) and model != self._model_name:
                 return str(model)
         except Exception as exc:
             logger.debug(f"Capsule fallback model resolution skipped: {exc}", exc_info=True)

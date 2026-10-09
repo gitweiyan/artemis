@@ -1005,7 +1005,12 @@ async def test_capsule_outage_without_fallback_exhausts_to_failed():
     assert service.get_summary("chunk:1-2") is None
 
 
-def test_capsule_fallback_model_resolution_google_only_and_not_primary():
+def test_capsule_fallback_model_must_ride_the_lens_provider():
+    """The fallback has to share the *lens's* provider, not Google specifically.
+
+    The lens now rides whatever provider the config names (it used to be a raw
+    Google client), so "google only" was a proxy for "same provider as the lens".
+    """
     mgr = HistoryChunkManager(
         capsule_service=StubCapsuleService(),
         chunking_config=SimpleNamespace(
@@ -1016,21 +1021,37 @@ def test_capsule_fallback_model_resolution_google_only_and_not_primary():
         ),
     )
 
-    def ctx_with(provider, model):
+    def ctx_with(lens_provider, fallback_provider, model):
+        role = SimpleNamespace(
+            provider=lens_provider,
+            model="gemini-3.7-flash",
+            fallback=SimpleNamespace(provider=fallback_provider, model=model),
+        )
         return SimpleNamespace(
             llm_config=SimpleNamespace(
-                summarizer=SimpleNamespace(fallback=SimpleNamespace(provider=provider, model=model))
+                get_utils=lambda _name: role, get_agent=lambda _name: role, summarizer=role
             )
         )
 
+    # A fallback on the lens's own provider keeps the lens reachable.
     assert (
-        mgr._resolve_capsule_fallback_model(ctx_with("google", "gemini-3.6-flash"))
+        mgr._resolve_capsule_fallback_model(ctx_with("google", "google", "gemini-3.6-flash"))
         == "gemini-3.6-flash"
     )
-    # Non-google fallbacks cannot ride the raw google model path.
-    assert mgr._resolve_capsule_fallback_model(ctx_with("openai", "gpt-4o-mini")) is None
+    assert (
+        mgr._resolve_capsule_fallback_model(ctx_with("openai", "openai", "gpt-4o-mini"))
+        == "gpt-4o-mini"
+    )
+    # A fallback on another provider would be as unreachable as the lens used to be.
+    assert (
+        mgr._resolve_capsule_fallback_model(ctx_with("openai", "google", "gemini-3.6-flash"))
+        is None
+    )
     # A fallback identical to the primary adds nothing.
-    assert mgr._resolve_capsule_fallback_model(ctx_with("google", "gemini-3.7-flash")) is None
+    assert (
+        mgr._resolve_capsule_fallback_model(ctx_with("google", "google", "gemini-3.7-flash"))
+        is None
+    )
 
 
 @pytest.mark.asyncio

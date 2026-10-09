@@ -161,15 +161,7 @@ class FlashRunner:
         # (the Flash profile knob) instead of the Pro profile's tier.
         self.executor = McpActionExecutor(ctx, self.controller, agent_name="flash")
         self.summarizer = (
-            VisualStepSummarizer(
-                ctx,
-                model_name=self.step_summarizer_cfg.model,
-                retry_limit=self.memory_runtime_cfg.retry_limit,
-                max_concurrency=self.memory_runtime_cfg.max_concurrency,
-                flush_timeout_s=self.memory_runtime_cfg.flush_timeout_s,
-            )
-            if self.step_summarizer_cfg.enabled
-            else None
+            self._build_step_summarizer(ctx) if self.step_summarizer_cfg.enabled else None
         )
         # Publish the service on the composition root (ctx.step_memory) so
         # any co-resident consumer shares this run's summary runtime.
@@ -277,14 +269,47 @@ class FlashRunner:
     #: The model of the current run; decides how screenshot tool results travel.
     _llm = None
 
+    def _build_step_summarizer(self, ctx: ArtemisContext):
+        """Build the step lens, but never let it abort the run.
+
+        It used to be constructed inline, so a lens that could not be built
+        (a hand-built Google client on a workspace without a Google credential)
+        ended the whole session during ``__init__`` instead of degrading to
+        "no step summaries" -- the second half of F1.
+        """
+        try:
+            return VisualStepSummarizer(
+                ctx,
+                model_name=self.step_summarizer_cfg.model,
+                retry_limit=self.memory_runtime_cfg.retry_limit,
+                max_concurrency=self.memory_runtime_cfg.max_concurrency,
+                flush_timeout_s=self.memory_runtime_cfg.flush_timeout_s,
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(
+                f"Step summarizer disabled for this run ({exc}); "
+                f"steps will not carry visual summaries."
+            )
+            return None
+
     def _init_llm(self):
-        """Initializes the Universal LLM via the Service Layer."""
+        """Initializes the Universal LLM via the Service Layer.
+
+        The last resort used to be a hand-built Google client with a hardcoded
+        ``gemini-2.5-flash``: the one endpoint a workspace configured against
+        another provider cannot construct, so a misconfigured node turned into
+        "API key required for Gemini Developer API". The node's own configured
+        fallback keeps the provider the workspace actually has.
+        """
         try:
             return get_llm(self.ctx, name="operator")
         except Exception as e:
-            logger.warning(f"Failed to get operator LLM from config, using default: {e}")
+            logger.warning(
+                f"Failed to get the operator LLM from config ({e}); "
+                f"retrying with this node's configured fallback endpoint."
+            )
 
-            return RobustChatModelWrapper(get_google_llm(model_name="gemini-2.5-flash"), self.ctx)
+            return get_llm(self.ctx, name="operator", use_fallback=True)
 
     def _render_system_prompt(self, tools_declaration: list) -> str:
         """Renders the system prompt from the flash_runner.md template.
