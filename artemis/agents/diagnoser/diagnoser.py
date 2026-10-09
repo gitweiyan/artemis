@@ -43,6 +43,7 @@ from artemis.tools.scratchpad import get_list_notes_tool, get_read_note_tool
 from artemis.tools.tool_wrapper import (
     get_tool_result_content,
     invoke_tool_with_injection,
+    order_tool_result_messages,
     split_multimodal_result,
     tool_result_messages,
 )
@@ -513,7 +514,9 @@ class Diagnoser:
         batches = await asyncio.gather(
             *(self._run_tool(tc, traced_tools, state) for tc in active_tool_calls)
         )
-        return [message for batch in batches for message in batch]
+        # One turn's results are emitted together: an image carrier must not land
+        # between two tool messages (see ``order_tool_result_messages``).
+        return order_tool_result_messages([message for batch in batches for message in batch])
 
     @trace(type="agent", name="diagnoser")
     async def run(self, prompt: str, state: State) -> str:

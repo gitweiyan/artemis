@@ -19,11 +19,13 @@ from enum import StrEnum
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from artemis.tools.tool_wrapper import (
+    order_tool_result_messages,
     resolve_image_carrier,
     split_multimodal_result,
+    tool_result_batch_messages,
     tool_result_messages,
 )
 
@@ -118,3 +120,83 @@ def test_explicit_carrier_wins_over_the_llm():
     assert len(msgs) == 2
     msgs = tool_result_messages("tc", SHOT, image_carrier="tool", llm=_llm("openai"))
     assert len(msgs) == 1
+
+
+# --- Whole-turn delivery (the ordering invariant) ---------------------------------------
+#
+# A single tool result is not enough context: OpenAI-compatible providers require an
+# assistant message's tool_calls to be followed immediately by their tool responses, so a
+# HumanMessage carrying an image must never sit between two ToolMessages. These tests pin
+# the multi-call contract the agent loops rely on.
+
+TEXT_ONLY = "No post-action screenshot recorded for step 2."
+
+
+def test_batch_helper_puts_carriers_after_every_tool_message():
+    msgs = tool_result_batch_messages(
+        [
+            ("tc-A", "get_step_screenshot", SHOT, "success"),
+            ("tc-B", "replay_steps", TEXT_ONLY, "success"),
+        ],
+        llm=_llm("openai"),
+    )
+
+    assert [type(m).__name__ for m in msgs] == ["ToolMessage", "ToolMessage", "HumanMessage"]
+    assert [m.tool_call_id for m in msgs if isinstance(m, ToolMessage)] == ["tc-A", "tc-B"]
+
+    turn = AIMessage(
+        content="",
+        tool_calls=[
+            {"id": "tc-A", "name": "get_step_screenshot", "args": {}},
+            {"id": "tc-B", "name": "replay_steps", "args": {}},
+        ],
+    )
+    following = [turn, *msgs][1:3]
+    assert all(isinstance(m, ToolMessage) for m in following)
+
+    # The image survives, and its caption still names the tool that produced it.
+    assert msgs[-1].content[-1] == IMAGE
+    assert "get_step_screenshot" in msgs[-1].content[0]["text"]
+
+
+@pytest.mark.parametrize("provider", ["google", "anthropic"])
+def test_batch_helper_leaves_tool_carrier_providers_unchanged(provider):
+    """Carrier == "tool" keeps images inside the tool message: all messages are tools."""
+    msgs = tool_result_batch_messages(
+        [
+            ("tc-A", "get_step_screenshot", SHOT, "success"),
+            ("tc-B", "replay_steps", TEXT_ONLY, "success"),
+        ],
+        llm=_llm(provider),
+    )
+
+    assert all(isinstance(m, ToolMessage) for m in msgs)
+    assert [m.tool_call_id for m in msgs] == ["tc-A", "tc-B"]
+    assert msgs[0].content == SHOT
+
+
+def test_batch_helper_keeps_text_only_results_in_call_order():
+    msgs = tool_result_batch_messages(
+        [
+            ("tc-A", "read_note", "note body", "success"),
+            ("tc-B", "replay_steps", TEXT_ONLY, "error"),
+        ],
+        llm=_llm("openai"),
+    )
+
+    assert [m.tool_call_id for m in msgs] == ["tc-A", "tc-B"]
+    assert [m.status for m in msgs] == ["success", "error"]
+
+
+def test_order_tool_result_messages_is_idempotent_and_preserves_text_order():
+    produced = tool_result_batch_messages(
+        [("tc-A", "get_step_screenshot", SHOT, "success"), ("tc-B", "read_note", "n", "success")],
+        llm=_llm("openai"),
+    )
+    assert order_tool_result_messages(produced) == produced
+    assert [
+        m.tool_call_id for m in order_tool_result_messages(produced) if isinstance(m, ToolMessage)
+    ] == [
+        "tc-A",
+        "tc-B",
+    ]

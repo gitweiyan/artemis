@@ -19,7 +19,7 @@ thought stream recording, and role-based dynamic dispatching.
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 import functools
@@ -32,7 +32,7 @@ from typing import Any, TypeVar
 from uuid import uuid4
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from artemis.config import (
     PAUSE_FILE,
@@ -521,6 +521,148 @@ def _inject_parent_trace_id(trace_id, *args, **kwargs):
     return args, kwargs
 
 
+#: Tool result standing in for a call that never produced one. A request with an
+#: unanswered ``tool_call_id`` is rejected by strict providers exactly like an
+#: interleaved one, so the boundary makes the turn well-formed and says so.
+UNANSWERED_TOOL_RESULT = (
+    "Error: no tool result was recorded for this tool call before the request was"
+    " sent. Treat this tool as failed and continue; do not re-issue it blindly."
+)
+
+
+def repair_tool_call_pairing(messages: Sequence[BaseMessage]) -> Sequence[BaseMessage]:
+    """Make every assistant turn's tool results adjacent to its ``tool_calls``.
+
+    Last-resort guard at the LLM boundary. OpenAI-compatible providers require an
+    assistant message's ``tool_calls`` to be followed immediately by their tool
+    responses: a ``HumanMessage`` carrying a screenshot — the image carrier those
+    providers need — must therefore never sit between two ``ToolMessage``s, and a
+    call that never produced a result must still be answered. Both shapes reach
+    the provider as the same opaque 400 ("insufficient tool messages following
+    tool_calls message"), which is what killed the 2026-10-08 Checker final
+    review: the producer is fixed at its call sites
+    (``tool_result_batch_messages``), and this makes any path we have not audited
+    (history restore, transcript compression, pruning) safe as well.
+
+    Returns ``messages`` itself when nothing needs repairing, so callers can use
+    identity to detect a no-op. Ordering is lossless: each carrier's caption
+    names its tool and step.
+    """
+    if not messages:
+        return messages
+    if not any(getattr(message, "tool_calls", None) for message in messages):
+        return messages
+
+    repaired: list[BaseMessage] = []
+    changed = False
+    index = 0
+    total = len(messages)
+    while index < total:
+        message = messages[index]
+        repaired.append(message)
+        calls = list(getattr(message, "tool_calls", None) or [])
+        if not calls:
+            index += 1
+            continue
+
+        wanted = [call["id"] for call in calls]
+        wanted_set = set(wanted)
+        answers: dict[str, BaseMessage] = {}
+        others: list[BaseMessage] = []
+        cursor = index + 1
+        while cursor < total:
+            candidate = messages[cursor]
+            if getattr(candidate, "tool_calls", None):
+                break  # the next assistant turn starts here; never swallow it
+            tool_call_id = getattr(candidate, "tool_call_id", None)
+            if isinstance(candidate, ToolMessage) and tool_call_id in wanted_set:
+                answers[tool_call_id] = candidate
+            else:
+                others.append(candidate)
+            cursor += 1
+
+        ordered = [answers[call_id] for call_id in wanted if call_id in answers]
+        missing = [call_id for call_id in wanted if call_id not in answers]
+        rebuilt: list[BaseMessage] = [
+            *ordered,
+            *(
+                ToolMessage(
+                    tool_call_id=call_id,
+                    content=UNANSWERED_TOOL_RESULT,
+                    status="error",
+                )
+                for call_id in missing
+            ),
+            *others,
+        ]
+        original = messages[index + 1 : cursor]
+        if len(rebuilt) != len(original) or any(
+            new is not old for new, old in zip(rebuilt, original)
+        ):
+            changed = True
+            llm_logger.warning(
+                "Repaired interleaved tool results after an assistant turn"
+                f" (answered={len(ordered)}, unanswered={missing},"
+                f" deferred={len(others)} of {len(original)} message(s))."
+            )
+        repaired.extend(rebuilt)
+        index = cursor
+
+    return repaired if changed else messages
+
+
+def summarize_message_shape(messages: Sequence[BaseMessage]) -> str:
+    """Compact role/tool shape of a request, in message order.
+
+    A provider rejection names no message and no id, so this is what makes the
+    shape human-readable in the log — e.g.
+    ``system -> human -> assistant[calls=tc-A,tc-B] -> tool[tc-A] -> human -> tool[tc-B]``
+    shows an image carrier sitting between two tool results at a glance.
+    """
+    parts: list[str] = []
+    for message in messages:
+        calls = getattr(message, "tool_calls", None) or []
+        if calls:
+            parts.append(f"assistant[calls={','.join(str(c.get('id')) for c in calls)}]")
+        elif isinstance(message, ToolMessage):
+            parts.append(f"tool[{message.tool_call_id}]")
+        else:
+            parts.append(str(getattr(message, "type", type(message).__name__)))
+    return " -> ".join(parts)
+
+
+def _log_request_shape_on_rejection(error: BaseException, args: tuple) -> None:
+    """Print the request shape when the provider refuses the request itself.
+
+    Only for ``bad_request``: a rejected shape is opaque and repeats on every
+    retry, while transient failures (rate limit, unavailable) say enough already.
+    """
+    if not args or not isinstance(args[0], list):
+        return
+    if classify_failure(error).category is not FailureCategory.BAD_REQUEST:
+        return
+    llm_logger.warning(f"Provider rejected the request shape: {summarize_message_shape(args[0])}")
+
+
+def _guard_tool_call_pairing(args: tuple) -> tuple:
+    """Apply :func:`repair_tool_call_pairing` to a call's message argument.
+
+    Every agent funnels its requests through here, so a malformed transcript is
+    corrected once and then stays corrected (the caller's own list is updated in
+    place), instead of failing the turn with a provider 400.
+    """
+    if not args:
+        return args
+    messages = args[0]
+    if not isinstance(messages, list):
+        return args
+    repaired = repair_tool_call_pairing(messages)
+    if repaired is messages:
+        return args
+    messages[:] = repaired
+    return args
+
+
 class RobustChatModelWrapper:
     """Universal LangChain Runnable wrapper ensuring robust execution and telemetry."""
 
@@ -659,6 +801,7 @@ class RobustChatModelWrapper:
         partial or duplicated chunks can never reach message history.
         """
         args, kwargs, _ = self._traced_call(args, kwargs)
+        args = _guard_tool_call_pairing(args)
         emit_deltas = bool(self.ctx and self.ctx.data_engine)
         response = await _run_with_recovery(
             functools.partial(self._complete_attempt, emit_deltas, *args, **kwargs),
@@ -706,6 +849,7 @@ class RobustChatModelWrapper:
         except (KeyboardInterrupt, asyncio.CancelledError):
             raise
         except Exception as stream_error:
+            _log_request_shape_on_rejection(stream_error, args)
             if full_response is not None:
                 # Mid-stream failure: the partial output must never reach
                 # message history. Tell the UI to discard it, then let the
@@ -784,6 +928,7 @@ async def acomplete(llm, *args, **kwargs):
     if isinstance(llm, RobustChatModelWrapper):
         return await llm.complete(*args, **kwargs)
 
+    args = _guard_tool_call_pairing(args)
     try:
         full_response = None
         async for chunk in llm.astream(*args, **kwargs):

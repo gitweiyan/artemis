@@ -44,6 +44,7 @@ from artemis.tools.tool_wrapper import (
     ToolWrapper,
     get_tool_result_content,
     invoke_tool_with_injection,
+    order_tool_result_messages,
     tool_result_messages,
 )
 from artemis.utils.cython_compat import CyFunctionDetector
@@ -325,10 +326,11 @@ async def _execute_committee(
                 ]
                 tool_outputs = await asyncio.gather(*(run_tool(tc) for tc in active_tool_calls))
 
+                turn_replies = []
                 for tc, raw_result in zip(active_tool_calls, tool_outputs):
                     # Read status before unwrapping ToolMessage.content.
                     status = "error" if is_tool_failure(raw_result) else "success"
-                    messages.extend(
+                    turn_replies.extend(
                         tool_result_messages(
                             tc["id"],
                             get_tool_result_content(raw_result),
@@ -337,6 +339,9 @@ async def _execute_committee(
                             llm=llm,
                         )
                     )
+                # One turn's tool results are emitted together: an image carrier
+                # must not land between two tool messages.
+                messages.extend(order_tool_result_messages(turn_replies))
             return ToolFailure("Error: Reached max iterations in turn.")
 
         for r in range(1, rounds + 1):

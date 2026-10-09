@@ -39,6 +39,7 @@ from artemis.tools.index import get_tool_by_name
 from artemis.tools.tool_wrapper import (
     get_tool_result_content,
     invoke_tool_with_injection,
+    order_tool_result_messages,
     tool_result_messages,
 )
 from artemis.utils.coordinates import (
@@ -833,8 +834,9 @@ class OperatorNode:
                 if not validation_errors:
                     action_result = actions_list
 
-            for tm in tool_outputs:
-                current_messages.append(tm)
+            # One turn's tool results are emitted together: an image carrier must
+            # not land between two tool messages.
+            current_messages.extend(order_tool_result_messages(tool_outputs))
 
             if action_calls and not validation_errors:
                 break

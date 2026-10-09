@@ -39,6 +39,7 @@ from artemis.tools.video_tool import get_video_analyzer_tool_pure
 from artemis.tools.history import get_history_tools
 from artemis.tools.tool_wrapper import (
     invoke_tool_with_injection,
+    order_tool_result_messages,
     tool_result_messages,
 )
 from artemis.memory.context_policy import build_history_for
@@ -369,10 +370,7 @@ class _Investigation:
                 batch.append(tc)
         await flush()
 
-        produced = [m for msgs in per_call for m in msgs]
-        tool_messages = [m for m in produced if isinstance(m, ToolMessage)]
-        carriers = [m for m in produced if not isinstance(m, ToolMessage)]
-        return tool_messages + carriers
+        return order_tool_result_messages([m for msgs in per_call for m in msgs])
 
 
 def _read_saved_report(ctx: ArtemisContext) -> str | None:

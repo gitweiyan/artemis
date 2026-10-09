@@ -88,7 +88,7 @@ from artemis.services.llm import (
     invoke_llm_with_timeout_message,
 )
 from artemis.tools.history import history_tool_declarations
-from artemis.tools.tool_wrapper import tool_result_messages
+from artemis.tools.tool_wrapper import order_tool_result_messages, tool_result_messages
 from artemis.utils.coordinates import (
     COORDINATE_SPACE_KEY,
     COORDINATE_SPACE_NORMALIZED,
@@ -773,6 +773,7 @@ class FlashRunner:
         injected: str | None = None,
         native_text: str | None = None,
         index_elements: list[dict] | None = None,
+        tool_reply: list[BaseMessage] | None = None,
     ):
         """Executes one tool call, records it, and updates loop state.
 
@@ -783,7 +784,14 @@ class FlashRunner:
         against the state's current list. Returns the (possibly updated)
         pre_screenshot_bytes, xml_list, and action_sequence for the next
         iteration.
+
+        ``tool_reply`` is the collector the turn's tool-result messages go
+        into. ``_process_tool_calls`` passes one list for the whole turn and
+        emits it once through :func:`order_tool_result_messages`, so an image
+        carrier can never land between two tool messages; ``None`` appends to
+        ``messages`` directly (single-call callers).
         """
+        emit_to = messages if tool_reply is None else tool_reply
         # Dynamic dispatch set: manifest device actions plus any backend
         # extension tools, so extension steps are recorded like actions.
         action_names = self.executor.action_tool_names
@@ -860,18 +868,17 @@ class FlashRunner:
                 if isinstance(raw_blocks, list) and raw_blocks
                 else exec_result.text_summary or f"Action '{name}' dispatched."
             )
-            messages.extend(
+            emit_to.extend(
                 tool_result_messages(
                     tc_id, content, name=name, status=exec_result.status, llm=self._llm
                 )
             )
-
         except Exception as e:
             logger.error(f"Error executing tool {name}: {e}")
             if name in action_names:
                 turn.step_keys.append(str(tc_id))
                 turn.actions.append((name, "error", f"Error executing tool {name}: {e}"))
-            messages.append(
+            emit_to.append(
                 ToolMessage(
                     tool_call_id=tc_id,
                     name=name,
@@ -932,6 +939,10 @@ class FlashRunner:
         """
         action_names = self.executor.action_tool_names
         index_elements = self._turn_index_snapshot(state)
+        # The turn's tool-result messages are collected and emitted together:
+        # emitting them per call would interleave an image carrier between two
+        # tool messages, which OpenAI-compatible providers reject outright.
+        turn_replies: list[BaseMessage] = []
         for tc in tool_calls:
             name = tc["name"].split(":")[-1] if ":" in tc["name"] else tc["name"]
             args = tc.get("args") or {}
@@ -950,6 +961,7 @@ class FlashRunner:
                     messages,
                     native_text=native_text,
                 )
+                messages.extend(order_tool_result_messages(turn_replies))
                 return final_report, pre_screenshot_bytes, xml_list, action_sequence
 
             elements_before = getattr(state, "indexed_elements", None)
@@ -969,9 +981,11 @@ class FlashRunner:
                 injected=injected,
                 native_text=native_text,
                 index_elements=index_elements,
+                tool_reply=turn_replies,
             )
             if name not in action_names:
                 index_elements = self._extend_index_snapshot(state, index_elements, before_len)
+        messages.extend(order_tool_result_messages(turn_replies))
         return None, pre_screenshot_bytes, xml_list, action_sequence
 
     @staticmethod

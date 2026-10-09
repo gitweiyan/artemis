@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 import functools
 import inspect
 import re
@@ -36,8 +36,10 @@ __all__ = [
     "ToolWrapper",
     "get_tool_result_content",
     "invoke_tool_with_injection",
+    "order_tool_result_messages",
     "resolve_image_carrier",
     "split_multimodal_result",
+    "tool_result_batch_messages",
     "tool_result_messages",
 ]
 
@@ -234,13 +236,21 @@ def tool_result_messages(
     image_carrier: ImageCarrier | None = None,
     llm: Any = None,
 ) -> list[BaseMessage]:
-    """The conversation messages that deliver one tool result to the model.
+    """The conversation messages that deliver ONE tool result to the model.
 
     Text-only results become a single ``ToolMessage``. Results carrying images
     (e.g. ``get_step_screenshot``) are delivered according to the image
-    carrier — given explicitly or resolved from ``llm`` — so every agent loop
-    handles multimodal tool results the same way and no loop ever pastes
+    carrier — given explicitly or resolved from ``llm`` — so no loop ever pastes
     base64 into a text field. The tool call id, name and status are preserved.
+
+    Ordering within an assistant turn is NOT handled here: with the ``"human"``
+    carrier this returns two messages, and emitting several results one call at
+    a time would interleave a ``HumanMessage`` between two ``ToolMessage``s.
+    OpenAI-compatible providers reject that shape outright
+    ("An assistant message with 'tool_calls' must be followed by tool
+    messages responding to each 'tool_call_id'"). A loop that runs the tool
+    calls of one turn must therefore collect them and emit
+    :func:`tool_result_batch_messages` once.
     """
     text, images = split_multimodal_result(result)
     extra = {"name": name} if name else {}
@@ -268,3 +278,53 @@ def tool_result_messages(
         ToolMessage(tool_call_id=tool_call_id, content=text, status=status, **extra),
         HumanMessage(content=[{"type": "text", "text": caption}, *images]),
     ]
+
+
+#: One tool call's outcome, as consumed by :func:`tool_result_batch_messages`.
+ToolResultItem = tuple[str, str | None, Any, str]
+
+
+def order_tool_result_messages(produced: list[BaseMessage]) -> list[BaseMessage]:
+    """Provider-safe order for ONE assistant turn's already-produced tool results.
+
+    OpenAI-compatible providers require an assistant message's ``tool_calls`` to
+    be followed immediately by their tool responses, so an image-carrying
+    ``HumanMessage`` must never sit between two ``ToolMessage``s: every
+    ``ToolMessage`` comes first (in call order), then the carriers (in call
+    order). Reordering is lossless — each carrier's caption already names its
+    tool and step (see :func:`tool_result_messages`).
+
+    Google and Anthropic use the ``"tool"`` carrier, so their output is already
+    all-``ToolMessage`` and this is the identity.
+    """
+    tool_messages = [m for m in produced if isinstance(m, ToolMessage)]
+    carriers = [m for m in produced if not isinstance(m, ToolMessage)]
+    return tool_messages + carriers
+
+
+def tool_result_batch_messages(
+    items: Collection[ToolResultItem],
+    *,
+    llm: Any = None,
+    image_carrier: ImageCarrier | None = None,
+) -> list[BaseMessage]:
+    """Deliver every tool result of ONE assistant turn, in provider-safe order.
+
+    Use this instead of ``messages.extend(tool_result_messages(...))`` inside a
+    per-tool-call loop: the ordering constraint belongs to the whole assistant
+    turn, which a single-call helper cannot see. ``items`` are
+    ``(tool_call_id, name, result, status)`` tuples in tool-call order.
+    """
+    produced: list[BaseMessage] = []
+    for tool_call_id, name, result, status in items:
+        produced.extend(
+            tool_result_messages(
+                tool_call_id,
+                result,
+                name=name,
+                status=status,
+                llm=llm,
+                image_carrier=image_carrier,
+            )
+        )
+    return order_tool_result_messages(produced)
