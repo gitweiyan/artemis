@@ -37,6 +37,7 @@ from artemis.tools.scratchpad import (
 )
 from artemis.tools.tool_wrapper import (
     invoke_tool_with_injection,
+    order_tool_result_messages,
     split_multimodal_result,
     tool_result_messages,
 )
@@ -143,6 +144,7 @@ class HistoryAnalyzer:
                 )
 
             # Process tool calls
+            turn_replies = []
             for tc in response.tool_calls:
                 tool_name = tc["name"].split(":")[-1] if ":" in tc["name"] else tc["name"]
                 args = dict(tc.get("args") or {})
@@ -175,8 +177,12 @@ class HistoryAnalyzer:
 
                 # A step screenshot travels in the carrier the model's provider
                 # accepts; text results stay a single ToolMessage.
-                messages.extend(
+                turn_replies.extend(
                     tool_result_messages(tc["id"], result, name=tool_name, status=status, llm=llm)
                 )
+
+            # One turn's tool results are emitted together: an image carrier must
+            # not land between two tool messages.
+            messages.extend(order_tool_result_messages(turn_replies))
 
         return "Error: HistoryAnalyzer failed to resolve the query within maximum turns."

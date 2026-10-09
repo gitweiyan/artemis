@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool, tool
 
 from pydantic import BaseModel, Field, ValidationError
@@ -53,9 +53,10 @@ from artemis.services.llm import acomplete, get_llm, invoke_llm_with_timeout_mes
 from artemis.tools.history import get_history_tools
 from artemis.tools.scratchpad import get_read_note_tool_pure
 from artemis.tools.tool_wrapper import (
+    ToolResultItem,
     invoke_tool_with_injection,
     split_multimodal_result,
-    tool_result_messages,
+    tool_result_batch_messages,
 )
 from artemis.utils.task_tree import format_actions_clean
 from artemis.utils.ocr_api import is_ocr_configured, perform_ocr
@@ -497,17 +498,14 @@ async def _run_check_loop(
             break
 
         messages.append(response)
+        turn_results: list[ToolResultItem] = []
         for tc in response.tool_calls:
             tool_name = tc["name"].split(":")[-1] if ":" in tc["name"] else tc["name"]
             args = dict(tc["args"])
             tool_to_run = next((t for t in traced_tools if t.name == tool_name), None)
             if tool_to_run is None:
-                messages.append(
-                    ToolMessage(
-                        tool_call_id=tc["id"],
-                        content=f"Error: Tool {tool_name} not supported",
-                        status="error",
-                    )
+                turn_results.append(
+                    (tc["id"], tool_name, f"Error: Tool {tool_name} not supported", "error")
                 )
                 continue
             try:
@@ -519,12 +517,11 @@ async def _run_check_loop(
             except Exception as e:
                 result_obj = f"Error running tool {tool_name}: {e}"
                 status = "error"
-            # Screenshots (get_step_screenshot) enter the conversation in the
-            # carrier the model's provider accepts; text results stay a plain
-            # ToolMessage.
-            messages.extend(
-                tool_result_messages(tc["id"], result_obj, name=tool_name, status=status, llm=llm)
-            )
+            turn_results.append((tc["id"], tool_name, result_obj, status))
+        # Emit the whole turn at once: a screenshot travels in the carrier the
+        # model's provider accepts, and that carrier must not land between two
+        # tool messages (see ``tool_result_batch_messages``).
+        messages.extend(tool_result_batch_messages(turn_results, llm=llm))
 
     if report is None:
         report = CheckReport(verdicts=[])
