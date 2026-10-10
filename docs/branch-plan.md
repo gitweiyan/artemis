@@ -73,6 +73,7 @@ printf 'branch=%s head=%s dirty=%s\n' "$(git branch --show-current)" \
 | `10091400-provider-aware-lenses` | 72e0c5d | provider 感知 lens（I1） | 已并入 |
 | `10091400-helper-probe-deadline` | f7e2844 | 探测短截止 + "慢≠不存在"（I4a） | 已并入 |
 | `10091711-e2e-battery-level-case` | e022a01 | 真机电池用例 + `make test-case-battery` | 已并入 |
+| `10101422-stale-observation-and-degradations` | 7b2a0e9 | 陈旧观察度量（I5）+ 降级写入运行结论（I3） | 已并入 |
 
 ## 4. 日常工作流（fork 版，无 PR）
 
