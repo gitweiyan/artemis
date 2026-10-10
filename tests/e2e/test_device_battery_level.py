@@ -30,6 +30,12 @@ there. The case therefore carries the three things that were missing:
 * ``ACCEPTANCE`` -- judged on the device's own captured UI tree (the Battery page
   is open and shows a percentage), not on what the model says it saw.
 
+The case also carries the archive contract (I7): the run's compiled trace must
+document the steps it took, name only images it actually holds, carry the run's
+``notes/`` and compile its frames into a GIF. The 2026-10-09 archives satisfied
+none of that — they shipped ``steps.json = []`` and nothing but video — which is
+why both retrospectives had to read the database instead of the artifact.
+
 Calibration history
 -------------------
 * 2026-10-09, flash profile: the session died 12 s in because the flash lenses
@@ -278,6 +284,38 @@ def _step_actions(session_id: str) -> list[str]:
     return actions
 
 
+def _archive_dir(session_id: str) -> Path | None:
+    """The compiled archive for this run: the folder that holds its video.
+
+    The tracer compiles into a temp folder and renames it to
+    ``<trace_name><STATUS>_<timestamp>``, so the session id is only a substring.
+    """
+    short = session_id.split("-")[0]
+    candidates = [
+        path
+        for path in _traces_root().glob(f"*{short}*")
+        if path.is_dir() and (path / "recording.mp4").exists()
+    ]
+    return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
+
+
+def _steps_with_images(session_id: str) -> int:
+    """How many of the session's steps recorded a screenshot to archive."""
+    db = _traces_root() / "data_engine.db"
+    if not db.is_file():
+        return 0
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        row = con.execute(
+            "select count(*) from steps where session_id = ? "
+            "and (pre_image_name is not null or post_image_name is not null)",
+            (session_id,),
+        ).fetchone()
+    finally:
+        con.close()
+    return int(row[0]) if row else 0
+
+
 def _final_ui_tree(session_id: str) -> list[dict]:
     """The device's own last captured screen for this session."""
     db = _traces_root() / "data_engine.db"
@@ -413,4 +451,58 @@ def test_battery_level_case(profile: str) -> None:
     elif outcome is not None:
         assert outcome.get("task_status") == "completed", (
             f"task_status={outcome.get('task_status')}{context}"
+        )
+
+    # 5. The archive contract (I7). Both 2026-10-09 retrospectives had to read the
+    #    database because their own archives held `steps.json = []`, no frames and
+    #    no notes — the run's video, and nothing about what the run did. Judged on
+    #    the archive's own files, not on the exporter's logs.
+    archive = _archive_dir(session_id)
+    assert archive is not None, (
+        f"the run compiled no archive (no recording.mp4 under {_traces_root()}){context}"
+    )
+    archive_context = f"{context}\narchive={archive}\narchive listing: {sorted(p.name for p in archive.iterdir())}"
+    manifest = archive / "steps.json"
+    assert manifest.is_file(), f"the archive holds no steps.json{archive_context}"
+    rows = json.loads(manifest.read_text(encoding="utf-8"))
+    assert isinstance(rows, list) and len(rows) == len(actions), (
+        f"the archive documents {len(rows) if isinstance(rows, list) else rows!r} step(s) "
+        f"while the run recorded {len(actions)}{archive_context}"
+    )
+    for row in rows:
+        assert row.get("step") and row.get("action"), (
+            f"an archived step does not say what happened: {row}{archive_context}"
+        )
+
+    # Every image the manifest names must be inside the archive: a name into the
+    # shared content-addressed store is a dangling path once the archive is read.
+    dangling = [
+        ref
+        for row in rows
+        for ref in (row.get("pre_image"), row.get("post_image"))
+        if ref and not (archive / ref).is_file()
+    ]
+    assert not dangling, (
+        f"the manifest points at files the archive lacks: {dangling}{archive_context}"
+    )
+
+    # The run's notes travel with the archive when the run wrote any.
+    run_notes = _traces_root() / session_id / "notes"
+    if run_notes.is_dir() and any(run_notes.iterdir()):
+        archived_notes = archive / "notes"
+        assert archived_notes.is_dir() and any(archived_notes.iterdir()), (
+            f"the run wrote notes ({sorted(p.name for p in run_notes.iterdir())}) "
+            f"that the archive does not carry{archive_context}"
+        )
+
+    # Frames on disk are what the compiler turns into the GIF; if the run captured
+    # screenshots, the archive has to show them.
+    if _steps_with_images(session_id):
+        assert (archive / "trace.gif").is_file(), (
+            f"the run captured screenshots but the archive holds no trace.gif{archive_context}"
+        )
+    if outcome is not None:
+        counts = ((outcome.get("environment") or {}).get("degradations") or {}).get("counts") or {}
+        assert not counts.get("archive_incomplete"), (
+            f"the run reported its own archive as incomplete: {counts}{archive_context}"
         )

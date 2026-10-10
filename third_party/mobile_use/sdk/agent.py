@@ -66,6 +66,7 @@ from artemis.data_engine.trace import DataEngineCallbackHandler
 from artemis.graph.graph import get_graph
 from artemis.graph.state import State
 from artemis.runtime import DeviceExecutionLock
+from artemis.runtime.trace_export import export_step_media, write_step_manifest
 from artemis.sdk.run_outcome import attach_test_summary, resolve_trace_suffix
 from artemis.sdk.types.agent import AgentConfig
 from artemis.utils.startup_progress import publish_startup_progress
@@ -917,6 +918,11 @@ class AgentBase:
         traces_output_path = Path(task.request.trace_path).resolve()
 
         logger.info(f"[{task_name}] Compiling trace FROM FOLDER: " + str(temp_trace_path))
+        # The compiler reads this folder, but the run keeps its frames in the
+        # content-addressed store and its steps in the database (I7): place what
+        # it scans for first, then let it compile, then write the real manifest
+        # (its legacy scan rewrites steps.json from the folder and would win).
+        export_step_media(context, temp_trace_path)
         create_gif_from_trace_folder(temp_trace_path)
         create_steps_json_from_trace_folder(temp_trace_path)
 
@@ -926,6 +932,7 @@ class AgentBase:
         logger.info(f"[{task_name}] 📽️ Trace compiled, moving to output path 📽️")
 
         output_folder_path = temp_trace_path.rename(traces_output_path / new_name).resolve()
+        write_step_manifest(context, output_folder_path)
         logger.info(f"[{task_name}] 📂✅ Traces located in: {output_folder_path}")
 
         new_video_path = output_folder_path / "recording.mp4"

@@ -15,6 +15,7 @@ never raise: bookkeeping must not be able to break a run.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
 import subprocess
 from typing import Any
@@ -30,9 +31,12 @@ TRANSCRIPT_FALLBACK = "transcript_prompt_fallback"
 #: A visual step summary could not be produced: the image history is not being
 #: compressed for later turns.
 VISUAL_SUMMARY_FAILURE = "visual_summary_failure"
+#: The run's archive could not carry what the run produced (frames or steps): the
+#: trace a reader opens would not describe the run that happened.
+ARCHIVE_INCOMPLETE = "archive_incomplete"
 
 #: Kinds that mean a capability was missing, as opposed to a retried call.
-CAPABILITY_KINDS = frozenset({TRANSCRIPT_FALLBACK, VISUAL_SUMMARY_FAILURE})
+CAPABILITY_KINDS = frozenset({TRANSCRIPT_FALLBACK, VISUAL_SUMMARY_FAILURE, ARCHIVE_INCOMPLETE})
 
 _LOG_ATTR = "run_degradations"
 _EXAMPLE_CHARS = 200
@@ -86,6 +90,47 @@ def record(ctx: Any, kind: str, detail: Any = None) -> None:
         log_for(ctx).record(kind, detail)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.debug(f"Degradation recording skipped: {exc}")
+
+
+def amend_run_outcome(ctx: Any) -> bool:
+    """Refresh the verdict's degradation block after it was written.
+
+    The graph settles ``run_outcome`` at the end of the run, and the archive is
+    compiled *after* that (the tracer needs the run to be over). A degradation
+    found there — an archive that could not carry the run's steps or frames —
+    would ride a context nobody reads again, which is precisely the silence
+    ``ARCHIVE_INCOMPLETE`` exists to break.
+
+    Only ``environment.degradations`` is refreshed; the verdict itself and the
+    rest of the environment block stay exactly as written. Best-effort: returns
+    whether the file changed.
+    """
+    engine = getattr(ctx, "data_engine", None)
+    base_dir = getattr(engine, "base_dir", None)
+    if not base_dir:
+        return False
+    try:
+        # Imported here: the graph imports this module, so a top-level import
+        # would close a cycle.
+        from artemis.graph.checkpoints import RUN_OUTCOME_FILENAME
+
+        path = Path(base_dir) / RUN_OUTCOME_FILENAME
+        if not path.is_file():
+            return False
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return False
+        environment = payload.get("environment")
+        if not isinstance(environment, dict):
+            environment = {}
+            payload["environment"] = environment
+        environment["degradations"] = log_for(ctx).summary()
+        payload["environment"] = environment
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except (OSError, ValueError, TypeError, ImportError) as exc:
+        logger.debug(f"Could not amend the run outcome with late degradations: {exc}")
+        return False
 
 
 def code_identity(repo: Path | str | None = None) -> dict[str, Any]:
@@ -145,6 +190,8 @@ def build_run_environment(ctx: Any, client: Any = None) -> dict[str, Any]:
 
 
 __all__ = [
+    "ARCHIVE_INCOMPLETE",
+    "amend_run_outcome",
     "CAPABILITY_KINDS",
     "TRANSCRIPT_FALLBACK",
     "VISUAL_SUMMARY_FAILURE",

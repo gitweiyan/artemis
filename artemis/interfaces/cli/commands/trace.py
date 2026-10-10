@@ -56,7 +56,7 @@ def list_traces(
         artifacts = []
         if (s / "recording.mp4").exists() or (s / "recording.mkv").exists():
             artifacts.append("🎬 Video")
-        if (s / "steps.json").exists():
+        if manifest_has_steps(s):
             artifacts.append("📋 Steps")
         if (s / "notes").exists():
             artifacts.append("📝 Notes")
@@ -64,6 +64,22 @@ def list_traces(
         table.add_row(s.name, mtime, ", ".join(artifacts) or "Screenshots")
 
     console.print(table)
+
+
+def manifest_has_steps(session_dir: Path) -> bool:
+    """Whether the session's ``steps.json`` actually lists steps.
+
+    The file exists in every modern archive and is empty in most of them, so
+    "exists" told a reader the opposite of the truth (I7).
+    """
+    manifest = session_dir / "steps.json"
+    if not manifest.is_file():
+        return False
+    try:
+        steps = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(steps, list) and bool(steps)
 
 
 def time_to_str(ts: float) -> str:
@@ -86,7 +102,7 @@ def view_trace(
     steps_file = session_dir / "steps.json"
     console = Console()
 
-    if steps_file.exists():
+    if manifest_has_steps(session_dir):
         try:
             steps_data = json.loads(steps_file.read_text(encoding="utf-8"))
             table = Table(title=f"Trace Steps: {session_name}")
@@ -106,6 +122,11 @@ def view_trace(
             logger.warning(f"Could not parse steps.json: {e}")
 
     # If steps.json not present, list files
+    if steps_file.exists():
+        typer.secho(
+            f"{session_name}: steps.json lists no steps — the archive holds video only.",
+            fg=typer.colors.YELLOW,
+        )
     typer.secho(f"Session files in {session_dir}:", fg=typer.colors.CYAN)
     for f in session_dir.iterdir():
         typer.echo(f"  - {f.name}")
