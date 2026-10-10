@@ -76,6 +76,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -284,19 +285,41 @@ def _step_actions(session_id: str) -> list[str]:
     return actions
 
 
-def _archive_dir(session_id: str) -> Path | None:
-    """The compiled archive for this run: the folder that holds its video.
+#: The tracer compiles into ``traces/<trace_name>/`` and *renames* it to
+#: ``<trace_name><STATUS>_<timestamp>`` when the run ends. Until that rename the
+#: temp folder already holds ``recording.mp4``, so mtime alone picks the wrong one.
+ARCHIVE_STATUS_MARKERS = ("_PASS_", "_FAIL_", "_PARTIAL_", "_BLOCKED_", "_CANCELLED_")
 
-    The tracer compiles into a temp folder and renames it to
-    ``<trace_name><STATUS>_<timestamp>``, so the session id is only a substring.
+
+def _archive_dir(session_id: str) -> Path | None:
+    """The compiled archive for this run: the renamed folder that holds its video.
+
+    Measured on 2026-10-10 17:34: the compile finishes *after* the CLI reports the
+    task done, and an mtime-max glob returned the in-flight temp folder instead —
+    a spurious failure of this case, not of the run. Hence two guards: a compiled
+    folder carries the STATUS marker, and the case waits for it.
     """
     short = session_id.split("-")[0]
     candidates = [
         path
         for path in _traces_root().glob(f"*{short}*")
-        if path.is_dir() and (path / "recording.mp4").exists()
+        if path.is_dir()
+        and any(marker in path.name for marker in ARCHIVE_STATUS_MARKERS)
+        and (path / "recording.mp4").exists()
     ]
     return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
+
+
+def _wait_for_archive(session_id: str, timeout: float = 120.0) -> Path | None:
+    """Wait for the compiled archive; the compile runs after the task is reported done."""
+    deadline = time.monotonic() + timeout
+    while True:
+        archive = _wait_for_archive(session_id)
+        if archive is not None:
+            return archive
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(1.0)
 
 
 def _steps_with_images(session_id: str) -> int:
