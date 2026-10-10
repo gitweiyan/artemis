@@ -63,6 +63,12 @@ class FakeAdb:
 
     def __init__(self):
         self.calls: list[list[str]] = []
+        # Deadline handed to the runner per call (probes must fail fast).
+        self.timeouts: list[float | None] = []
+        # A stalled device: the version probe raises TimeoutExpired.
+        self.probe_stalls = False
+        # An older ROM that rejects ``pm list packages --show-versioncode``.
+        self.pm_lacks_version_code = False
         self.installed: dict[str, int | None] = {SERIAL: None, OTHER: None}
         self.enabled_services: dict[str, str] = {SERIAL: "", OTHER: ""}
         self.transport: dict[str, str] = {SERIAL: "3", OTHER: "4"}
@@ -87,8 +93,16 @@ class FakeAdb:
         self.holders: dict[str, list[str]] = {SERIAL: [], OTHER: []}
         self.killed: list[tuple[str, int]] = []
 
-    def __call__(self, args: list[str]) -> subprocess.CompletedProcess:
+    def __call__(
+        self, args: list[str], timeout: float | None = None
+    ) -> subprocess.CompletedProcess:
         self.calls.append(list(args))
+        self.timeouts.append(timeout)
+        if self.probe_stalls and args[-2:] in (
+            ["packages", hm.PACKAGE_NAME],
+            ["package", hm.PACKAGE_NAME],
+        ):
+            raise subprocess.TimeoutExpired(args, timeout or 0)
         out, err, code = "", "", 0
         if args[:2] == ["devices", "-l"]:
             lines = ["List of devices attached"]
@@ -99,7 +113,20 @@ class FakeAdb:
             out = "".join(f"{s} tcp:{local} tcp:{r}\n" for s, local, r in self.forwards)
         elif args[0] == "-s":
             serial, rest = args[1], args[2:]
-            if rest[:3] == ["shell", "dumpsys", "package"]:
+            if rest[:6] == [
+                "shell",
+                "pm",
+                "list",
+                "packages",
+                "--show-versioncode",
+                hm.PACKAGE_NAME,
+            ]:
+                version = self.installed.get(serial)
+                if self.pm_lacks_version_code:
+                    out, err, code = "", "Error: Unknown option: --show-versioncode\n", 1
+                elif version is not None:
+                    out = f"package:{hm.PACKAGE_NAME} versionCode:{version}\n"
+            elif rest[:3] == ["shell", "dumpsys", "package"]:
                 version = self.installed.get(serial)
                 out = (
                     f"Package [{rest[3]}]\n    versionCode={version} minSdk=24\n"
@@ -891,3 +918,55 @@ def test_uiautomation_holders_classifies_processes(env):
     adb.holders[SERIAL] = U2_LINES + ["31000 io.appium.uiautomator2.server.test", "7 sh"]
     holders = manager.uiautomation_holders(SERIAL)
     assert holders == {"uiautomator2": [24635], "appium": [31000]}
+
+
+# --------------------------------------------------------------------------- #
+# I4a: the version probe must be light, bounded, and must not equate "slow" with
+# "not installed". A 30 s stall inside ``dumpsys package`` cost a real run 30 s
+# plus a mid-run switch to UIAutomator2 (2026-10-09 14:31:35, session aee01b7a).
+# --------------------------------------------------------------------------- #
+
+
+def test_version_probe_prefers_the_light_command(env):
+    adb, _, manager = env
+    adb.installed[SERIAL] = 8
+
+    assert manager.installed_version(SERIAL) == 8
+    assert _calls(adb, ["-s", SERIAL, "shell", "pm", "list", "packages", "--show-versioncode"])
+    assert not _calls(adb, ["-s", SERIAL, "shell", "dumpsys", "package"]), (
+        "the heavy dump must not run when the light probe answered"
+    )
+
+
+def test_version_probe_uses_a_short_deadline(env):
+    adb, _, manager = env
+    adb.installed[SERIAL] = 8
+    manager.installed_version(SERIAL)
+
+    probe = _calls(adb, ["-s", SERIAL, "shell", "pm", "list", "packages"])
+    index = adb.calls.index(probe[0])
+    assert adb.timeouts[index] is not None, "the probe must carry its own deadline"
+    assert adb.timeouts[index] <= 8.0, f"probe deadline is {adb.timeouts[index]}s, not a fast one"
+
+
+def test_version_probe_falls_back_to_dumpsys_when_the_rom_rejects_the_flag(env):
+    adb, _, manager = env
+    adb.installed[SERIAL] = 6
+    adb.pm_lacks_version_code = True
+
+    assert manager.installed_version(SERIAL) == 6
+
+
+def test_a_stalled_probe_is_not_read_as_not_installed(env):
+    """A device that did not answer in time must not trigger a reinstall."""
+    adb, _, manager = env
+    adb.installed[SERIAL] = 8
+    adb.enabled_services[SERIAL] = SERVICE_COMPONENT
+    adb.probe_stalls = True
+
+    session = manager.attach(SERIAL)
+
+    assert session.protocol_version == 3, "the helper still answers, so the session must exist"
+    assert not _calls(adb, ["-s", SERIAL, "install"]), (
+        "a stalled probe is not evidence that the package is missing"
+    )
