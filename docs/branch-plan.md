@@ -75,6 +75,7 @@ printf 'branch=%s head=%s dirty=%s\n' "$(git branch --show-current)" \
 | `10091711-e2e-battery-level-case` | e022a01 | 真机电池用例 + `make test-case-battery` | 已并入 |
 | `10101422-stale-observation-and-degradations` | 7b2a0e9 | 陈旧观察度量（I5）+ 降级写入运行结论（I3） | 已并入 |
 | `10101444-trace-archive-export` | e5b624b | 归档携带步骤/帧/笔记 + `trace list` 步骤信号（I7） | 已并入 |
+| `10101507-run-code-identity` | 6a04113 | 运行开始即声明代码身份（I2，简化方案） | 已并入 |
 
 ## 4. 日常工作流（fork 版，无 PR）
 
