@@ -89,6 +89,7 @@ main (351ca84)
 | 4 | `fix/provider-aware-lenses` | provider 感知 lens（I1） | 3 之后 | 8 | 与 3 无文件重叠 |
 | 5 | `fix/helper-probe-deadline` | 探测短截止 + "慢≠不存在"（I4a） | 3 之后 | 2 | 与 3 改同一文件的**不同区域**；`git merge-tree` 干跑无冲突，但语义上仍建议 3 先 |
 | 6 | `test/e2e-battery-level-case` | 真机电池用例 + `make test-case-battery` | 4 之后 | 2 | 纯测试；`-m e2e` 才会被收集 |
+| 7 | `docs/10101205-branch-plan` | 本策略文档（含命名规范与基线纪律） | `integration/helper-lens-e2e` | 1 | 纯文档，可随时合入 |
 
 **冲突面实测**：四条工作线的增量两两不相交；唯一重叠是 PR-3 ∩ PR-5 = `artemis/runtime/helper_manager.py` 与 `tests/unit/runtime/test_helper_manager.py`（同文件不同区域，反向顺序也不冲突）。
 
@@ -103,11 +104,14 @@ main (351ca84)
 1. PR-1、PR-2 合入 → 删 `integration/p0-lightweight-judge`，把 PR-3 rebase 到 main；
 2. PR-3 合入 → PR-5 rebase 到 main（`merge-tree` 已验证无冲突）；
 3. PR-4 合入 → PR-6 rebase 到 main；
-4. 全部合入后，`integration/helper-lens-e2e` 可删除，或保留为发布验证分支。
+4. PR-7（本策略文档）合入后，`docs/10101205-branch-plan` 删除；
+5. 全部合入后，`integration/helper-lens-e2e` 可删除，或保留为发布验证分支。
 
 ## 7. 存量分支改名（可选，PR 打开前做才安全）
 
 PR 尚未创建，现在改名代价最低；一旦有 PR 依赖旧名字，改名会导致 PR 失联。
+注意：`git branch -m` 只改本地名，远端旧 ref 需显式删除（脚本最后一行）；若某条分支正是当前所在分支，
+`git branch -m` 会连同工作区一起改名（安全），但不要在同一条上执行 `--delete`。
 
 ```bash
 # 本地
@@ -122,7 +126,7 @@ for pair in \
   "integration/helper-lens-e2e:integration/10091743-helper-lens-e2e"; do
   old="${pair%%:*}"; new="${pair##*:}"
   git branch -m "$old" "$new"
-  git push fork "$new"
+  git push -u fork "$new"
   git push fork --delete "$old"
 done
 ```
