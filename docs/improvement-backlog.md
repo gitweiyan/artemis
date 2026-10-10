@@ -4,8 +4,9 @@
 `reports/复盘-20261009-搜狐视频搜索大鹏.html`，质量门 `~/.dsh/skills/writing-run-retrospectives/tools/verify_report.py`）。
 **状态只在本文件更新**：每落地一项就改状态、写证据（commit / tag / 路径）、补缺口；报告里的决策列可能滞后，以本文件为准。
 
-- 项数：搜狐复盘 8 项 + 电池复盘 10 项，去重 2 项（搜狐 I3 ≡ 电池 I3、搜狐 I7 ≡ 电池 I8）= **16 个唯一改进项**
-- 现状：已完成 **6** / 部分完成 **4** / 未开始 **6**
+- 项数：搜狐复盘 8 项 + 电池复盘 10 项，去重 2 项（搜狐 I3 ≡ 电池 I3、搜狐 I7 ≡ 电池 I8，两对内容完全相同）= **16 个唯一改进项**
+- 现状：已完成 **6** / 部分完成 **5** / 未开始 **5**
+- 口径提醒：搜狐 I8 与 电池 I5 **是重叠而非同一项**（电池 I5 只覆盖保活探测缓存，搜狐 I8 另含录屏等待），故两者各自计一项、共享同一段剩余工作；同理 电池 I4 的 I4b/c/d 是它的剩余缺口，不另立条目
 - 知识沉淀 6 项：已沉淀 **2** / 待定 **4**
 - 状态词：`已完成`（验收通过且已并入整合分支）｜`部分`（列出剩余缺口）｜`未开始`｜`不采纳`
 
@@ -20,16 +21,17 @@
 | 搜狐 I7 ≡ 电池 I8 | trace 归档可复算 | e5b624b（tag `10101444-trace-archive-export`）· `artemis/runtime/trace_export.py` · 真机归档 = `recording.mp4` + `trace.gif` + `steps.json`（3 行 = DB 3 步）+ `images/`（3 硬链接）+ `notes/`（3 文件），无悬空引用；`trace list` 显示 `📋 Steps`、`trace view` 打出真实动作 |
 | 电池 I1 | provider 感知 lens | 72e0c5d（tag `10091400-provider-aware-lenses`）· 66 个用例转绿 |
 
-## 2. 部分完成（4）
+## 2. 部分完成（5）
 
 | ID | 改进项 | 已完成 | 剩余缺口 |
 |---|---|---|---|
 | 电池 I4 | adb 探测短超时 / 轻量命令 / "慢≠不存在"（I4a），另含 I4b/c/d | I4a：f7e2844（tag `10091400-helper-probe-deadline`）· `PROBE_TIMEOUT_SECONDS = 6.0` + `pm list packages --show-versioncode` + 探测无答不再触发重装 | **I4b** 固定 30 s 不重试窗口未做；**I4c** 口径未定（`run_outcome.environment` 已有 `backend`/`switches`，但"探测超时"这一事件没有专门计数种类）；**I4d** 一次运行内层级来源切换上限上报未做 |
-| 搜狐 I8 ≡ 电池 I5 | 环境降级缓存 + 录屏条件等待 | 录屏**早已**是条件等待：`artemis/utils/video.py::await_scrcpy_first_frame`（等 `Recording started` 标记、6 s 上限、超时按首帧回落），该函数来自 351ca84，**早于复盘** | ① 报告"固定等待 6 s"的前提需更正（真因：该 ROM 下标记从不打印，于是每次都吃满 6 s 上限）；② **wakelock / USB 保活能力探测缓存未做**：`artemis/runtime/awake_service.py` 每次会话仍重试并回落 5 s 心跳 |
+| 搜狐 I8 | 环境降级缓存 + 录屏条件等待 | 录屏**早已**是条件等待：`artemis/utils/video.py::await_scrcpy_first_frame`（等 `Recording started` 标记、6 s 上限、超时按首帧回落），该函数来自 351ca84，**早于复盘** | ① 报告"固定等待 6 s"的前提需更正（真因：该 ROM 下标记从不打印，于是每次都吃满 6 s 上限）；② 保活能力探测缓存未做（与 电池 I5 同一段工作） |
+| 电池 I5 | 保活能力探测一次并缓存（`set-wakelock` / USB stay-awake 不支持即跳过并记录） | 现仅每次会话重试后回落 5 s 心跳（`artemis/runtime/awake_service.py`，无缓存）——本项即 搜狐 I8 的第二半 | 探测结果按设备 + 系统版本缓存；失效条件（换机/升级）需明确 |
 | 电池 I9 | 用例模板两个必填字段（前置状态 + 验收口径） | 用例侧：`tests/e2e/test_device_battery_level.py`（tag `10091711-e2e-battery-level-case`，`GOAL`/`PRECONDITION`/`ACCEPTANCE` 三件套） | 产品侧（非测试入口）未强制 |
 | 电池 I10 | 运行前状态复位 | 用例侧：同一文件 `_reset_to_home()` 运行前按 HOME | 产品侧未做 |
 
-## 3. 未开始（6）
+## 3. 未开始（5）
 
 | ID | 改进项 | 现状证据 | 成本/风险 | 建议 |
 |---|---|---|---|---|
@@ -38,7 +40,6 @@
 | 搜狐 I6 | 空步不入库或显式标 `no_action` | 全仓无 `no_action` | 低 / 中（步号变化需过回放断言） | 建议做 |
 | 电池 I2 | 启动前 provider 凭据预检，缺失即快速失败 | 无预检；缺失时白付 helper 安装 + 录屏（10-09 那次 12 s 内崩） | 低 / 低 | 建议做 |
 | 电池 I6 | plan ledger gate 与操作器原子化 | `artemis/agents/operator/operator.py:768` 仍退回动作重发 | 中 / 中 | 建议观察 |
-| 电池 I4b / I4d | 30 s 不重试窗口 / 层级切换上限上报 | 同 电池 I4 | 低 / 低 | 随 电池 I4 一起排 |
 
 ### 3.1 新增候选（2026-10-10 观察，待决策）
 
