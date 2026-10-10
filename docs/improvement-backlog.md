@@ -45,6 +45,10 @@
 
 | ID | 观察 | 证据 | 影响 |
 |---|---|---|---|
+| N2 | **两条 lens 的角色命名空间错配**：`is_utils=True` 传给了 agent 角色 `summarizer`（4 处调用点），导致视觉步骤摘要与步骤胶囊自 2026-10-09 17:11 起对所有运行失效、且不进结论 | 复盘 `reports/复盘-20261010-字体与显示大小两次运行.html`；18 个会话 / 40 条 trace 命中 `LLMConfigUtils`；已修：见 §7 | 已落地（I1/I2/I4），见 §7 |
+
+| ID | 观察 | 证据 | 影响 |
+|---|---|---|---|
 | N1 | **裁决证据与设备捕获矛盾**：终检 `passed=3/failed=0`，evidence 写"Final screen shows the Settings Battery page"，而当轮捕获只有 6 个节点（仅状态栏时钟），电池页从未打开；47 s 后重跑同一用例即通过 | 会话 `f9e2eedb`：三次捕获节点数 32（桌面）→ 31（设置主页）→ **6（仅状态栏）**，全程无百分比；对照通过那次 `78488e8f` 为 32 → 31 → **21（电池页 + 83%）**；两次 run_outcome 均为 completed | 结论可信度：裁决不能与设备捕获矛盾，evidence 应可对照当步 UI 树复核；用例判据目前只看最后一次捕获 |
 
 ## 4. 修正记录（决策被后续证据或人工判断推翻）
@@ -75,3 +79,23 @@
 3. 电池 I4c 的计数口径未定：`backend`/`switches` 已在 verdict 里，但"探测超时"是否算一次降级、算哪种，未定。
 4. Flash profile **按设计不写 `run_outcome`**（响应式循环），因此它的代码身份只能来自 `run_identity.json`（I2 已覆盖）；凡涉及"结论里的字段"的改进项，都要单独确认 Flash 是否有落点。
 5. `reports/` 为本地未入库文件，报告质量门需本地运行；本台账入库，二者引用关系记在 `docs/branch-plan.md` 与本文开头。
+
+## 7. 2026-10-10 复盘（字体与显示大小两次运行）落地记录
+
+来源：`reports/复盘-20261010-字体与显示大小两次运行.html`（本地未入库）。该轮 I1/I2/I4 经用户决定落地，I3/I5/I6/I7 仍待决策。
+
+| 报告项 | 内容 | 状态 | 证据 |
+|---|---|---|---|
+| 报告 I1 | 修 4 处 `is_utils` 命名空间错配 + 用真实 `LLMConfig` 的单测 + `_resolve_endpoint` 报出命名空间 | ✅ 已完成 | 6791459（tag `10101728-lens-namespace-and-visibility`）· `artemis/services/llm.py`、`artemis/agents/flash/summarizer.py`、`artemis/memory/chunking.py` |
+| 报告 I2 | 构造期记录 `lens_unavailable` 降级 + 会话目录落 `run_capabilities.json`（收尾 `finally` 刷新） | ✅ 已完成 | 6791459 · `artemis/runtime/run_capabilities.py`、`artemis/runtime/degradations.py`、`artemis/sdk/agent.py` |
+| 报告 I4 | lens 不可用即短路：`job_can_succeed` 钩子 + `StepCapsuleLens.usable` 一次探测缓存 | ✅ 已完成 | 6791459 · `artemis/memory/step_memory.py`、`artemis/memory/chunking.py`、`artemis/agents/flash/summarizer.py` |
+| 报告 I3 | 把 WARNING 计数纳入真机验收 | ⏳ 待决策 | — |
+| 报告 I5 | 运行前置状态复位（产品侧，与 电池 I10 同一项） | ⏳ 待决策 | — |
+| 报告 I6 | 保活探测缓存 + scrcpy 等待策略（与 搜狐 I8 / 电池 I5 合并） | ⏳ 待决策 | — |
+| 报告 I7 | Flash 写最小结论文件 | ⏳ 待决策 | — |
+| 复盘外发现 | e2e 用例按 mtime 通配归档目录会撞上未 rename 的临时目录 → 改为「必须带 STATUS 标记 + 有界等待」 | ✅ 已完成 | ff2aec0 · `tests/e2e/test_device_battery_level.py` |
+
+真机验收（PEMM00，提交版 `6791459`+`ff2aec0`，`make test-case-battery` 两 profile 全绿，116 s）：
+* 摘要恢复：`steps.summary` + `summary_status=ready` / `source=visual_transition`（flash 2/3、pro 5/6；末步无动作属预期）；
+* 两会话目录均有 `run_capabilities.json`：`step_summarizer.available = true`；
+* `LLMConfigUtils` / `no step-summarizer lens` / `Giving up on Step` 在两次日志中计数均为 0（复盘分析的那两次为 8 / 60 / 16）。
