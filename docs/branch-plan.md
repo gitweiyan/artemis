@@ -131,3 +131,4 @@ git push fork <tag>:refs/heads/<原分支名>
 2. **整合分支含二进制 APK**（`packages/artemis-accessibility-helper/ArtemisAccessibilityHelper.apk` 与 `helper_manifest.json`）：改 helper 源码后必须重编译并提交产物，否则"源码与产物不一致"——与第 2 节的代码身份纪律同源。
 3. **`reports/` 未加入 `.gitignore`**：如需彻底避免误提交可加一行 `reports/`；目前保持未忽略，便于你按需 `git add reports/*.html`。
 4. 若将来确实要向上游提 PR，用第 3 节的标签重建分支即可（`git branch <name> <tag>`）；第 1、2 节仍然适用。
+5. **改进项状态只维护在 `docs/improvement-backlog.md`**（唯一事实源，入库）：两份复盘报告是历史快照、不再回改，报告决策列可能滞后；被推翻的决策记在该台账的"修正记录"里。
