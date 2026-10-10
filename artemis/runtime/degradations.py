@@ -35,6 +35,8 @@ VISUAL_SUMMARY_FAILURE = "visual_summary_failure"
 #: trace a reader opens would not describe the run that happened.
 ARCHIVE_INCOMPLETE = "archive_incomplete"
 
+#: How many uncommitted paths an identity names before it stops listing them.
+DIRTY_PATHS_LIMIT = 20
 #: Kinds that mean a capability was missing, as opposed to a retried call.
 CAPABILITY_KINDS = frozenset({TRANSCRIPT_FALLBACK, VISUAL_SUMMARY_FAILURE, ARCHIVE_INCOMPLETE})
 
@@ -133,8 +135,23 @@ def amend_run_outcome(ctx: Any) -> bool:
         return False
 
 
+def _porcelain_path(line: str) -> str:
+    """The path of one ``git status --porcelain`` line (renames keep the new name)."""
+    text = line.rstrip()
+    path = text[3:] if len(text) > 3 else text.strip()
+    if " -> " in path:
+        path = path.split(" -> ", 1)[1]
+    return path.strip().strip('"')
+
+
 def code_identity(repo: Path | str | None = None) -> dict[str, Any]:
-    """Which revision ran: branch, HEAD and how many files were modified.
+    """Which revision ran: branch, HEAD, and which files stay uncommitted.
+
+    The count alone was not enough to reason about a run: on 2026-10-10 the
+    workspace carried two dirty paths, one of them the provider tier in
+    ``config/artemis.jsonc`` — the same configuration/​code mismatch that broke the
+    Flash run on 2026-10-09 (battery P1). Names are capped so a verdict never
+    becomes a file listing; the count stays exact.
 
     Best-effort by design — a workspace without git reports ``unknown`` rather
     than failing the run that is trying to describe itself.
@@ -146,7 +163,13 @@ def code_identity(repo: Path | str | None = None) -> dict[str, Any]:
             repo = ROOT_DIR
         except Exception:  # pylint: disable=broad-exception-caught
             repo = None
-    identity: dict[str, Any] = {"head": "unknown", "branch": "unknown", "dirty_files": -1}
+    identity: dict[str, Any] = {
+        "head": "unknown",
+        "branch": "unknown",
+        "dirty_files": -1,
+        "dirty_paths": [],
+        "dirty_paths_truncated": False,
+    }
     if repo is None:
         return identity
 
@@ -167,7 +190,11 @@ def code_identity(repo: Path | str | None = None) -> dict[str, Any]:
     if branch:
         identity["branch"] = branch.strip()
     if status is not None:
-        identity["dirty_files"] = len([line for line in status.splitlines() if line.strip()])
+        paths = [_porcelain_path(line) for line in status.splitlines() if line.strip()]
+        paths = [path for path in paths if path]
+        identity["dirty_files"] = len(paths)
+        identity["dirty_paths"] = paths[:DIRTY_PATHS_LIMIT]
+        identity["dirty_paths_truncated"] = len(paths) > DIRTY_PATHS_LIMIT
     return identity
 
 
@@ -195,6 +222,7 @@ __all__ = [
     "CAPABILITY_KINDS",
     "TRANSCRIPT_FALLBACK",
     "VISUAL_SUMMARY_FAILURE",
+    "DIRTY_PATHS_LIMIT",
     "DegradationLog",
     "build_run_environment",
     "code_identity",

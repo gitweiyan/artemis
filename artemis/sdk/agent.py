@@ -41,7 +41,7 @@ from artemis.context import (
 )
 from artemis.data_engine.engine import DataEngine
 from artemis.graph.state import State
-from artemis.runtime import trace_store
+from artemis.runtime import run_identity, trace_store
 from artemis.runtime.cancel_requests import watch_for_cancel_request
 from artemis.sdk.run_outcome import attach_test_summary, resolve_trace_suffix
 from artemis.sdk.types.agent import AgentConfig
@@ -338,6 +338,11 @@ class Agent(AgentBase):
             device_info=device_data,
             session_id=sess_uuid,
         )
+        # I2: state which revision, which local modifications and which provider
+        # tiers this run is about to execute — before the screen client, the app
+        # install and the recording, so a refusal (strict mode) costs only the
+        # queue slot. Called through the module so tests can patch the seam.
+        run_identity.record_start_identity(context, profile=task.request.profile)
 
     async def _finalize_tracing_safely(self, task: Task, context: ArtemisContext):
         """Finalize optional trace artifacts without changing task semantics."""
