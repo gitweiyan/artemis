@@ -22,6 +22,7 @@ from artemis.context import ArtemisContext
 from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.data_engine.trace import trace
 from artemis.graph.state import State
+from artemis.runtime import observation_clock
 from artemis.graph.visibility import strict_state
 from artemis.utils.ocr_api import is_ocr_configured, perform_ocr
 from artemis.utils.ocr_xml_fusion import (
@@ -160,6 +161,10 @@ async def perception_node(state: State, ctx: ArtemisContext) -> dict:
         device_data = await controller.get_screen_data()
         latest_screenshot_b64 = device_data.base64
         xml_hierarchy = device_data.elements
+
+    # The screen behind this turn is now in hand; every action planned from it is
+    # dispatched against an observation that is already this old (I5).
+    observation_clock.stamp_capture(ctx)
 
     latest_screenshot_bytes = base64.b64decode(latest_screenshot_b64)
 

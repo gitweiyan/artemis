@@ -28,6 +28,7 @@ from artemis.data_engine.trace import (
 )
 from artemis.graph.state import State
 from artemis.graph.visibility import strict_state
+from artemis.runtime import degradations
 from artemis.mcp.action_specs import OPERATOR_SHELL_ORDER, operator_shell_tool
 from artemis.llm.google import usage_from_message
 from artemis.services.llm import acomplete, get_llm, invoke_llm_with_timeout_message
@@ -231,6 +232,7 @@ class OperatorNode:
                     f"Transcript prompt path failed; falling back to the legacy"
                     f" 2-message build for this turn: {e}"
                 )
+                degradations.record(self.ctx, degradations.TRANSCRIPT_FALLBACK, e)
                 self._transcript_turn_base = None
 
         plan_and_history = self._build_plan_and_history(steps, task_plan)

@@ -39,6 +39,7 @@ from artemis.data_engine.trace import trace
 from artemis.graph.state import State
 from artemis.graph.visibility import strict_state
 from artemis.memory import ensure_step_memory
+from artemis.runtime import degradations
 from artemis.utils.task_tree import format_result_clean
 from third_party.mobile_use.utils.logger import get_logger
 
@@ -58,6 +59,7 @@ class SummarizerNode:
             self._dispatch_visual_summary(state)
         except Exception as e:
             logger.error(f"Failed to dispatch visual step summary: {e}")
+            degradations.record(self.ctx, degradations.VISUAL_SUMMARY_FAILURE, e)
         return {}
 
     def _dispatch_visual_summary(self, state: State) -> None:

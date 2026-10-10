@@ -61,6 +61,8 @@ from artemis.graph.checkpoints import (
 )
 from artemis.graph.perception import perception_node
 from artemis.graph.state import State
+from artemis.runtime import observation_clock
+from artemis.runtime.degradations import build_run_environment
 from artemis.graph.visibility import strict_state
 from artemis.tools.command_tool import (
     HANG_GUIDANCE,
@@ -185,6 +187,8 @@ async def execution_check_node(state: State, ctx: ArtemisContext):
     # Harvest finished checkpoint attempts (non-blocking: done() tasks only).
     check_findings = harvest_finished_checkpoints(ctx, state)
     turn_metadata: dict = {}
+    # How stale the screen behind this turn was when its action was dispatched (I5).
+    turn_metadata.update(observation_clock.skew_metadata(ctx))
 
     if hasattr(ctx, "planner_task") and ctx.planner_task:
         logger.info("Waiting for planner validation task to complete...")
@@ -459,11 +463,14 @@ async def exit_settlement_node(state: State, ctx: ArtemisContext):
         extra: dict = {"last_findings": blocked_findings} if blocked_findings else {}
         # Which UI-hierarchy source served the run, so a report reader can tell a
         # helper run from a UIAutomator2 fallback without reading logs.
-        from artemis.clients.screen_client_factory import hierarchy_backend_summary
-
-        environment = hierarchy_backend_summary(getattr(ctx, "ui_adb_client", None))
-        if environment:
-            extra["environment"] = environment
+        environment = build_run_environment(ctx)
+        extra["environment"] = environment
+        degradations_summary = environment.get("degradations") or {}
+        if degradations_summary.get("capability_degraded"):
+            logger.warning(
+                f"Run finished with a degraded capability: {degradations_summary.get('counts')} "
+                f"— the verdict below was produced without the missing path(s)."
+            )
         write_run_outcome(base_dir, outcome, extra or None)
         publish_checker_event(
             ctx,

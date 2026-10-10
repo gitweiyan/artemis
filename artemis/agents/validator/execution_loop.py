@@ -43,6 +43,7 @@ import time
 import uuid
 from uuid import UUID
 
+from artemis.runtime import observation_clock
 from artemis.agents.validator.categories import ValidationErrorCategory
 from artemis.agents.validator.incidents import (
     KIND_EXEC_ERROR,
@@ -178,6 +179,9 @@ async def _process_action(
 ) -> _ActionOutcome:
     """Runs precondition checks (vetted tier only) and execution for one action item."""
     action_item = dict(action_item)  # Make a copy to avoid mutating original state actions
+    # How stale is the screen this action was planned from? Recorded before the
+    # safety net so a target that vanished during the window still leaves data (I5).
+    observation_clock.note_dispatch_skew(getattr(node, "ctx", None))
     outcome = _ActionOutcome(action_item=action_item)
     attempts_log = []
 
