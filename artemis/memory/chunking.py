@@ -46,6 +46,7 @@ from uuid import uuid4
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from artemis.memory.step_memory import JobKey, StepLens, StepMemoryService
+from artemis.runtime import run_capabilities
 from artemis.memory.transcript import format_session_offset
 from third_party.mobile_use.utils.logger import get_logger
 
@@ -263,7 +264,7 @@ def _lens_provider(ctx: Any) -> str | None:
     from artemis.services.llm import lens_endpoint
 
     try:
-        provider = lens_endpoint(ctx, "summarizer", is_utils=True).provider
+        provider = lens_endpoint(ctx, "summarizer").provider
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.debug(f"Lens provider resolution skipped: {exc}")
         return None
@@ -312,6 +313,10 @@ class StepCapsuleLens(StepLens):
         self._model_name = model_name or "gemini-3.8-flash"
         self._llm = llm
         self._ctx = ctx
+        #: Once probed, whether this lens can be built at all (I4); a lens that
+        #: cannot exist fails every attempt identically, so it is probed once.
+        self._build_verdict: bool | None = None
+        self._build_failure: str | None = None
         # Availability hardening: `chunking.model` is a dedicated model with no
         # gateway behind it — when that one endpoint is down (e.g. a day-long
         # 503), every capsule dies and chunk headers stay pending forever. A
@@ -337,6 +342,50 @@ class StepCapsuleLens(StepLens):
             self._llm = self._build_lens(self._model_name)
         return self._llm
 
+    @property
+    def usable(self) -> bool:
+        """Whether this lens can be built on this workspace, probed once (I4).
+
+        A lens that cannot be built (a role resolved in the wrong namespace, a
+        missing credential) fails every attempt identically; probing once turns
+        a per-step retry storm into one recorded fact.
+        """
+        if self._llm is not None:
+            # An injected or already-built lens is usable by definition; probing
+            # here would replace it and could report a false negative.
+            return True
+        if self._build_verdict is None:
+            try:
+                self._llm = self._build_lens(self._model_name)
+            except (
+                OSError,
+                ValueError,
+                TypeError,
+                KeyError,
+                AttributeError,
+                ImportError,
+                RuntimeError,
+            ) as exc:
+                # Enumerated on purpose: a lens build raises config/client errors,
+                # and swallowing anything else would hide a real defect behind a
+                # "capability missing" record (the shape of the 10-09 silence).
+                self._build_verdict = False
+                self._build_failure = str(exc)
+                if self._ctx is not None:
+                    run_capabilities.record_lens(
+                        self._ctx, "step_capsule", available=False, reason=exc
+                    )
+                return False
+            self._build_verdict = True
+            if self._ctx is not None:
+                run_capabilities.record_lens(self._ctx, "step_capsule", available=True)
+        return self._build_verdict
+
+    @property
+    def build_failure(self) -> str | None:
+        """Why this lens could not be built, once :attr:`usable` has probed."""
+        return self._build_failure
+
     def _get_fallback_llm(self):
         if self._fallback_llm is None and self._fallback_model_name:
             self._fallback_llm = self._build_lens(self._fallback_model_name)
@@ -357,9 +406,10 @@ class StepCapsuleLens(StepLens):
             return get_google_llm(model_name=model_name, temperature=0.0)
         from artemis.services.llm import get_llm_for_model
 
-        return get_llm_for_model(
-            self._ctx, "summarizer", model_name, is_utils=True, temperature=0.0
-        )
+        # ``summarizer`` is an agent node; reading it from the utils namespace
+        # raised "'LLMConfigUtils' object has no attribute 'summarizer'" and made
+        # every capsule die silently (I1). Do not pass is_utils here.
+        return get_llm_for_model(self._ctx, "summarizer", model_name, temperature=0.0)
 
     @property
     def has_fallback(self) -> bool:
@@ -589,6 +639,10 @@ class ChunkCapsuleService(StepMemoryService):
         super().__init__(ctx, lens=lens, **kwargs)
         # Report exhausted retries without waiting for the next render.
         self.failure_hook: Callable[[JobKey], None] | None = None
+
+    def job_can_succeed(self, key: JobKey) -> bool:
+        """I4: an unbuildable capsule lens fails every attempt identically."""
+        return self.lens.usable
 
     def _on_status(self, key: JobKey, status: str) -> None:
         if status == "failed" and self.failure_hook is not None:

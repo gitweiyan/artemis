@@ -50,9 +50,7 @@ def test_step_summarizer_builds_its_lens_on_the_configured_provider(ctx):
         summarizer = VisualStepSummarizer(ctx, model_name="deepseek-flash")
 
     assert summarizer._llm is SENTINEL
-    build.assert_called_once_with(
-        ctx, "summarizer", "deepseek-flash", is_utils=True, temperature=0.0
-    )
+    build.assert_called_once_with(ctx, "summarizer", "deepseek-flash", temperature=0.0)
     assert not client.called, "the lens must not hand-build a chat client"
     assert not gateway.called
 
@@ -83,8 +81,27 @@ def test_step_summarizer_without_an_explicit_model_uses_the_role_config(ctx):
         summarizer = VisualStepSummarizer(ctx)
 
     assert summarizer._llm is SENTINEL
-    gateway.assert_called_once_with(ctx, name="summarizer", is_utils=True)
+    gateway.assert_called_once_with(ctx, name="summarizer")
     assert not client.called
+
+
+def test_a_step_summarizer_without_a_lens_refuses_further_attempts(ctx):
+    """I4: the retry budget is for transient failures, not for a missing lens."""
+    with patch(
+        "artemis.agents.flash.summarizer.get_llm_for_model",
+        side_effect=RuntimeError("no endpoint for this role"),
+    ):
+        summarizer = VisualStepSummarizer(ctx, model_name="deepseek-flash")
+
+    assert summarizer._llm is None
+    assert summarizer.job_can_succeed("step:1") is False
+
+
+def test_a_step_summarizer_with_a_lens_keeps_its_retries(ctx):
+    with patch("artemis.agents.flash.summarizer.get_llm_for_model", return_value=SENTINEL):
+        summarizer = VisualStepSummarizer(ctx, model_name="deepseek-flash")
+
+    assert summarizer.job_can_succeed("step:1") is True
 
 
 # --------------------------------------------------------------------------- #
@@ -119,6 +136,11 @@ def test_flash_runner_falls_back_to_the_configured_node_not_google(ctx):
     with (
         patch("artemis.controllers.unified_controller.get_driver"),
         patch("artemis.agents.flash.runner.get_llm", side_effect=fake_get_llm),
+        # The step summarizer builds its own lens on the configured provider, and
+        # since I1 it succeeds (it used to fail on the real config, which is why
+        # this assertion looked green). Keep this test on the runner's fallback.
+        patch("artemis.agents.flash.summarizer.get_llm_for_model", return_value=SENTINEL),
+        patch("artemis.agents.flash.summarizer.get_llm", return_value=SENTINEL),
         patch.object(ModelFactory, "create_model") as client,
     ):
         runner = FlashRunner(ctx, goal="g")
@@ -137,6 +159,8 @@ def test_flash_runner_reports_an_unusable_operator_endpoint(ctx):
             "artemis.agents.flash.runner.get_llm",
             side_effect=ValueError("operator role is misconfigured"),
         ),
+        patch("artemis.agents.flash.summarizer.get_llm_for_model", return_value=SENTINEL),
+        patch("artemis.agents.flash.summarizer.get_llm", return_value=SENTINEL),
         patch.object(ModelFactory, "create_model") as client,
     ):
         runner = FlashRunner(ctx, goal="g")
@@ -144,3 +168,34 @@ def test_flash_runner_reports_an_unusable_operator_endpoint(ctx):
             runner._init_llm()
 
     assert not client.called
+
+
+# --------------------------------------------------------------------------- #
+# I2: the capability state of the run is recorded where a reader looks
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unbuildable_step_summarizer_is_recorded_as_a_missing_capability(ctx):
+    from artemis.runtime import degradations, run_capabilities
+
+    with patch(
+        "artemis.agents.flash.summarizer.get_llm_for_model",
+        side_effect=RuntimeError("no endpoint for this role"),
+    ):
+        VisualStepSummarizer(ctx, model_name="deepseek-flash")
+
+    assert run_capabilities.unavailable_roles(ctx) == ["step_summarizer"]
+    summary = degradations.log_for(ctx).summary()
+    assert summary["counts"][degradations.LENS_UNAVAILABLE] == 1
+    assert summary["capability_degraded"] is True
+
+
+def test_a_built_step_summarizer_is_recorded_as_available(ctx):
+    from artemis.runtime import degradations, run_capabilities
+
+    with patch("artemis.agents.flash.summarizer.get_llm_for_model", return_value=SENTINEL):
+        VisualStepSummarizer(ctx, model_name="deepseek-flash")
+
+    lenses = run_capabilities.capabilities(ctx)["lenses"]
+    assert lenses["step_summarizer"]["available"] is True
+    assert degradations.log_for(ctx).summary()["counts"] == {}

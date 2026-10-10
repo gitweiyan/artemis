@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 
 from artemis.config.llm import LLM, LLMWithFallback
 from artemis.services import llm as llm_service
@@ -75,3 +76,48 @@ def test_lens_endpoint_applies_the_callers_temperature_without_touching_the_rest
 
     assert endpoint.temperature == 0.7
     assert endpoint.provider.value == "openai"
+
+
+# --------------------------------------------------------------------------- #
+# The namespace a role name is looked up in (the 2026-10-09→10-10 regression)
+# --------------------------------------------------------------------------- #
+#
+# ``is_utils`` is not a detail of the call site: it selects which half of the
+# config the role name is read from. Every call site here passed
+# ``is_utils=True`` for the *agent* role ``summarizer``, so both flash lenses
+# raised ``'LLMConfigUtils' object has no attribute 'summarizer'`` on the real
+# config and silently degraded for 18 sessions. The mocks above cannot see that
+# (their config answers any name), which is why these three tests use the real
+# ``LLMConfig``.
+
+
+def _real_ctx():
+    from artemis.config.llm import get_default_llm_config
+
+    return SimpleNamespace(llm_config=get_default_llm_config())
+
+
+def test_the_summarizer_role_resolves_from_the_agent_namespace():
+    from artemis.config.llm import get_default_llm_config
+
+    endpoint = _factory()(_real_ctx(), "summarizer")
+
+    config = get_default_llm_config()
+    assert endpoint.provider.value == config.summarizer.provider
+    assert endpoint.model_name == config.summarizer.model
+
+
+def test_the_utils_namespace_does_not_hold_the_agent_roles():
+    """Asking for an agent role in the utils namespace must fail, and say which."""
+    with pytest.raises(Exception) as excinfo:
+        _factory()(_real_ctx(), "summarizer", is_utils=True)
+
+    assert "utils" in str(excinfo.value).lower()
+
+
+def test_a_utils_role_resolves_from_the_utils_namespace():
+    from artemis.config.llm import get_default_llm_config
+
+    endpoint = _factory()(_real_ctx(), "outputter", is_utils=True)
+
+    assert endpoint.provider.value == get_default_llm_config().utils.outputter.provider

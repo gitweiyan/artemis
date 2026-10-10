@@ -102,6 +102,8 @@ class StepMemoryService:
         self._retry_limit = max(0, retry_limit)
         self._flush_timeout_s = max(0.0, flush_timeout_s)
         self._aliases: dict[JobKey, JobKey] = {}
+        #: One line per run for a lens that cannot exist (I4), not one per step.
+        self._terminal_reported = False
         self._semaphore = asyncio.Semaphore(max(1, max_concurrency))
 
     # ------------------------------------------------------------------
@@ -158,6 +160,18 @@ class StepMemoryService:
         with detached_trace(self.trace_node_name):
             await self._run_attempts(key)
 
+    def job_can_succeed(self, key: JobKey) -> bool:
+        """Whether another attempt could change this job's outcome.
+
+        The bounded retry below is for *transient* failures. A lens that could
+        not be built at all fails every attempt identically, so retrying it only
+        multiplies one configuration error: the 2026-10-10 pair of runs spent 4
+        attempts on each of 20 steps (76 dispatches, 20 "Giving up" lines) to
+        re-learn a fact that was decided at construction. Services whose lens can
+        be in such a state override this.
+        """
+        return True
+
     async def _run_attempts(self, key: JobKey) -> None:
         """Retry one job independently, bounded by the configured retry limit.
 
@@ -170,6 +184,20 @@ class StepMemoryService:
             async with self._semaphore:
                 succeeded = await self._attempt(key)
             if succeeded:
+                return
+
+            if not self.job_can_succeed(key):
+                # Terminal, and the same for every step: report once, then stop.
+                self._failed.add(key)
+                if not self._terminal_reported:
+                    self._terminal_reported = True
+                    lens_name = getattr(self._lens, "name", None) or type(self).__name__
+                    logger.warning(
+                        f"StepMemoryService: lens '{lens_name}' cannot produce a summary on"
+                        " this run; the remaining retries are skipped and each affected step"
+                        " keeps its full record (capability recorded for the run)."
+                    )
+                self._on_status(key, "failed")
                 return
 
             retry_count = self._retry_counts.get(key, 0) + 1

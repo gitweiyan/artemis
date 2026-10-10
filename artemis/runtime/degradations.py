@@ -37,8 +37,14 @@ ARCHIVE_INCOMPLETE = "archive_incomplete"
 
 #: How many uncommitted paths an identity names before it stops listing them.
 DIRTY_PATHS_LIMIT = 20
+#: A lens could not be built at all on this run (a role resolved in the wrong
+#: config namespace, a missing credential): the capability is missing, not retried.
+LENS_UNAVAILABLE = "lens_unavailable"
+
 #: Kinds that mean a capability was missing, as opposed to a retried call.
-CAPABILITY_KINDS = frozenset({TRANSCRIPT_FALLBACK, VISUAL_SUMMARY_FAILURE, ARCHIVE_INCOMPLETE})
+CAPABILITY_KINDS = frozenset(
+    {TRANSCRIPT_FALLBACK, VISUAL_SUMMARY_FAILURE, ARCHIVE_INCOMPLETE, LENS_UNAVAILABLE}
+)
 
 _LOG_ATTR = "run_degradations"
 _EXAMPLE_CHARS = 200
@@ -223,6 +229,7 @@ __all__ = [
     "TRANSCRIPT_FALLBACK",
     "VISUAL_SUMMARY_FAILURE",
     "DIRTY_PATHS_LIMIT",
+    "LENS_UNAVAILABLE",
     "DegradationLog",
     "build_run_environment",
     "code_identity",

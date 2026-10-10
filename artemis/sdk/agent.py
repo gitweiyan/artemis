@@ -41,7 +41,7 @@ from artemis.context import (
 )
 from artemis.data_engine.engine import DataEngine
 from artemis.graph.state import State
-from artemis.runtime import run_identity, trace_store
+from artemis.runtime import run_capabilities, run_identity, trace_store
 from artemis.runtime.cancel_requests import watch_for_cancel_request
 from artemis.sdk.run_outcome import attach_test_summary, resolve_trace_suffix
 from artemis.sdk.types.agent import AgentConfig
@@ -354,6 +354,10 @@ class Agent(AgentBase):
                 f"was resolved as '{task.status}': {exc}",
                 exc_info=True,
             )
+        finally:
+            # I2: the capability record describes the run, not the archive, so it
+            # is flushed even when trace finalization failed.
+            run_capabilities.write_capabilities(context)
 
     def _get_graph_state(self, task: Task):
         return State.initial(task.request.goal)

@@ -1056,7 +1056,19 @@ def _resolve_endpoint(
                 f"Default LLM config could not be loaded while resolving '{name}': {exc}"
             ) from exc
 
-    cfg = ctx.llm_config.get_utils(name) if is_utils else ctx.llm_config.get_agent(name)
+    try:
+        cfg = ctx.llm_config.get_utils(name) if is_utils else ctx.llm_config.get_agent(name)
+    except AttributeError as exc:
+        # A role name read from the wrong namespace used to surface as
+        # "'LLMConfigUtils' object has no attribute 'summarizer'", which named the
+        # container instead of the mistake and cost a day of silence (I1).
+        namespace = "utils" if is_utils else "agent"
+        raise ValueError(
+            f"role '{name}' is not a {namespace} node in this workspace's LLM config: {exc}. "
+            "Agent roles (summarizer, operator, checker, planner, ...) and utils roles "
+            "(outputter, hopper, video_analyzer, object_detector) live in separate "
+            "namespaces; is_utils selects which one."
+        ) from exc
 
     if use_fallback:
         if isinstance(cfg, LLMWithFallback) or (hasattr(cfg, "fallback") and cfg.fallback):

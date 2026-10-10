@@ -36,6 +36,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from artemis.context import ArtemisContext
 from artemis.memory.step_memory import JobKey, StepMemoryService
+from artemis.runtime import run_capabilities
 from artemis.services.llm import RobustChatModelWrapper, get_llm, get_llm_for_model
 from artemis.services.token_meter import record_llm_usage
 from artemis.utils.task_tree import format_actions_clean
@@ -343,17 +344,33 @@ class VisualStepSummarizer(StepMemoryService):
         fails loudly per step instead of the session never starting).
         """
         try:
+            # ``summarizer`` is an *agent* node: reading it out of the utils
+            # namespace raised "'LLMConfigUtils' object has no attribute
+            # 'summarizer'" on every run from 2026-10-09 17:11 to 2026-10-10,
+            # silently (I1/H-1). Do not pass is_utils here.
             if model_name:
-                return get_llm_for_model(
-                    ctx, "summarizer", model_name, is_utils=True, temperature=0.0
-                )
-            return get_llm(ctx, name="summarizer", is_utils=True)
+                lens = get_llm_for_model(ctx, "summarizer", model_name, temperature=0.0)
+            else:
+                lens = get_llm(ctx, name="summarizer")
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.warning(
                 f"Visual step summarizer lens unavailable on this run ({exc}); "
                 f"continuing without step summaries."
             )
+            run_capabilities.record_lens(ctx, "step_summarizer", available=False, reason=exc)
             return None
+        run_capabilities.record_lens(ctx, "step_summarizer", available=True)
+        return lens
+
+    def job_can_succeed(self, key: JobKey) -> bool:
+        """Whether another attempt could change this step's outcome (I4).
+
+        A lens that could not be built fails every attempt identically, so the
+        bounded retry would only multiply one configuration error: the pair of
+        runs on 2026-10-10 spent 4 attempts on each of 20 steps (76 dispatches)
+        re-learning a fact that was decided at construction.
+        """
+        return self._llm is not None
 
     def _meter_lens_call(self, response: Any) -> None:
         """Meter one raw-model lens call as an ``llm_usage`` trace, best-effort.
