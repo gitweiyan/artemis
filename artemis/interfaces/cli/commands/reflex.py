@@ -132,6 +132,103 @@ def probe(
         )
 
 
+@reflex_app.command("calibrate")
+def calibrate(
+    skill: Annotated[str, typer.Option("--skill", "-s", help="Skill to calibrate.")] = "tetris",
+    serial: Annotated[str | None, typer.Option("--serial", help="Device serial.")] = None,
+    frames: Annotated[int, typer.Option("--frames", help="Frames to capture.")] = 3,
+    gap: Annotated[float, typer.Option("--gap", help="Seconds between frames.")] = 1.0,
+    capture: Annotated[str, typer.Option("--capture", help="'helper' or 'screencap'.")] = "helper",
+    launch: Annotated[str | None, typer.Option("--launch", help="Package to launch first.")] = None,
+    keep: Annotated[bool, typer.Option("--keep/--no-keep", help="Save sample frames.")] = True,
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+) -> None:
+    """Capture real frames and print what perception sees (grid, palette, board).
+
+    A vision skill is only as good as its calibration, and calibration needs eyes on
+    the screen. The board is rendered as text on purpose: that is how a wrong palette
+    or a shifted grid becomes visible without opening the image.
+    """
+    import sys
+
+    target = serial or _resolve_serial()
+    if not target:
+        typer.secho("No device found (connect one, or pass --serial).", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    try:
+        handle = registry.load_skill(skill)
+    except registry.SkillError as exc:
+        typer.secho(f"Skill not loadable: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    if not callable(handle.arena) and handle.calibration.get("_no_arena"):
+        raise typer.Exit(code=1)
+
+    package = launch or (handle.calibration.get("package") or "")
+    if package:
+        import subprocess
+
+        subprocess.run(
+            [
+                "adb",
+                "-s",
+                target,
+                "shell",
+                "monkey",
+                "-p",
+                package,
+                "-c",
+                "android.intent.category.LAUNCHER",
+                "1",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        typer.echo(f"Launched {package}; waiting 5 s for it to settle…")
+        import time
+
+        time.sleep(5.0)
+
+    module = sys.modules.get(f"artemis_skills_{skill}_calibrate")
+    if module is None:
+        import importlib
+
+        try:
+            module = importlib.import_module(f"artemis_skills_{skill}.calibrate")
+        except ImportError:
+            try:
+                module = importlib.import_module(f"artemis_skills_{skill}.calibrate")
+            except ImportError as exc:
+                typer.secho(f"Skill '{skill}' ships no calibrate.py: {exc}", fg=typer.colors.RED)
+                raise typer.Exit(code=1) from exc
+
+    source = default_capture(target, prefer=capture)
+    try:
+        images = module.settle_and_capture(source, frames=frames, gap_s=gap)
+    finally:
+        source.close()
+
+    samples = handle.directory / module.SAMPLES_DIR
+    reports = []
+    for index, image in enumerate(images):
+        if keep:
+            path = module.save_frame(image, directory=samples, tag=f"calib-{index + 1}")
+            typer.echo(f"sample saved: {path}")
+        report = module.analyse(image, grid=None)
+        report["sample"] = f"calib-{index + 1}"
+        reports.append(report)
+
+    if as_json:
+        typer.echo(module.json_report(reports if len(reports) > 1 else reports[0]))
+        return
+    for report in reports:
+        typer.echo("")
+        typer.echo(module.render_report(report))
+    typer.echo("")
+    typer.echo("calibration proposal (paste into calibration.json, then correct by hand):")
+    typer.echo(json.dumps(module.proposal(reports[-1]), ensure_ascii=False, indent=2))
+
+
 @reflex_app.command("arena")
 def arena(
     skill: Annotated[
