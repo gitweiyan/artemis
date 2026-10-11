@@ -47,9 +47,15 @@ class FakeResponse:
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch):
+def _clean_env(monkeypatch, tmp_path):
+    """No key from the environment, and none from a ``.env`` either.
+
+    The workspace this suite runs in has a real ``TYPESAFE_API_KEY`` in ``.env``;
+    pointing the lookup at an empty file is what makes "unconfigured" mean it.
+    """
     for name in (systemone.ENV_API_KEY, systemone.ENV_BASE_URL, systemone.ENV_MODEL):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(systemone, "dotenv_path", lambda: tmp_path / "absent.env")
     yield
 
 
@@ -181,7 +187,7 @@ def test_the_helpers_shape_the_three_primitives(monkeypatch):
 
 
 def test_configuration_is_read_from_the_environment(monkeypatch):
-    assert systemone.is_configured() is False
+    assert systemone.is_configured() is False, "an empty environment means no key"
     monkeypatch.setenv(systemone.ENV_API_KEY, "  spaced  ")
     monkeypatch.setenv(systemone.ENV_MODEL, "jev-1.13.0")
 

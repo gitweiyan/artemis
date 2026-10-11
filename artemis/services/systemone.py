@@ -50,6 +50,20 @@ class SystemOneUnavailable(RuntimeError):
     """
 
 
+def dotenv_path() -> os.PathLike[str] | str:
+    """Where the optional ``.env`` lives — a seam, so tests can point elsewhere.
+
+    Configuration discovery that cannot be redirected is configuration discovery
+    that cannot be tested: a workspace with a real key in ``.env`` made the
+    "unconfigured" tests pass for the wrong reason.
+    """
+    from pathlib import Path as _Path
+
+    from artemis.config import ROOT_DIR
+
+    return _Path(str(ROOT_DIR)) / ".env"
+
+
 def api_key() -> str | None:
     """The configured key, from the environment or ``.env`` at the repo root."""
     value = os.environ.get(ENV_API_KEY)
@@ -58,9 +72,7 @@ def api_key() -> str | None:
     try:
         from dotenv import load_dotenv
 
-        from artemis.config import ROOT_DIR
-
-        load_dotenv(os.path.join(str(ROOT_DIR), ".env"), override=False)
+        load_dotenv(str(dotenv_path()), override=False)
     except (OSError, ImportError, ValueError) as exc:
         logger.debug(f"System One: could not read .env: {exc}")
         return None
@@ -237,6 +249,7 @@ __all__ = [
     "ask",
     "base_url",
     "choice",
+    "dotenv_path",
     "is_configured",
     "model_name",
     "noul",
