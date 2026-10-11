@@ -1,18 +1,18 @@
 {
-  "note": "PLACEHOLDER — fill from a real screenshot with `artemis reflex calibrate` (M0). Until then perception.decode/find_grid will refuse frames, which is the intended failure mode.",
+  "note": "geometry measured on PEMM00 from a live frame of cn.flytalk.tetris.nearme.gamecenter (2026-10-10). Cell classification uses max(RGB) above `brightness_threshold`; colours still need a frame with pieces in play.",
   "grid": {
-    "origin_x": 60,
-    "origin_y": 220,
-    "cell_w": 60,
-    "cell_h": 60,
+    "origin_x": 35,
+    "origin_y": 320,
+    "cell_w": 43,
+    "cell_h": 43,
     "cols": 10,
     "rows": 20
   },
   "tolerance": 60,
   "background": [
-    20,
-    20,
-    28
+    26,
+    68,
+    88
   ],
   "colours": {
     "I": [
@@ -89,5 +89,17 @@
   },
   "target_lines": 0,
   "policy_backend": "search",
-  "systemone_timeout_s": 1.0
+  "systemone_timeout_s": 1.0,
+  "package": "cn.flytalk.tetris.nearme.gamecenter",
+  "brightness_threshold": 90,
+  "measured": {
+    "source": "adb screencap 720x1600 + pixel projection over the hypothesised playfield",
+    "verified_by": "ASCII board shows a plausible stack (empty top rows, blocks at the bottom) and the vision model confirms a tetris board with stacked blocks",
+    "playfield_px": [
+      35,
+      320,
+      465,
+      1180
+    ]
+  }
 }
