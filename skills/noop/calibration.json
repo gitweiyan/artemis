@@ -1,0 +1,4 @@
+{
+  "stop_after_frames": 0,
+  "note": "0 = keep measuring until the caller's time budget runs out"
+}

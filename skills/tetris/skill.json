@@ -1,0 +1,16 @@
+{
+  "name": "tetris",
+  "version": "0.1.0",
+  "kind": "reflex",
+  "entry": {
+    "perception": "perception:parse",
+    "policy": "policy_dispatch:decide",
+    "control": "control:to_gestures",
+    "arena": "arena:run_tournament"
+  },
+  "calibration": "calibration.json",
+  "plan_hint": "Plays a Tetris-like game at full speed: hand it the device for N seconds and it reads the board from pixels, picks a placement and plays. Verify the reported lines/score afterwards.",
+  "requires": {
+    "screenshot": true
+  }
+}

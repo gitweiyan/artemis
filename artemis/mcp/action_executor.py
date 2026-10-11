@@ -71,7 +71,8 @@ __all__ = ["McpActionExecutor"]
 
 #: Non-device tools executed agent-side (never behind the action server).
 AGENT_TOOL_NAMES: frozenset[str] = (
-    frozenset({"read_note", "list_notes", "ask_explorer", "video_analyzer"}) | HISTORY_TOOL_NAMES
+    frozenset({"read_note", "list_notes", "ask_explorer", "video_analyzer", "list_skills"})
+    | HISTORY_TOOL_NAMES
 )
 
 #: Actions whose ``target`` is a single point: an element index or an [x, y] pair.
@@ -649,6 +650,8 @@ class McpActionExecutor:
                 )
             elif raw_name in HISTORY_TOOL_NAMES:
                 text, blocks = await self._history_tool(raw_name, args)
+            elif raw_name in ("play_reflex", "list_skills"):
+                text, blocks = await self._reflex_tool(raw_name, args), None
             else:
                 text, ok = await self._ask_explorer(
                     # ``task_description`` is the pre-contract argument name
@@ -694,6 +697,24 @@ class McpActionExecutor:
             return format_list_notes_success(list_notes_info(base_dir))
         except Exception as e:
             return format_list_notes_failure(str(e))
+
+    async def _reflex_tool(self, raw_name: str, args: dict[str, Any]) -> str:
+        """Runs a reflex tool (``play_reflex`` / ``list_skills``) agent-side.
+
+        The reflex runtime is deliberately outside the action server: it drives the
+        device on its own short loop and returns a report, so it must not be
+        proxied through the per-action validation path.
+        """
+        from artemis.tools.reflex_tool import list_skills, play_reflex
+
+        tool = play_reflex if raw_name == "play_reflex" else list_skills
+        accepted = {k: v for k, v in args.items() if k in tool.args_schema.model_fields}
+        try:
+            result = await tool.execute(ctx=self.ctx, **accepted)
+        except (OSError, ValueError, RuntimeError, KeyError, AttributeError) as exc:
+            logger.error(f"Error running {raw_name}: {exc}")
+            return f"Error: {raw_name} failed: {exc}"
+        return str(result)
 
     async def _history_tool(
         self, raw_name: str, args: dict[str, Any]

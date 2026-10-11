@@ -1,0 +1,13 @@
+{
+  "name": "noop",
+  "version": "0.1.0",
+  "kind": "reflex",
+  "entry": {
+    "perception": "perception:parse",
+    "policy": "policy:decide",
+    "control": "control:to_gestures"
+  },
+  "calibration": "calibration.json",
+  "plan_hint": "Measures this device's frame capture rate, latency and jitter and performs no actions. Run it before trusting any other reflex skill, and when a device starts behaving oddly.",
+  "requires": { "screenshot": true }
+}

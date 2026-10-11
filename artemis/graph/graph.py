@@ -999,6 +999,13 @@ async def get_graph(ctx: ArtemisContext) -> CompiledStateGraph:
         ask_explorer_wrapper,
         *HISTORY_TOOL_WRAPPERS,
     ]
+    # Reflex skills (play_reflex / list_skills) are framework-generic: they exist
+    # only when a skill directory loads, and never carry game knowledge themselves.
+    from artemis.tools.reflex_tool import list_skills_wrapper, play_reflex_wrapper
+
+    if play_reflex_wrapper is not None:
+        operator_specialized_wrappers.append(play_reflex_wrapper)
+        operator_specialized_wrappers.append(list_skills_wrapper)
     # ask_committee does not follow the Operator's pre-decision / turn-ending contract.
 
     operator_specialized_tools = get_tools_from_wrappers(ctx, operator_specialized_wrappers)

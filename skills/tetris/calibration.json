@@ -1,0 +1,93 @@
+{
+  "note": "PLACEHOLDER — fill from a real screenshot with `artemis reflex calibrate` (M0). Until then perception.decode/find_grid will refuse frames, which is the intended failure mode.",
+  "grid": {
+    "origin_x": 60,
+    "origin_y": 220,
+    "cell_w": 60,
+    "cell_h": 60,
+    "cols": 10,
+    "rows": 20
+  },
+  "tolerance": 60,
+  "background": [
+    20,
+    20,
+    28
+  ],
+  "colours": {
+    "I": [
+      0,
+      240,
+      240
+    ],
+    "O": [
+      240,
+      240,
+      0
+    ],
+    "T": [
+      160,
+      0,
+      240
+    ],
+    "S": [
+      0,
+      240,
+      0
+    ],
+    "Z": [
+      240,
+      0,
+      0
+    ],
+    "J": [
+      0,
+      0,
+      240
+    ],
+    "L": [
+      240,
+      160,
+      0
+    ]
+  },
+  "gestures": {
+    "rotate": {
+      "kind": "tap",
+      "at": [
+        360,
+        1180
+      ]
+    },
+    "move": {
+      "kind": "swipe",
+      "y": 900,
+      "duration_ms": 90
+    },
+    "hard_drop": {
+      "kind": "swipe",
+      "from": [
+        360,
+        300
+      ],
+      "to": [
+        360,
+        1100
+      ],
+      "duration_ms": 140
+    }
+  },
+  "weights": {
+    "lines": 1.6,
+    "holes": -6.0,
+    "landing_height": -0.6,
+    "aggregate_height": -0.35,
+    "bumpiness": -0.25,
+    "row_transitions": -0.25,
+    "column_transitions": -0.25,
+    "well_sums": -0.2
+  },
+  "target_lines": 0,
+  "policy_backend": "search",
+  "systemone_timeout_s": 1.0
+}
