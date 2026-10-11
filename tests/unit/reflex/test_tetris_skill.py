@@ -289,6 +289,10 @@ def test_the_model_backend_falls_back_to_search_when_it_cannot_be_reached(tetris
 
     systemone_policy = importlib.import_module("artemis_skills_tetris.policy_systemone")
     dispatcher = sys.modules["artemis_skills_tetris.policy_dispatch"]
+    # "Not configured" has to be simulated at the source: a real workspace keeps the
+    # key in .env, so deleting the variable alone would still find one and make a
+    # live API call from a unit test.
+    monkeypatch.setattr(systemone, "api_key", lambda: None)
     monkeypatch.delenv(systemone.ENV_API_KEY, raising=False)
     systemone_policy.reset_telemetry()
     board = [["."] * 10 for _ in range(20)]
