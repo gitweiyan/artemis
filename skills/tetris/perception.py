@@ -136,6 +136,11 @@ def read_cells(image, grid, calibration: dict[str, Any]) -> list[list[str]]:
     background = calibration.get("background")
     background_rgb = np.asarray(background, dtype="float32") if background else None
     tolerance = float(calibration.get("tolerance") or DEFAULT_TOLERANCE)
+    # A game whose whole screen is saturated (deep-blue theme, glow everywhere) defeats
+    # a colour-similarity classifier: every cell "matches" something. The measured
+    # fallback is brightness — blocks are lit, the empty field is dark — so calibration
+    # may define `brightness_threshold` instead of a palette.
+    brightness = calibration.get("brightness_threshold")
 
     board: list[list[str]] = []
     for row in range(rows):
@@ -150,6 +155,9 @@ def read_cells(image, grid, calibration: dict[str, Any]) -> list[list[str]]:
                 line.append(EMPTY)
                 continue
             median = np.median(patch.reshape(-1, 3), axis=0)
+            if brightness is not None and not prototypes:
+                line.append("#" if float(median.max()) > float(brightness) else EMPTY)
+                continue
             letter = EMPTY
             if (
                 background_rgb is not None
