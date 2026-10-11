@@ -188,11 +188,35 @@ def _diff(board, settled) -> list[tuple[int, int, str]]:
     return out
 
 
+_calibration_cache: dict[str, Any] | None = None
+
+
+def calibration() -> dict[str, Any]:
+    """This skill's own calibration, read once.
+
+    The runtime calls ``parse(frame)`` — it has no business knowing where a skill
+    keeps its numbers — so the skill loads its own file. Without this the grid and
+    the colour prototypes arrive empty and every frame is blind, which is exactly
+    what happened on the first live run (15/15 blind frames, 2026-10-10).
+    """
+    global _calibration_cache
+    if _calibration_cache is None:
+        import json
+        from pathlib import Path as _Path
+
+        path = _Path(__file__).with_name("calibration.json")
+        try:
+            _calibration_cache = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _calibration_cache = {}
+    return _calibration_cache
+
+
 def parse(frame, calibration: dict[str, Any] | None = None):
     """``perception.parse(frame) -> state | None`` — the reflex runtime's contract."""
     global _previous, _settled
 
-    calibration = calibration or {}
+    calibration = calibration or globals()["calibration"]()
     image = _decode(frame)
     if image is None:
         return None
@@ -201,8 +225,11 @@ def parse(frame, calibration: dict[str, Any] | None = None):
         return None
     board = read_cells(image, grid, calibration)
 
-    if _previous is not None and board != _previous and calibration.get("require_stable", True):
-        # One frame of disagreement (a clear animation, a repaint): not yet trusted.
+    if _previous is not None and board != _previous and calibration.get("require_stable", False):
+        # Opt-in only. It was on by default and made *every* frame blind on a live
+        # game: a falling piece changes the board between captures by definition, so
+        # "two consecutive frames must agree" rejects the very thing we are reading.
+        # What must be stable is the settled stack, and that is handled below.
         _previous = board
         return None
     _previous = board
