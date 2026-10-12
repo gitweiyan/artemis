@@ -208,49 +208,51 @@
 
 ---
 
-## 执行进度与断点（2026-10-12，交接给新会话）
+## 执行进度与断点（2026-10-12 第二轮：T2–T9 已落地，T10 待真机）
 
-**方式**：Native（在会话内逐任务实现）。**顺序**：先 T2–T9（CV → Jev 决策），T10 真机验收留到设备阶段。
+**方式**：Native（会话内逐任务实现，TDD：先写失败测试 → 跑红 → 最小实现 → 跑绿）。
+**状态**：T2–T9 全部完成并通过整体评审；**T10 真机验收留到设备阶段**。
 
-| 任务 | 状态 | 证据 |
+| 任务 | 状态 | 提交 / 证据 |
 |---|---|---|
-| T1 参考帧语料 + 加载器 | ✅ 完成 | `d68c4d6`；`skills/tetris/samples/reference-{1,2,3}.jpg`（720×1600，来自 `reports/reflex-真机观察.html`） |
-| T2 比例 ROI + 归一化 400×800 | ⏳ 下一个开始 | — |
-| T3 无假设网格计数 | ⏳ 待做 | 回归 `claim-vs-evidence.md` 的判据 |
-| T4–T9 | ⏳ 待做 | — |
-| T10 真机验收 | ⏸ 留后 | 需要 `restart_flow` 坐标 + helper APK 是否可改的答复 |
+| T1 参考帧语料 + 加载器 | ✅ | `d68c4d6`；`skills/tetris/samples/reference-{1,2,3}.jpg` |
+| T2 比例 ROI + 归一化 400×800 | ✅ | `c14615e` → `skills/tetris/roi.py`；`board_roi_ratios` + `normalized_size` |
+| T3 无假设网格计数 | ✅ | `c38842b` → `skills/tetris/grid_probe.py`；3 张真机帧实测 **10×20，pitch 40，extent 0 px 偏差** |
+| T4 格子分类（HSV 中心中位） | ✅ | `4aacea9` → `skills/tetris/cells.py`；真机帧读出 11/15/17 个格，0.29 ms/帧 |
+| T5 帧差分离下落块 | ✅ | `aecf4c1` → `skills/tetris/pieces.py`（形状一致性判定） |
+| T6 Jev 报文组装 | ✅ | `44a3747` → `skills/tetris/jev_state.py` |
+| T7 模拟器泛化（重力为参数 + 任意掩码） | ✅ | `884a519` → `simulator.py` 四种重力 + 掩码，旧调用形式保持可用 |
+| T8 Jev 策略（合法候选内排序） | ✅ | `469fb86` → `skills/tetris/policy_jev.py`；`noul`/`choice` 两式，回退=掩码搜索 |
+| 集成（P5） | ✅ | `8abb655` → `perception.parse` 接入新链路（比例裁剪 → 测网格 → 格子 → 帧差） |
+| T9 `calibrate` 输出升级 | ✅ | `ad95a1d` → `verify_report`/`render_verification` + `--verify`（不合格即非 0 退出） |
+| 整体评审后的修复 | ✅ | `592fb89` → 见下「评审三类 Critical」 |
 
-**开工前必读/必做**
+**全量门禁（T9 之后、评审修复之后各跑一次）**：`.venv/bin/python -m pytest -q` → **14 failed, 2848 passed**（= 既有 14 条基线，无新增）；`ruff format --check` / `ruff check` / `scripts/quality_ratchet.py` 通过；`tests/unit/reflex` 167 passed。
 
-1. 读本计划（十个任务的 Files / Interfaces / Steps 已写全，可直接执行，不需要重新设计）；
-2. `make preflight`（代码身份：分支 / HEAD / 未提交路径 / provider 档位；`ARTEMIS_REQUIRE_CLEAN_TREE=1` 时脏树直接拒绝）；
-3. 知识判据（`~/.dsh/skills/writing-run-retrospectives/knowledge/`）：`claim-vs-evidence.md`（能测的先测）、`branch-base-regression.md`（真机前身份断言）、`stale-target-races.md`（障碍类目标消失=取消）；
-4. 每个任务：先写失败测试 → 跑红 → 最小实现 → 跑绿 → `ruff format --check` + `ruff check` + `scripts/quality_ratchet.py` → 提交。全量单测不得高于既有 **14 条基线失败**（9 explorer / 3 video_analyzer / 2 model_service）。
+**整体评审（fresh reviewer，review-197ffe9..ad95a1d.diff）发现的 Critical，已修并有回归测试**
 
-**本会话已落地、但不在本计划内的前置件（新会话不必重做）**
+1. **下落块与堆积块连通**：连通域会把贴住堆积的方块并成"13 格下落块 + 空地形"（每次落定前的那一帧）。改为**形状一致性**判定（可旋转，不可吞并），判不出来就报"无下落块"。
+2. **两帧网格尺寸不同**：真实 trace 帧（视频 App 画面实measure 出 67×133）会让 `parse` 抛 `IndexError` → 运行时报 skill_error 而非盲帧停手。现在尺寸不同即不读运动，且网格变化时清空历史。
+3. **"是不是棋盘"太松**：`traces/` 里 149 张真实 720×1600 帧中有 **47 张**（视频 App、Android 设置列表）能通过周期性与 extent 判据（pitch 6–8 px）；它们的周期性 0.395–0.802，而三张真棋盘帧只有 0.554–0.561——区间重叠，**没有任何阈值能分开**。因此身份改为**校验**：测出的行列数必须与标定一致（`grid_probe.identity_problem`），不一致即盲帧；`calibrate` 打印同一理由并非 0 退出。
 
-| 内容 | 提交 / 位置 |
+**T10 真机阶段开工前必做**
+
+1. `make preflight` + `ARTEMIS_REQUIRE_CLEAN_TREE=1`（真机前身份断言，见 `branch-base-regression.md`）；
+2. 把 `calibration.json: policy_backend` 改为 `"jev"`（默认仍是 `"search"`，出厂默认不依赖网络；`test_the_manifest_switches_backend_by_calibration_file` 钉住这一点）；
+3. 先跑 `artemis reflex calibrate --skill tetris --verify`：它现在会**测量**网格并与标定对照、逐格打印 HSV、屏幕太暗会报"设备在睡"；
+4. 需要答复的遗留决策（未变）：`restart_flow` 两个"重新开始"按钮坐标 + "点一次 → 等 5 s → 再点一次"的验证；helper APK 是否可改（加"仅截图"端点把反应压到 250 ms 以内）。
+
+**T10 之前值得先量一次的三个数（评审遗留，均未实测）**
+
+| 待量 | 为什么 |
 |---|---|
-| reflex 框架层（registry/runtime/contract/capture/control/attach + `play_reflex`/`list_skills` + `artemis reflex skills/probe/arena/calibrate`） | `e28547c`、`c66d695` |
-| 棋盘几何实测值（**T2 会用比例替换它**） | `7e72939` → `calibration.json: grid{origin_x:35,origin_y:320,cell_w:43,cell_h:43,cols:10,rows:20}` |
-| 感知两个真机 bug 修复（整帧稳定性门槛致 15/15 盲帧；`parse` 拿不到标定） | `855c3de` |
-| `make preflight` + `docs/branch-plan.md` 引用 | `6c4926c`、`9af4949` |
-| skill 知识库：三份 knowledge 的 trigger/artifact 元数据、`INDEX.md` 决策表、`SKILL.md` 的 Before-you-start / Before-you-claim-done、复盘 workflow 第 7 步硬要求、`claim-vs-evidence.md` | `~/.dsh/skills/writing-run-retrospectives/` |
+| `systemone_timeout_s: 1.0` 能否覆盖一次带 40 个 `noul` 问题的调用 | 若不够，Jev 永远赢不了，且失败是静默的（counters 只显示 `source=search`） |
+| 每块一次决策是否真的成立（`telemetry()["reuses"]` / `calls`） | 计划的内环预算：唯一模型调用 = 每块一次 |
+| 参考帧里 3 个贴阈值的空格（row 18 col 9、row 19 col 8–9，V≈50–51 < v_min 65） | 决定 `hsv.v_min/s_min` 是否要下调，否则光照变化时这些格子会翻面 |
 
-**新会话必须知道的环境事实（都是实测，别再踩）**
+**真机阶段已知的行为边界（不是 bug，是设计选择）**
 
-| 事实 | 数值 / 做法 |
-|---|---|
-| 设备 | PEMM00，序列号 `EUWSOBXCZLPFNJF6`，Android 13（SDK 33） |
-| 目标游戏 | `cn.flytalk.tetris.nearme.gamecenter`（Unity3D，a11y 树里没有棋盘节点 → 只能走像素） |
-| 抓帧延迟 | helper 原子快照 **489 ms**、`adb screencap` **330 ms**、helper 仅层级 13 ms → 内环 2–3 fps，设计必须"每块决策一次" |
-| helper 挂载 | 一串 `adb shell`，必须带截止时间（已实现 20 s）；该设备曾出现**单命令 83 s** 与 attach 卡死 |
-| 屏幕会睡 | 抓帧前必须 `input keyevent KEYCODE_WAKEUP`，否则得到全黑帧（会被计为盲帧） |
-| 现有 forward | `adb forward --list` 里已有 `tcp:<port> tcp:18888`；helper 需要 token（`push_token` 走 adb shell） |
-| 视觉模型 | `deepseek-flash` **能看图**，但只有"裁剪 + 单一简单问题"可靠；多问/要坐标会空答（推理吃满输出预算）→ 定位仍靠像素分析 |
-| Jev | `TYPESAFE_API_KEY` 已在 `.env`；端点 `https://api.typesafe.ai/v1/systemone`；纯文本、`noul/choice/score`、不调工具 |
-
-**遗留决策（T10 前需要答复）**
-
-1. `restart_flow` 两个"重新开始"按钮的坐标（面板里 + 弹框里），以及"点一次 → 等 5 s → 再点一次"的验证；
-2. 是否允许改 helper APK（加"仅截图 + 可降分辨率"端点）以把反应压到 250 ms 以内；不允许则内环锁定 2–3 fps。
+- 贴着堆积的下落块、以及两帧网格尺寸不同时，`parse` 报"无下落块"→ 该帧不决策（宁可不走，也不喂给策略一个不存在的棋盘）；
+- 覆盖棋盘的广告/弹窗、尺寸不符的整屏纹理 → `parse` 返回 `None`，运行时按盲帧计数并在超阈值后停手；
+- `perception.parse` 返回的状态同时带新链路键（`board_matrix`/`current_piece_mask`/`motion_vector`）与旧的字母棋盘（标准七种才有字母，自定义形状为 `None`）；
+- 每次会话开始由 `skill.json: hooks.on_start → session:start` 清空帧历史与上一次决策缓存。
