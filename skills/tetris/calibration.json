@@ -115,5 +115,15 @@
       465,
       1180
     ]
+  },
+  "mechanics": {
+    "note": "The game can switch the drop direction mid-session (切换掉落方向) and defines custom shapes (定义方块). gravity_options is the axis set this skill can play and must match simulator.GRAVITIES; shapes is the app's custom shape set as 0/1 bitmaps, empty until a live session records it - the simulator accepts any mask, so nothing needs recompiling when it is filled in.",
+    "gravity_options": [
+      "down",
+      "up",
+      "left",
+      "right"
+    ],
+    "shapes": {}
   }
 }

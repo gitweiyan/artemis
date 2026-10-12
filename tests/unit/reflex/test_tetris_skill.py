@@ -364,3 +364,148 @@ def test_the_manifest_switches_backend_by_calibration_file(tetris):
     assert calibration["policy_backend"] == "search", (
         "the shipped default must not depend on a network service"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Gravity as a parameter, shapes as geometry (T7)
+# --------------------------------------------------------------------------- #
+
+#: A 2x3 rectangle: not one of the standard seven, and the point of the exercise.
+RECT = [[1, 1], [1, 1], [1, 1]]
+#: An L, as geometry rather than a letter.
+L_MASK = [[1, 1, 1], [1, 0, 0]]
+
+
+def filled(board, sim):
+    return {
+        (y, x) for y, row in enumerate(board) for x, cell in enumerate(row) if cell != sim.EMPTY
+    }
+
+
+def test_gravity_up_lands_the_piece_at_the_ceiling(sim):
+    """The game can switch the drop direction mid-session (Review Focus 3)."""
+    landed = sim.drop(sim.empty_board(), "O", 4, gravity="up")
+
+    assert filled(landed, sim) == {(0, 4), (0, 5), (1, 4), (1, 5)}
+
+
+def test_gravity_left_lands_the_piece_at_the_left_wall(sim):
+    landed = sim.drop(sim.empty_board(), "O", 5, gravity="left")
+
+    assert filled(landed, sim) == {(5, 0), (5, 1), (6, 0), (6, 1)}
+
+
+def test_gravity_right_lands_the_piece_at_the_right_wall(sim):
+    landed = sim.drop(sim.empty_board(), "O", 5, gravity="right")
+
+    assert filled(landed, sim) == {(5, 8), (5, 9), (6, 8), (6, 9)}
+
+
+def test_a_mask_stops_against_the_stack_not_only_the_wall(sim):
+    board = sim.empty_board()
+    board[5][2] = "I"
+
+    landed = sim.drop(board, RECT, 3, gravity="left")
+
+    # (5, 2) is the block that stopped it; the piece's own six cells are the rest.
+    assert filled(landed, sim) - {(5, 2)} == {
+        (3, 3),
+        (3, 4),
+        (4, 3),
+        (4, 4),
+        (5, 3),
+        (5, 4),
+    }
+    assert landed[5][2] == "I", "the block it stopped against is still there"
+
+
+@pytest.mark.parametrize("gravity", ["down", "up", "left", "right"])
+def test_a_custom_mask_lands_in_every_gravity_without_leaving_the_board(sim, gravity):
+    """Review Focus 4: the shape set is not the standard seven, so give it geometry."""
+    board = sim.empty_board()
+
+    landed = sim.drop(board, RECT, 4, gravity=gravity)
+
+    assert landed is not None, gravity
+    cells = filled(landed, sim)
+    assert len(cells) == 6
+    assert all(0 <= y < sim.BOARD_HEIGHT and 0 <= x < sim.BOARD_WIDTH for y, x in cells)
+    assert board == sim.empty_board(), "the input board must not be mutated"
+
+
+@pytest.mark.parametrize("gravity", ["down", "up", "left", "right"])
+def test_legal_placements_offer_the_custom_mask_in_every_gravity(sim, gravity):
+    board = sim.empty_board()
+    board[-1][4] = "I"
+
+    placements = sim.legal_placements(board, RECT, gravity=gravity)
+
+    assert placements, gravity
+    vertical = gravity in {"down", "up"}
+    extent = sim.BOARD_WIDTH if vertical else sim.BOARD_HEIGHT
+    for placement, cells in placements:
+        span = sim.shape_width(cells) if vertical else sim.shape_height(cells)
+        assert 0 <= placement.column <= extent - span, (placement, cells)
+        assert sim.drop(board, cells, placement.column, gravity=gravity) is not None
+
+
+def test_the_standard_scenarios_are_unchanged(sim):
+    """The regression the plan asks for: the old call still means what it meant."""
+    board = sim.empty_board()
+    board[-1][0] = "I"
+    settled = filled(board, sim)
+
+    legacy = sim.drop(board, "O", sim.orientations("O")[0], 4)
+    by_mask = sim.drop(board, [[1, 1], [1, 1]], 4)
+
+    # The same cells, and only the marker differs: a letter names a shape, and a
+    # game with custom shapes has none - so geometry lands as MASK_FILL instead.
+    placed = {(18, 4), (18, 5), (19, 4), (19, 5)}
+    assert filled(legacy, sim) == filled(by_mask, sim) == settled | placed
+    assert legacy[19][4] == "O", "the letter path still labels its cells (the arena needs it)"
+    assert by_mask[19][4] == sim.MASK_FILL
+    assert sim.drop(board, "O", sim.orientations("O")[0], 4, gravity="down") == legacy
+
+
+def test_orientations_from_mask_starts_where_the_piece_is(sim):
+    """Index 0 is what the screen shows: the gesture layer taps `rotation` times."""
+    assert sim.orientations_from_mask(L_MASK)[0] == L_MASK
+    assert len(sim.orientations_from_mask(L_MASK)) == 4
+    assert len(sim.orientations_from_mask([[1, 1], [1, 1]])) == 1
+    assert len(sim.orientations_from_mask(RECT)) == 2
+
+
+def test_a_letter_and_its_geometry_are_the_same_piece(sim):
+    """The seven names stay as a convenience; the mask is the real interface."""
+    for letter, shape in sim.SHAPES.items():
+        from_cells = sim.mask_cells(shape)
+
+        assert from_cells == sim.normalise(shape), letter
+        assert sim.mask_bitmap(shape) == sim.mask_bitmap(from_cells)
+
+
+def test_a_placement_that_cannot_fit_is_refused_never_wrapped(sim):
+    """A coordinate off the board returns nothing; it never wraps to the other side.
+
+    Pinned after a mutation: deleting the explicit coordinate guard changed no test,
+    because the per-cell bounds check refuses the same placements. The observable
+    contract is what matters and is what is asserted here.
+    """
+    assert sim.drop(sim.empty_board(), [[1] * 11], 0) is None
+    assert sim.drop(sim.empty_board(), "O", 999) is None
+    assert sim.drop(sim.empty_board(), "O", -3) is None
+    assert sim.drop(sim.empty_board(), "O", 4, gravity="up") is not None
+
+
+def test_an_unknown_gravity_is_refused_rather_than_guessed(sim):
+    with pytest.raises(ValueError, match="gravity"):
+        sim.drop(sim.empty_board(), "O", 4, gravity="sideways")
+
+
+def test_the_calibrated_gravity_options_are_what_the_simulator_supports(tetris, sim):
+    """The calibration file and the rules module must agree about the axis set."""
+    calibration = json.loads((SKILLS / "tetris" / "calibration.json").read_text(encoding="utf-8"))
+
+    mechanics = calibration["mechanics"]
+    assert set(mechanics["gravity_options"]) == set(sim.GRAVITIES)
+    assert isinstance(mechanics["shapes"], dict), "the app's custom shape set, empty until measured"

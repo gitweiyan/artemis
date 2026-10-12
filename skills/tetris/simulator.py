@@ -32,6 +32,16 @@ SHAPES: dict[str, tuple[tuple[int, int], ...]] = {
 
 PIECE_NAMES = tuple(SHAPES)
 
+#: The directions a piece can fall in. The game this skill plays can switch gravity
+#: mid-session, so it is a parameter of the rules, not a constant of them.
+GRAVITIES = ("down", "up", "left", "right")
+#: gravity → (axis it moves along, step). "y" is rows (top to bottom), "x" is columns.
+_GRAVITY_STEP = {"down": ("y", 1), "up": ("y", -1), "right": ("x", 1), "left": ("x", -1)}
+#: What a mask-placed piece leaves behind. A letter names a shape from the *standard*
+#: seven, which a game with custom shapes does not have, so geometry gets its own
+#: marker rather than a lie.
+MASK_FILL = "#"
+
 EMPTY = "."
 #: A filled cell keeps the letter of the piece that filled it, so a frame parsed by
 #: perception can be compared with a simulation cell by cell.
@@ -78,6 +88,88 @@ def shape_width(cells: tuple[tuple[int, int], ...]) -> int:
     return max(x for x, _ in cells) + 1
 
 
+def shape_height(cells: tuple[tuple[int, int], ...]) -> int:
+    return max(y for _, y in cells) + 1
+
+
+# --------------------------------------------------------------------------- #
+# Shapes as geometry: any mask, not the standard seven
+# --------------------------------------------------------------------------- #
+
+
+def mask_cells(mask) -> tuple[tuple[int, int], ...]:
+    """Any accepted mask form → normalised ``(x, y)`` cell offsets.
+
+    Accepted, because all three are produced somewhere in this skill:
+
+    * a piece **letter** (``"T"``) — the convenience the arena and the search policy
+      still use;
+    * a sequence of **2-tuples** of offsets — what ``SHAPES``/``orientations`` produce;
+    * a 2-D **bitmap** of 0/1 — what ``pieces.split_pieces`` reads off the screen, and
+      what a custom shape in the calibration file looks like;
+    * a 2-D numpy array — a bitmap.
+
+    A list of tuples is offsets; a list of lists is a bitmap. That is the only
+    ambiguous case, and every producer in this codebase sits on one side of it.
+    """
+    if isinstance(mask, str):
+        if mask not in SHAPES:
+            raise ValueError(f"unknown piece {mask!r}; known: {', '.join(PIECE_NAMES)}")
+        return SHAPES[mask]
+
+    rows = None
+    if getattr(mask, "ndim", None) == 2:  # numpy array
+        rows = [list(row) for row in mask.tolist()]
+    elif isinstance(mask, (list, tuple)):
+        items = list(mask)
+        if not items:
+            raise ValueError("an empty mask describes no piece")
+        if all(isinstance(item, tuple) and len(item) == 2 for item in items):
+            return normalise(tuple((int(x), int(y)) for x, y in items))
+        rows = [list(item) for item in items]
+
+    if rows is None:
+        raise ValueError(f"cannot read a piece shape out of {type(mask).__name__}")
+
+    cells = tuple(
+        (column, row)
+        for row, line in enumerate(rows)
+        for column, cell in enumerate(line)
+        if int(cell)
+    )
+    if not cells:
+        raise ValueError("the mask has no filled cell")
+    return normalise(cells)
+
+
+def mask_bitmap(mask) -> list[list[int]]:
+    """The same shape as a 0/1 bitmap of its own bounding box."""
+    cells = mask_cells(mask)
+    width, height = shape_width(cells), shape_height(cells)
+    bitmap = [[0] * width for _ in range(height)]
+    for x, y in cells:
+        bitmap[y][x] = 1
+    return bitmap
+
+
+def orientations_from_mask(mask) -> tuple[list[list[int]], ...]:
+    """Every distinct rotation of a mask, **starting with the mask as given**.
+
+    Index 0 is the orientation the screen showed, because that is what the control
+    layer needs: it turns ``rotation`` into that many taps, and tap zero must mean
+    "leave it as it is". (``orientations`` starts from the *spawn* shape instead,
+    which is the right convention for a piece that has just appeared.)
+    """
+    first = mask_cells(mask)
+    seen: list[tuple[tuple[int, int], ...]] = [first]
+    current = first
+    for _ in range(3):
+        current = normalise(rotate(current))
+        if current not in seen:
+            seen.append(current)
+    return tuple(mask_bitmap(cells) for cells in seen)
+
+
 @dataclass(frozen=True)
 class Placement:
     """One legal way to drop a piece: rotation index + column of its left edge."""
@@ -90,38 +182,96 @@ class Placement:
 
 
 def can_place(board: Board, piece: str, cells: tuple[tuple[int, int], ...], column: int) -> bool:
-    """Whether ``piece`` fits when dropped into ``column`` (top-out counts as no)."""
-    height = len(board)
-    if column < 0 or column + shape_width(cells) > len(board[0]):
-        return False
+    """Whether ``piece`` fits at the *entry* position of a downward drop (top-out is no)."""
+    _ = piece  # kept in the signature: callers read "place this piece" better than a mask
+    return _fits(board, cells, column, 0)
+
+
+def _fits(board: Board, cells: tuple[tuple[int, int], ...], x_offset: int, y_offset: int) -> bool:
+    """Whether the shape fits at one exact position, inside the board and on empty cells."""
+    height, width = len(board), len(board[0])
     for x, y in cells:
-        bx, by = column + x, y
-        if by >= height:
+        bx, by = x_offset + x, y_offset + y
+        if bx < 0 or by < 0 or bx >= width or by >= height:
             return False
         if board[by][bx] != EMPTY:
             return False
     return True
 
 
-def drop(board: Board, piece: str, cells: tuple[tuple[int, int], ...], column: int) -> Board | None:
-    """Drop ``piece`` in ``column`` and return the resulting board (``None`` if it cannot)."""
-    if not can_place(board, piece, cells, column):
+def _gravity(direction) -> tuple[str, int]:
+    axis_step = _GRAVITY_STEP.get(str(direction or "down").lower())
+    if axis_step is None:
+        raise ValueError(f"unknown gravity {direction!r}; expected one of {', '.join(GRAVITIES)}")
+    return axis_step
+
+
+def _resolve_drop(mask, second, column) -> tuple[tuple[tuple[int, int], ...], int]:
+    """``(cells, coordinate)`` from either the new call form or the legacy one.
+
+    ``drop(board, mask, column)`` is the interface; ``drop(board, piece, cells, column)``
+    is what every existing caller (the arena, the search policy, the tests) writes, and
+    in that form the ``cells`` argument is authoritative — it carries the rotation.
+    """
+    if column is None:
+        if second is None:
+            raise TypeError("drop() needs the placement coordinate")
+        return mask_cells(mask), int(second)
+    if second is None:
+        return mask_cells(mask), int(column)
+    return mask_cells(second), int(column)
+
+
+def drop(
+    board: Board,
+    mask,
+    second=None,
+    column=None,
+    *,
+    gravity: str = "down",
+) -> Board | None:
+    """Let a piece fall in ``gravity`` until it blocks; ``None`` when it cannot enter.
+
+    ``mask`` is any shape :func:`mask_cells` accepts (a letter, cell offsets, or a 0/1
+    bitmap), and ``column`` is its position along the axis *perpendicular* to gravity:
+    the column of its left edge under ``down``/``up``, the row of its top edge under
+    ``left``/``right``. Both integer arguments are bounds-checked, so a mask that
+    cannot fit on the board at all returns ``None`` rather than wrapping.
+
+    The piece enters from the side gravity comes from and slides until the next step
+    would collide — which is the same rule in all four directions, and the reason the
+    old downward behaviour is bit-for-bit what it was.
+    """
+    cells, coordinate = _resolve_drop(mask, second, column)
+    fill = mask if isinstance(mask, str) else MASK_FILL
+    axis, step = _gravity(gravity)
+    cells = normalise(cells)
+    height, width = len(board), len(board[0])
+
+    if axis == "y":
+        if coordinate < 0 or coordinate + shape_width(cells) > width:
+            return None
+        limit = height - shape_height(cells)
+        position_fits = lambda offset: _fits(board, cells, coordinate, offset)  # noqa: E731
+    else:
+        if coordinate < 0 or coordinate + shape_height(cells) > height:
+            return None
+        limit = width - shape_width(cells)
+        position_fits = lambda offset: _fits(board, cells, offset, coordinate)  # noqa: E731
+
+    if limit < 0:
         return None
-    height = len(board)
-    rows = [y for _, y in cells]
-    top = min(rows)
-    # Fall until the next step would collide: gravity is one row at a time.
-    offset = 0
-    while True:
-        shifted = tuple((x, y + offset + 1) for x, y in cells)
-        blocked = any(by >= height or board[by][column + bx] != EMPTY for bx, by in shifted)
-        if blocked:
-            break
-        offset += 1
+    entry = 0 if step > 0 else limit
+    if not position_fits(entry):
+        return None
+    offset = entry
+    while 0 <= offset + step <= limit and position_fits(offset + step):
+        offset += step
+
     result = clone(board)
     for x, y in cells:
-        result[y + offset][column + x] = piece
-    _ = top  # the spawn row is implied by the shape; kept for clarity
+        bx, by = (coordinate + x, offset + y) if axis == "y" else (offset + x, coordinate + y)
+        result[by][bx] = fill
     return result
 
 
@@ -220,16 +370,32 @@ def landing_height(board: Board, piece: str) -> int:
 
 
 def legal_placements(
-    board: Board, piece: str, *, rotations: int | None = None
+    board: Board,
+    mask,
+    *,
+    gravity: str = "down",
+    rotations: int | None = None,
 ) -> list[tuple[Placement, tuple[tuple[int, int], ...]]]:
-    """Every rotation/column pair this piece may legally be dropped at."""
+    """Every rotation/position pair this shape may legally be played in ``gravity``.
+
+    This is the legality boundary the plan insists on: a policy — including a model —
+    only ever chooses *among* these, so an illegal move is impossible by construction.
+
+    A letter keeps the spawn-shape orientation order (``orientations``), a geometric
+    mask keeps its own (``orientations_from_mask``, index 0 = as seen).
+    """
+    axis, _step = _gravity(gravity)
+    shapes = orientations(mask) if isinstance(mask, str) else orientations_from_mask(mask)
+    limit = (len(board[0]) if axis == "y" else len(board)) - 1
     out: list[tuple[Placement, tuple[tuple[int, int], ...]]] = []
-    for rotation, cells in enumerate(orientations(piece)):
-        if rotations is not None and rotation >= rotations:
+    for index, shape in enumerate(shapes):
+        if rotations is not None and index >= rotations:
             break
-        for column in range(len(board[0]) - shape_width(cells) + 1):
-            if can_place(board, piece, cells, column):
-                out.append((Placement(rotation=rotation, column=column), cells))
+        cells = mask_cells(shape)
+        span = shape_width(cells) if axis == "y" else shape_height(cells)
+        for coordinate in range(limit - span + 2):
+            if drop(board, cells, coordinate, gravity=gravity) is not None:
+                out.append((Placement(rotation=index, column=coordinate), cells))
     return out
 
 
@@ -237,6 +403,8 @@ __all__ = [
     "BOARD_HEIGHT",
     "BOARD_WIDTH",
     "EMPTY",
+    "GRAVITIES",
+    "MASK_FILL",
     "PIECE_NAMES",
     "SHAPES",
     "Board",
@@ -253,10 +421,14 @@ __all__ = [
     "empty_board",
     "landing_height",
     "legal_placements",
+    "mask_bitmap",
+    "mask_cells",
     "normalise",
     "orientations",
+    "orientations_from_mask",
     "rotate",
     "row_transitions",
+    "shape_height",
     "shape_width",
     "well_sums",
 ]
