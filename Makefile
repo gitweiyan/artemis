@@ -56,7 +56,7 @@ test-device: ## Run Android and end-to-end tests explicitly
 
 preflight: ## Assert which code is on disk before a trusted run (branch/HEAD/dirty)
 	@echo "🔎 Code identity (read this before trusting a run)..."
-	@uv run python scripts/preflight.py
+	@if [ -x .venv/bin/python ]; then .venv/bin/python scripts/preflight.py; else uv run python scripts/preflight.py; fi
 
 test-case-battery: ## Run the real-device battery-level e2e case (needs a connected device)
 	@echo "🔋 Running the battery-level device case (pro + flash)..."
