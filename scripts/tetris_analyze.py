@@ -51,12 +51,21 @@ def full_rows(matrix) -> int:
 
 
 def cleared_rows(frames: list[dict]) -> dict:
-    """Estimate the clears: complete rows that left, plus drops of ten cells or more."""
+    """Estimate the clears: complete rows that left, plus drops of ten cells or more.
+
+    Never across a round boundary: a new round's board is nearly empty, which looks exactly
+    like a clear that took 35 cells with it (and did, once, in this script's own output
+    before the trace carried the round number).
+    """
     events = []
     previous = None
+    previous_round = None
     for frame in frames:
         matrix = frame.get("matrix")
         if not matrix:
+            continue
+        if frame.get("round") != previous_round:
+            previous, previous_round = matrix, frame.get("round")
             continue
         if previous is not None:
             was_full, now_full = full_rows(previous), full_rows(matrix)
@@ -73,6 +82,7 @@ def cleared_rows(frames: list[dict]) -> dict:
                     }
                 )
         previous = matrix
+        previous_round = frame.get("round")
     return {"events": events, "estimate": len(events)}
 
 
@@ -148,8 +158,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  点击 {summary['gestures']} 次: {summary['taps']}")
     new = summary["new_decisions"]
     print(
-        f"  见到下落块的帧 {summary['frames_with_a_piece']}  新决策 "
-        f"{new if new is not None else '未知（该 trace 早于 reused 字段；以会话输出的 jev.calls 为准）'}"
+        f"  见到下落块的帧 {summary['frames_with_a_piece']}  未复用旧决策的帧 "
+        f"{new if new is not None else '未知（该 trace 早于 reused 字段）'}"
+        "（其中只有一部分是 Jev 调用：回退与无块帧不调用模型，付费次数以会话输出的 jev.calls 为准）"
     )
     return 0
 

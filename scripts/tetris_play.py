@@ -77,6 +77,7 @@ class Trace:
         self.frames += 1
         self.record = {
             "frame": self.frames,
+            "round": getattr(self, "round", None),
             "t": self.t(),
             "frame_ms": round(float(getattr(frame, "capture_ms", 0.0)), 1),
             "width": getattr(frame, "width", None),
@@ -376,6 +377,10 @@ def main(argv: list[str] | None = None) -> int:
         for index in range(max(1, args.rounds)):
             if spent >= args.seconds:
                 break
+            # The trace carries the round: a board that goes from full to empty between two
+            # frames is a new round, not a clear, and an analysis that cannot tell them apart
+            # reports a clear that never happened.
+            trace.round = index + 1
             route = ensure_playable(
                 panel,
                 perception_mod,
