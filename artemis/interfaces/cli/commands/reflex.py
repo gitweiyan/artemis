@@ -141,6 +141,13 @@ def calibrate(
     capture: Annotated[str, typer.Option("--capture", help="'helper' or 'screencap'.")] = "helper",
     launch: Annotated[str | None, typer.Option("--launch", help="Package to launch first.")] = None,
     keep: Annotated[bool, typer.Option("--keep/--no-keep", help="Save sample frames.")] = True,
+    verify: Annotated[
+        bool,
+        typer.Option(
+            "--verify",
+            help="Check the grid against the frame's own extent and review every cell.",
+        ),
+    ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
 ) -> None:
     """Capture real frames and print what perception sees (grid, palette, board).
@@ -148,6 +155,12 @@ def calibrate(
     A vision skill is only as good as its calibration, and calibration needs eyes on
     the screen. The board is rendered as text on purpose: that is how a wrong palette
     or a shifted grid becomes visible without opening the image.
+
+    With ``--verify`` the frames are checked instead of described: the cell pitch is
+    measured and checked against the frame's own extent, every cell's HSV is printed
+    next to the thresholds, and the command exits non-zero when a frame does not
+    measure as a board — so an unattended run cannot mistake a menu or a dark screen
+    for a calibration.
     """
     import sys
 
@@ -209,6 +222,10 @@ def calibrate(
         source.close()
 
     samples = handle.directory / module.SAMPLES_DIR
+    if verify:
+        _verify_frames(module, images, handle, samples, keep=keep, as_json=as_json)
+        return
+
     reports = []
     for index, image in enumerate(images):
         if keep:
@@ -227,6 +244,50 @@ def calibrate(
     typer.echo("")
     typer.echo("calibration proposal (paste into calibration.json, then correct by hand):")
     typer.echo(json.dumps(module.proposal(reports[-1]), ensure_ascii=False, indent=2))
+
+
+def _verify_frames(module, images, handle, samples, *, keep: bool, as_json: bool) -> None:
+    """Check captured frames and refuse the calibration when a frame is not a board.
+
+    The exit code is the point: a caller that scripted this run gets a failure instead
+    of a wall of plausible-looking text about a menu screen or a sleeping device.
+    """
+    reports = [module.verify_report(image, handle.calibration) for image in images]
+    if keep:
+        for index, image in enumerate(images):
+            path = module.save_frame(image, directory=samples, tag=f"calib-{index + 1}")
+            typer.echo(f"sample saved: {path}")
+        for report, index in zip(reports, range(len(reports)), strict=True):
+            report["sample"] = f"calib-{index + 1}"
+
+    if as_json:
+        typer.echo(module.json_report(reports if len(reports) > 1 else reports[0]))
+    else:
+        for report in reports:
+            typer.echo("")
+            typer.echo(module.render_verification(report, handle.calibration))
+
+    rejected = [
+        index + 1
+        for index, report in enumerate(reports)
+        if not report["grid"]["columns"] or not report["grid"]["extent_ok"]
+    ]
+    if rejected:
+        typer.echo("")
+        typer.secho(
+            f"Frames {', '.join(str(index) for index in rejected)} did not measure as a board"
+            " (no periodic structure, or a pitch that does not divide the field)."
+            " Do not trust this calibration: check that the game is on screen, the device"
+            " is awake, and board_roi_ratios still matches the app.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=1)
+    if not as_json:
+        typer.echo("")
+        typer.secho(
+            f"{len(reports)} frame(s) measured as a board with a closed extent.",
+            fg=typer.colors.GREEN,
+        )
 
 
 @reflex_app.command("arena")

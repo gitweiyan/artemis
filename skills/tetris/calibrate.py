@@ -1,18 +1,21 @@
 """Calibration: turn one real screenshot into the numbers the skill needs.
 
 A vision-based skill is only as good as its calibration, and calibration needs a
-human — or, as here, *text*: this module renders what it sees as an ASCII board and
-a colour palette, so a reader (or an agent without image input) can judge whether
-perception reads the screen correctly before any gameplay is attempted.
+human — or, as here, *text*: this module renders what it sees as an ASCII board, a
+colour palette and a per-cell HSV table, so a reader (or an agent without image input)
+can judge whether perception reads the screen correctly before any gameplay is
+attempted.
 
 What it derives, all from pixels and printed for inspection:
 
-* the board grid (origin, cell size, rows/cols) from the periodicity of block-coloured
-  pixels, or from the largest rectangular region of them;
-* the colour palette, clustered, with each cluster's share;
-* the classified board as text, so a wrong palette or a shifted grid is *visible*;
-* how the board changes over a few seconds, which is what distinguishes "the game is
-  playing" from "we are looking at a menu".
+* the board grid, **measured** — the cell pitch comes from the periodic structure of the
+  playfield crop and is checked against that crop's own extent (``grid_probe``), so
+  "10 columns" is a reading rather than an assumption;
+* the classified board as text, so a wrong threshold or a shifted grid is *visible*;
+* every cell's own HSV next to the thresholds — a cell that reads empty because it
+  *just* missed them is the cell that will flip when the light changes, and it is
+  invisible in a matrix of 0s and 1s;
+* whether the frame is a dark screen rather than a game (the device sleeps).
 
 Nothing here writes the calibration file: it prints a proposal for a human to accept.
 """
@@ -26,9 +29,21 @@ from typing import Any
 
 from third_party.mobile_use.utils.logger import get_logger
 
+from .cells import cell_hsv, read_matrix
+from .grid_probe import measure_grid
+from .perception import calibration as skill_calibration
+from .pieces import split_pieces
+from .roi import board_crop
+
 logger = get_logger(__name__)
 
 SAMPLES_DIR = "samples"
+
+#: Below this mean brightness the frame is a dark screen, not a calibration: the device
+#: sleeps, and a black frame would otherwise "verify" as an empty board.
+SLEEP_BRIGHTNESS = 10.0
+#: How short of a threshold a cell has to be for the review to call it borderline.
+BORDERLINE_MARGIN = 15.0
 
 
 def save_frame(image: bytes, *, directory: Path, tag: str) -> Path:
@@ -226,8 +241,113 @@ def json_report(report: dict[str, Any]) -> str:
     return json.dumps(report, ensure_ascii=False, indent=2)
 
 
+# --------------------------------------------------------------------------- #
+# Verification: the numbers a reader has to be able to check
+# --------------------------------------------------------------------------- #
+
+
+def verify_report(
+    image: bytes,
+    calibration: dict[str, Any] | None = None,
+    *,
+    history: list[list[str]] | None = None,
+) -> dict[str, Any]:
+    """One frame → the grid measurement, the board, each cell's HSV, and a sleep check.
+
+    ``history`` is optional: motion needs two frames, so a single image reports
+    ``motion_vector: None`` rather than inventing one. Pass the matrices of the frames
+    that came before this one and the motion is measured, exactly as the loop measures
+    it (``pieces.split_pieces``).
+    """
+    calibration = calibration or skill_calibration()
+    array = _decode(image)
+    field = board_crop(array, calibration)
+    probe = measure_grid(field)
+    columns, rows = probe["columns"], probe["rows"]
+    matrix: list[str] = []
+    hsv: list[list[tuple[int, int, int]]] = []
+    if columns and rows:
+        measured = {
+            **calibration,
+            "grid": {**(calibration.get("grid") or {}), "cols": columns, "rows": rows},
+        }
+        matrix = read_matrix(field, measured)
+        hsv = cell_hsv(field, measured)
+    motion = split_pieces([*history, matrix])["motion_vector"] if history and matrix else None
+    return {
+        "grid": {"columns": columns, "rows": rows, "extent_ok": bool(probe["extent_ok"])},
+        "matrix": matrix,
+        "cell_hsv": hsv,
+        "motion_vector": motion,
+        "suspected_sleep_screen": bool(float(array.mean()) < SLEEP_BRIGHTNESS),
+    }
+
+
+def render_verification(report: dict[str, Any], calibration: dict[str, Any] | None = None) -> str:
+    """The report as text: what was measured, and what could be measured wrong."""
+    calibration = calibration or skill_calibration()
+    thresholds = calibration.get("hsv") or {}
+    v_min = float(thresholds.get("v_min") or 0.0)
+    s_min = float(thresholds.get("s_min") or 0.0)
+    grid = report["grid"]
+    out: list[str] = []
+    if report["suspected_sleep_screen"]:
+        out.append(
+            f"screen: DARK (mean brightness < {SLEEP_BRIGHTNESS:g}) — the device was probably"
+            " asleep; wake it and capture again"
+        )
+    if not grid["columns"] or not grid["rows"]:
+        out.append("grid: NOT MEASURED — this frame is not a board (menu, ad, dialog)")
+        out.append("extent: nothing to check without a grid")
+        return "\n".join(out)
+
+    out.append(
+        f"grid: {grid['columns']} x {grid['rows']} cells — extent"
+        f" {'closed' if grid['extent_ok'] else 'NOT closed (the pitch does not divide the field)'}"
+    )
+    out.append(
+        "motion: "
+        + (
+            str(report["motion_vector"])
+            if report["motion_vector"] is not None
+            else "not measured (one frame: motion needs two)"
+        )
+    )
+    out.append("board (0 empty, 1 block):")
+    out.append(render(report["matrix"]))
+    out.append(
+        f"cells near the threshold (v_min={v_min:g}, s_min={s_min:g}) — these are the"
+        " ones that flip when the light does:"
+    )
+    borderline = _borderline(report, v_min, s_min)
+    out.extend(borderline or ["   none: every empty cell is clearly empty"])
+    return "\n".join(out)
+
+
+def _borderline(report: dict[str, Any], v_min: float, s_min: float) -> list[str]:
+    """Empty cells whose *largest* shortfall from a threshold is small.
+
+    A cell that fails on both counts — dark *and* grey, like UI chrome — is not
+    borderline: it is clearly empty, and no threshold tweak is going to change that.
+    """
+    lines: list[str] = []
+    for row, (line, hsv_row) in enumerate(zip(report["matrix"], report["cell_hsv"], strict=True)):
+        for column, (cell, (h, s, v)) in enumerate(zip(line, hsv_row, strict=True)):
+            if cell != "0":
+                continue
+            shortfall = max(v_min - v, s_min - s)
+            if 0 < shortfall <= BORDERLINE_MARGIN:
+                lines.append(
+                    f"   row {row}, column {column}: H{h} S{s} V{v}"
+                    f" (short by {shortfall:.0f} of the {BORDERLINE_MARGIN:.0f} that would matter)"
+                )
+    return lines
+
+
 __all__ = [
+    "BORDERLINE_MARGIN",
     "SAMPLES_DIR",
+    "SLEEP_BRIGHTNESS",
     "analyse",
     "grid_from_blocks",
     "json_report",
@@ -236,6 +356,8 @@ __all__ = [
     "read_board",
     "render",
     "render_report",
+    "render_verification",
     "save_frame",
     "settle_and_capture",
+    "verify_report",
 ]
