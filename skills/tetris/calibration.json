@@ -18,6 +18,10 @@
     400,
     800
   ],
+  "hsv": {
+    "v_min": 65,
+    "s_min": 45
+  },
   "tolerance": 60,
   "background": [
     26,
