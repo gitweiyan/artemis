@@ -8,6 +8,16 @@
     "cols": 10,
     "rows": 20
   },
+  "board_roi_ratios": [
+    0.0486,
+    0.2,
+    0.6458,
+    0.7375
+  ],
+  "normalized_size": [
+    400,
+    800
+  ],
   "tolerance": 60,
   "background": [
     26,
