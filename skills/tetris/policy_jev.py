@@ -148,11 +148,19 @@ def decide(state, calibration):
         counters["reused"] = 1
         counters["source"] = _last["source"]
         placement = _last["placement"]
-        taps = _taps_to_reach(mask, _last["shapes"], placement.rotation)
-        if taps:
-            # The turn is not finished (the device may need a frame to catch up): keep
-            # turning — but not forever (see `_turning_action`).
-            return _turning_action(placement, state, counters, mode, "jev", taps, cal)
+        if _last.get("phase") == "hold":
+            # The piece has been turned once and shifted once: from here it is left alone
+            # until it lands. The operator's rule, and the fix for what the device showed —
+            # turn, shift, turn, shift — because both halves used to re-measure every frame
+            # and a mask that reads a column over kept sending the piece back to the buttons.
+            return _placement_action(placement, state, counters, mode, settle_only=True)
+        if _last.get("phase") == "rotate":
+            taps = _taps_to_reach(mask, _last["shapes"], placement.rotation)
+            if taps:
+                # The turn is not finished (the device may need a frame to catch up): keep
+                # turning — but not forever (see `_turning_action`).
+                return _turning_action(placement, state, counters, mode, "jev", taps, cal)
+            _last["phase"] = "move"
         # Second half: drive it to the chosen column, using the column this frame shows -
         # the device turns the piece about its second cell, so the column after the turn is
         # not the column before. Re-measured every frame, so a tap that repeated or missed
@@ -200,7 +208,7 @@ def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state, c
     """
     shapes = tuple(sim.orientations_from_mask(mask))
     taps = _taps_to_reach(mask, shapes, chosen.rotation)
-    _remember(key, chosen, source, shapes=shapes, phase="rotate" if taps else "move")
+    _remember(key, chosen, source, shapes=shapes, phase="rotate" if taps else "hold")
     if not taps:
         return _placement_action(chosen, state, counters, mode)
     action = _turning_action(chosen, state, counters, mode, source, taps, cal)
@@ -209,14 +217,33 @@ def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state, c
     return action
 
 
-def _placement_action(placement, state, counters: dict, mode: str):
-    """Drive the piece to the chosen column on this frame, or hold if it is already there.
+def _placement_action(placement, state, counters: dict, mode: str, *, settle_only: bool = False):
+    """Shift the piece to the chosen column once, then hold until it lands.
 
-    Re-measured every frame on purpose: a move button can repeat or a tap can be missed,
-    and with no hard drop the piece keeps falling, so those frames exist to notice.
+    **Once.** The first version re-measured the column every frame and corrected any
+    difference, which sounds careful and behaved badly: a turn moves the piece's mask a
+    column (the device pivots on its second cell) and a split can read it a cell over, so
+    "you are not where the plan says" kept flipping and the piece was walked left, right,
+    left while it fell. The operator's rule — one rotation, one shift — is also the fix:
+    the shift is computed from the frame the turn finished on, issued (as many taps as the
+    distance needs, all in that frame), and after that the piece is left alone.
     """
     current = search_policy.piece_column(state)
-    delta = None if current is None else int(placement.column) - int(current)
+    delta = None if settle_only or current is None else int(placement.column) - int(current)
+    if settle_only:
+        counters["phase"] = "hold"
+        counters["on_target"] = 1
+        return Action(
+            gestures=(),
+            done=False,
+            state={
+                "placement": placement.as_dict(),
+                "phase": "hold",
+                "counters": counters,
+                "current_column": current,
+                "note": f"jev {mode} (turned and shifted; letting it fall)",
+            },
+        )
     if not delta:
         counters["phase"] = "hold"
         counters["on_target"] = 1
@@ -233,6 +260,9 @@ def _placement_action(placement, state, counters: dict, mode: str):
         )
     counters["phase"] = "move"
     counters["move_columns"] = delta
+    # The phase is recorded as done before the taps go out: this frame issues them, and the
+    # frames after it hold. That is what makes it one shift per piece.
+    _last["phase"] = "hold"
     return Action(
         gestures=(),
         done=False,

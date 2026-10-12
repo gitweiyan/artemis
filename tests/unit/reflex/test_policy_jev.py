@@ -606,6 +606,56 @@ def test_a_piece_whose_orientations_repeat_needs_no_taps_to_reach_them(jev_polic
     assert jev_policy._taps_to_reach([[1, 0], [0, 1]], zed_shapes, 1) == 1
 
 
+def test_one_piece_turns_once_then_shifts_once(jev_policy, simulator, calibration, monkeypatch):
+    """The operator's rule: a piece is turned once and shifted once, never turn-shift-turn-shift.
+
+    Measured on the device, and it is what the last sessions looked like: the same piece
+    rotating, then shifting, then rotating again. Both halves re-measured every frame, and a
+    piece's mask moves a column as it turns (the device pivots on its second cell) and the
+    split can read it a cell differently — so "not where the plan says" kept flipping, and
+    each flip sent the piece back to the rotate button.
+
+    So the phases are monotonic: rotate until the orientation is right (as many taps as it
+    takes, bounded by the rotate guard), then one shift (as many taps as the distance needs,
+    all on one frame), then nothing at all until the piece lands. A tap the game misses is
+    not corrected any more — that is the trade the operator asked for, and it is what makes
+    the piece predictable.
+    """
+    mask = [[1, 1, 1]]
+    before = _three_bar(mask, [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, before)
+    target = next(
+        index for index, (placement, _) in enumerate(candidates) if placement.rotation == 1
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    turn = jev_policy.decide(before, calibration)
+    assert turn.state["phase"] == "rotate", "first the turn"
+
+    # The device turned it: upright, still in the column it started in.
+    turned = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])
+    shift = jev_policy.decide(turned, calibration)
+    assert shift.state["phase"] == "move", "then the shift, once"
+    shift_gestures = jev_policy._last["placement"]
+
+    # Whatever the frames after that show — the same turned piece, or a mask read a column
+    # over — the same piece is never turned or moved again.
+    for drifted in (
+        turned,
+        _three_bar([[1], [1], [1]], [(2, 4), (3, 4), (4, 4)]),
+        _three_bar(mask, [(2, 3), (2, 4), (2, 5)]),
+    ):
+        later = jev_policy.decide(drifted, calibration)
+        assert later.state.get("phase") == "hold", (
+            f"the piece was already turned and shifted; got {later.state.get('phase')}"
+        )
+        assert later.gestures == (), "nothing may be dispatched after the one shift"
+        assert later.state["placement"] == shift_gestures.as_dict()
+
+
 def test_the_placement_frame_uses_the_column_measured_now(
     jev_policy, simulator, calibration, monkeypatch
 ):
@@ -621,15 +671,20 @@ def test_the_placement_frame_uses_the_column_measured_now(
     assert placed.state["current_column"] == 6, "the column that frame showed, not the old one"
 
 
-def test_the_placement_keeps_correcting_until_the_column_matches(
+def test_the_placement_shifts_once_and_then_leaves_the_piece_alone(
     jev_policy, simulator, calibration, monkeypatch
 ):
-    """With no hard drop the piece keeps falling, so every frame is a chance to check the
-    column again - a tap that repeated (or was missed) is corrected instead of silently
-    landing a column or two out."""
+    """One shift per piece, decided from the frame the turn finished on.
+
+    This replaces a test that pinned the opposite: correcting the column on *every* frame
+    "because a tap can be missed". The operator watched the device and saw what that
+    actually produced — the same piece turning, shifting, turning, shifting — because a
+    turn moves the piece's mask a column (the device pivots on its second cell) and a split
+    can read it a cell over, so the correction kept flipping sign. One shift, then hold
+    until it lands, is both the operator's rule and the fix.
+    """
     state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
     candidates = candidates_for(simulator, state)
-    # Pick a middle column, so the correction can go either way.
     target_index = next(
         index
         for index, (placement, _) in enumerate(candidates)
@@ -642,23 +697,46 @@ def test_the_placement_keeps_correcting_until_the_column_matches(
 
     first = jev_policy.decide(state, calibration)
     assert first.state["placement"] == {"rotation": 0, "column": 4}
-    assert first.state["phase"] == "move" and first.state["move_columns"] == 1
+    assert first.state["phase"] == "move" and first.state["move_columns"] == 1, (
+        "the shift is issued on the frame the decision is made (no turn needed here)"
+    )
 
-    # Next frame: a tap repeated, the piece is past the target - tap back.
-    overshot = _three_bar([[1, 1, 1]], [(4, 6), (4, 7), (4, 8)])
-    second = jev_policy.decide(overshot, calibration)
-    assert second.state["phase"] == "move" and second.state["move_columns"] == -2
+    # Every frame after it: hold. Including the ones that show the piece somewhere else,
+    # which is exactly the reading that used to trigger a correction.
+    for drifted in (
+        _three_bar([[1, 1, 1]], [(4, 6), (4, 7), (4, 8)]),  # overshot
+        _three_bar([[1, 1, 1]], [(6, 2), (6, 3), (6, 4)]),  # fell short
+        _three_bar([[1, 1, 1]], [(8, 4), (8, 5), (8, 6)]),  # on target
+    ):
+        later = jev_policy.decide(drifted, calibration)
+        assert later.state["phase"] == "hold"
+        assert not later.state.get("move_columns")
+        assert later.gestures == ()
 
-    # And the other way: it fell short.
-    short = _three_bar([[1, 1, 1]], [(6, 2), (6, 3), (6, 4)])
-    third = jev_policy.decide(short, calibration)
-    assert third.state["phase"] == "move" and third.state["move_columns"] == 2
 
-    # On target: nothing to do, the piece falls on its own.
-    on_target = _three_bar([[1, 1, 1]], [(8, 4), (8, 5), (8, 6)])
-    fourth = jev_policy.decide(on_target, calibration)
-    assert fourth.state["phase"] == "hold"
-    assert not fourth.state.get("move_columns")
+def test_a_piece_is_turned_once_even_if_the_mask_keeps_saying_otherwise(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """After the shift, a reading that says "still needs turning" is not acted on."""
+    mask = [[1, 1, 1]]
+    before = _three_bar(mask, [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, before)
+    target = next(
+        index for index, (placement, _) in enumerate(candidates) if placement.rotation == 1
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    jev_policy.decide(before, calibration)  # turn
+    turned = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])
+    jev_policy.decide(turned, calibration)  # shift
+
+    # The flat mask again, as if the split read the piece before the turn.
+    again = jev_policy.decide(before, calibration)
+    assert again.state["phase"] == "hold"
+    assert again.gestures == (), "a piece is turned once, whatever the next frame reads"
 
 
 def test_the_piece_is_placed_once_per_piece_even_while_correcting(
