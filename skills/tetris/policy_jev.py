@@ -50,15 +50,24 @@ _CHOICE_INSTRUCTIONS = (
     " stack (fewest holes, lowest height, flattest surface, most lines cleared)?"
 )
 
-_telemetry: dict[str, Any] = {"calls": 0, "fallbacks": 0, "last_error": None}
+_telemetry: dict[str, Any] = {"calls": 0, "fallbacks": 0, "reuses": 0, "last_error": None}
+
+#: The last decision, so the same piece is not asked about twice (see ``_piece_key``).
+_last: dict[str, Any] = {"key": None, "placement": None, "source": None}
 
 
 def reset_telemetry() -> None:
-    _telemetry.update({"calls": 0, "fallbacks": 0, "last_error": None})
+    """Zero the counters *and* forget the last decision: a new session inherits neither."""
+    _telemetry.update({"calls": 0, "fallbacks": 0, "reuses": 0, "last_error": None})
+    _last.update({"key": None, "placement": None, "source": None})
 
 
 def telemetry() -> dict[str, Any]:
-    """``calls`` (answers read), ``fallbacks`` (decisions the search played), last error."""
+    """``calls`` (answers read), ``fallbacks`` (decisions the search played), reuses, error.
+
+    ``reuses`` is what makes the plan's budget checkable on a device: one Jev decision per
+    piece means the number of calls stays near the number of pieces, not the frames.
+    """
     return dict(_telemetry)
 
 
@@ -77,10 +86,27 @@ def decide(state, calibration):
     gravity = jev_state.gravity_direction(
         state.get("motion_vector"), _mechanics(cal).get("gravity_direction")
     )
+    mode = _mode(cal)
     candidates = _candidates(board, mask, gravity, cal)
     if not candidates:
         counters["topped_out"] = 1
         return Action(done=True, state={"counters": counters, "placement": None})
+
+    key = _piece_key(state, gravity)
+    if key is not None and key == _last["key"] and _last["placement"] is not None:
+        _telemetry["reuses"] += 1
+        counters["reused"] = 1
+        counters["source"] = _last["source"]
+        return Action(
+            gestures=(),
+            done=False,
+            state={
+                "placement": _last["placement"].as_dict(),
+                "counters": counters,
+                "current_column": search_policy.piece_column(state),
+                "note": f"jev {mode} (reused for the same piece)",
+            },
+        )
 
     message = jev_state.build_state(
         board_matrix=state.get("board_matrix") or _as_matrix(board),
@@ -89,7 +115,6 @@ def decide(state, calibration):
         next_preview=state.get("next_preview"),
         candidates=candidates,
     )
-    mode = _mode(cal)
     chosen, confidence = _ask(mode, message, candidates, cal, counters)
     if chosen is not None and confidence is not None:
         minimum = float(_jev_options(cal).get("min_confidence") or DEFAULT_MIN_CONFIDENCE)
@@ -102,24 +127,59 @@ def decide(state, calibration):
         if chosen is None:  # pragma: no cover - candidates were not empty
             counters["topped_out"] = 1
             return Action(done=True, state={"counters": counters, "placement": None})
+        # The search played this decision. Counting it here - where it happens, not where
+        # the answer was read - is what keeps `source` and `fallbacks` from disagreeing.
+        _telemetry["fallbacks"] += 1
         counters["source"] = "search"
+        _remember(key, chosen, "search")
         return Action(
             gestures=(),
             done=False,
-            state={"placement": chosen.as_dict(), "counters": counters, "note": "search fallback"},
+            state={
+                "placement": chosen.as_dict(),
+                "counters": counters,
+                "current_column": search_policy.piece_column(state),
+                "note": "search fallback",
+            },
         )
 
     counters["source"] = "jev"
     counters["mode"] = mode
+    _remember(key, chosen, "jev")
     return Action(
         gestures=(),
         done=False,
         state={
             "placement": chosen.as_dict(),
             "counters": counters,
+            "current_column": search_policy.piece_column(state),
             "note": f"jev {mode} r{chosen.rotation}c{chosen.column}",
         },
     )
+
+
+def _piece_key(state, gravity: str):
+    """What makes two decisions *the same decision*: the board, the gravity, the piece.
+
+    The piece's row is deliberately not part of it: where a piece lands does not depend on
+    the row it is in when the question is asked, so asking again because it fell one row
+    spends a network call and a second of the inner loop's budget for the same answer. A
+    changed board (a lock, a clear) or a different piece is a new question. ``None`` means
+    the state is too thin to identify, and then nothing is reused.
+    """
+    mask = state.get("current_piece_mask") or []
+    if not mask:
+        return None
+    return (
+        tuple(state.get("board_matrix") or ()),
+        gravity,
+        tuple(tuple(int(cell) for cell in row) for row in mask),
+        search_policy.piece_column(state),
+    )
+
+
+def _remember(key, placement, source) -> None:
+    _last.update({"key": key, "placement": placement, "source": source})
 
 
 # --------------------------------------------------------------------------- #
@@ -137,13 +197,13 @@ def _ask(mode, message, candidates, cal, counters):
             else _noul(message, candidates, timeout)
         )
     except systemone.SystemOneUnavailable as exc:
-        _telemetry["fallbacks"] += 1
+        # Counted where the search then plays (in `decide`), so `source` and `fallbacks`
+        # cannot disagree.
         _telemetry["last_error"] = str(exc)
         counters["jev_fallback"] = str(exc)[:120]
         return None, None
     _telemetry["calls"] += 1
     if answer == (None, None):
-        _telemetry["fallbacks"] += 1
         counters["jev_fallback"] = "abstained"
     return answer
 

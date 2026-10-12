@@ -33,12 +33,12 @@ def pieces():
     return importlib.import_module("artemis_skills_tetris.pieces")
 
 
-def matrix(filled=()):
-    """A matrix in the shape ``read_matrix`` returns: ``ROWS`` strings of ``COLUMNS``."""
-    rows = ["0" * COLUMNS for _ in range(ROWS)]
+def matrix(filled=(), *, rows=ROWS, columns=COLUMNS):
+    """A matrix in the shape ``read_matrix`` returns: ``rows`` strings of ``columns``."""
+    out = ["0" * columns for _ in range(rows)]
     for row, column in filled:
-        rows[row] = rows[row][:column] + "1" + rows[row][column + 1 :]
-    return rows
+        out[row] = out[row][:column] + "1" + out[row][column + 1 :]
+    return out
 
 
 #: A settled stack on the floor, and the one cell above it.
@@ -135,3 +135,73 @@ def test_a_board_that_only_grew_reports_no_piece(pieces):
     assert result["current_piece_mask"] == []
     assert result["motion_vector"] is None
     assert result["board_matrix"] == grown, "an unexplained change is still the board"
+
+
+# --------------------------------------------------------------------------- #
+# When the separation cannot be trusted, claim nothing (fixed after review)
+# --------------------------------------------------------------------------- #
+
+#: A stack that fills the bottom-left corner; a bar lands directly on top of it.
+STACK_ON_FLOOR = [
+    (19, 0),
+    (19, 1),
+    (19, 2),
+    (19, 3),
+    (19, 4),
+    (18, 0),
+    (18, 1),
+    (18, 2),
+    (18, 3),
+    (18, 4),
+]
+BAR_ABOVE = [(16, 1), (16, 2), (16, 3)]
+BAR_ON_STACK = [(17, 1), (17, 2), (17, 3)]
+
+
+def test_a_piece_that_touches_the_stack_is_not_claimed_at_all(pieces):
+    """The frame before every lock: the piece is adjacent to the stack it lands on.
+
+    Connectivity alone merges the two — measured: a 13-cell "piece" spanning the whole
+    stack and a terrain of *zero* cells, which is a board that does not exist. A piece
+    that translates keeps its shape; a region that grew by swallowing the stack does
+    not, and saying "no piece" is the honest answer.
+    """
+    result = pieces.split_pieces(
+        [matrix(STACK_ON_FLOOR + BAR_ABOVE), matrix(STACK_ON_FLOOR + BAR_ON_STACK)]
+    )
+
+    assert result["current_piece_positions"] == []
+    assert result["current_piece_mask"] == []
+    assert result["motion_vector"] is None
+    assert result["board_matrix"] == matrix(STACK_ON_FLOOR + BAR_ON_STACK)
+    assert sum(row.count("1") for row in result["board_matrix"]) == 13, (
+        "the board is still the board"
+    )
+
+
+def test_a_piece_moving_while_it_touches_the_stack_is_not_claimed_either(pieces):
+    """The merge in both frames: same size, different shape — still not a piece."""
+    result = pieces.split_pieces(
+        [
+            matrix(STACK_ON_FLOOR + [(17, 1), (17, 2)]),
+            matrix(STACK_ON_FLOOR + [(17, 2), (17, 3)]),
+        ]
+    )
+
+    assert result["current_piece_positions"] == []
+    assert result["current_piece_mask"] == []
+    assert result["motion_vector"] is None
+
+
+def test_frames_whose_grids_differ_are_not_a_motion_reading(pieces):
+    """A changed grid measurement must not index off the end of the previous one.
+
+    Measured on real frames from this device: a video-app screen whose texture measures
+    a 67x133 grid, read after a real board, raised IndexError out of ``parse`` — which the
+    runtime reports as a skill error instead of stopping as blind.
+    """
+    result = pieces.split_pieces([matrix(STACK), matrix([(5, 5)], rows=13, columns=7)])
+
+    assert result["current_piece_positions"] == []
+    assert result["motion_vector"] is None
+    assert result["board_matrix"] == matrix([(5, 5)], rows=13, columns=7)

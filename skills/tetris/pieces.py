@@ -24,14 +24,18 @@ piece occupies in *both* frames is "filled", so an L-piece dropping one row has 
 whole horizontal bar absorbed into the terrain. Measured against the plan's own test,
 that rule cannot pass it.
 
-A single frame claims no piece at all: with the stack and the piece merged there is
-no honest way to tell which cells are which, and inventing a piece would hand the
-policy a board with a hole in it.
+A single frame claims no piece at all, and so does a pair the rules cannot separate:
+two frames whose grids differ, or a piece that arrived merged with the stack it touches
+(the frame before every lock). With the stack and the piece joined there is no honest
+way to tell which cells are which, and inventing a piece would hand the policy a board
+with a hole in it — or, measured, a board with *nothing* in it.
 """
 
 from __future__ import annotations
 
 from typing import Any, Iterable, Sequence
+
+from .simulator import normalise, rotate
 
 EMPTY = "0"
 FILLED = "1"
@@ -50,6 +54,12 @@ def split_pieces(matrices: Sequence[Sequence[str]]) -> dict[str, Any]:
     latest = grids[-1]
     if len(grids) < 2:
         return _result(latest, [], None)
+    if len({(len(grid), len(grid[0]) if grid else 0) for grid in grids}) > 1:
+        # The grid measurement changed between frames (an overlay, a screen texture that
+        # reads as a finer grid, a rotated device). Motion across two different geometries
+        # is not a reading: it used to index off the end of the older frame and raise,
+        # which the runtime reports as a skill error instead of stopping as blind.
+        return _result(latest, [], None)
 
     previous = grids[-2]
     appeared = _difference(latest, previous)
@@ -64,10 +74,36 @@ def split_pieces(matrices: Sequence[Sequence[str]]) -> dict[str, Any]:
         return _result(latest, [], None)
 
     piece = _component_containing(latest, appeared)
-    settled = _minus(latest, piece)
     before = _component_containing(previous, vanished)
+    if not _same_shape(before, piece):
+        # Connectivity alone merges the piece with the stack it touches, and the frame
+        # before every lock is that frame: measured, it produced a 13-cell "piece"
+        # spanning the whole stack with a terrain of *zero* cells - a board that does not
+        # exist, handed to the policy as if it did. A piece that moved kept its shape; a
+        # region that grew by swallowing the stack did not. "No piece" costs one decision
+        # and invents nothing.
+        return _result(latest, [], None)
+
+    settled = _minus(latest, piece)
     motion = _displacement(before, piece) if before else None
     return _result(settled, piece, motion)
+
+
+def _same_shape(before, after) -> bool:
+    """Whether two cell sets are the same shape, up to rotation.
+
+    In ``(column, row)`` order because that is the convention the shape geometry already
+    uses (:mod:`simulator`), and rotation is reused from there rather than re-derived.
+    """
+    if not before or not after or len(before) != len(after):
+        return False
+    target = normalise(tuple((column, row) for row, column in after))
+    current = normalise(tuple((column, row) for row, column in before))
+    for _ in range(4):
+        if current == target:
+            return True
+        current = normalise(rotate(current))
+    return False
 
 
 def _result(board, piece: list[tuple[int, int]], motion: list[int] | None) -> dict[str, Any]:

@@ -509,3 +509,18 @@ def test_the_calibrated_gravity_options_are_what_the_simulator_supports(tetris, 
     mechanics = calibration["mechanics"]
     assert set(mechanics["gravity_options"]) == set(sim.GRAVITIES)
     assert isinstance(mechanics["shapes"], dict), "the app's custom shape set, empty until measured"
+
+
+def test_the_search_policy_tells_the_control_layer_where_the_piece_is(policy):
+    """A placement without the piece's current column cannot become a horizontal move."""
+    board = [["."] * 10 for _ in range(20)]
+    measured = {
+        "board": board,
+        "current": "T",
+        "current_piece_positions": [[14, 3], [15, 3]],
+        "counters": {},
+    }
+    legacy = {"board": board, "current": "T", "falling_cells": [(4, 14), (4, 15)], "counters": {}}
+
+    assert policy.decide(measured, {}).state["current_column"] == 3
+    assert policy.decide(legacy, {}).state["current_column"] == 4

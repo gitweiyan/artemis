@@ -216,3 +216,55 @@ def test_the_command_accepts_a_board_that_measures_and_fits(monkeypatch, tmp_pat
 
     assert result.exit_code == 0, result.output
     assert "10" in result.output and "20" in result.output
+
+
+def textured_screen(pitch):
+    """A full-screen periodic texture — what a UI screen looks like to the measurement."""
+    image = np.zeros((*SCREEN, 3), dtype="float32")
+    image[:, :] = BACKGROUND
+    for x in range(0, SCREEN[1], pitch):
+        image[:, x : x + 1] = GRIDLINE
+    for y in range(0, SCREEN[0], pitch):
+        image[y : y + 1, :] = (90.0, 120.0, 140.0)
+    return image
+
+
+def off_pitch_screen(pitch):
+    """Gridlines at a pitch that does not divide the field: extent_ok must fail."""
+    image = np.zeros((*SCREEN, 3), dtype="float32")
+    image[:, :] = BACKGROUND
+    x0, y0, x1, y1 = BOX
+    for index in range(10):
+        x = min(x0 + index * pitch, x1 - 2)
+        image[y0:y1, x : x + 2] = GRIDLINE
+    for index in range(19):
+        y = min(y0 + index * pitch, y1 - 2)
+        image[y : y + 2, x0:x1] = GRIDLINE
+    return image
+
+
+def test_the_review_says_why_a_frame_is_not_this_board(calibrate, calibration):
+    """A grid that closes its own extent can still be the wrong board."""
+    report = calibrate.verify_report(encode(textured_screen(9)), calibration)
+
+    rendered = calibrate.render_verification(report, calibration)
+
+    assert report["grid"]["extent_ok"] is True, "the measurement itself accepts this"
+    assert "calibration declares 10 x 20" in rendered, rendered
+
+
+def test_the_command_rejects_a_grid_that_does_not_divide_the_field(
+    monkeypatch, tmp_path, calibration
+):
+    """Review Focus 5's stop, at the command level: a pitch that misses must fail the run."""
+    result = run_calibrate(monkeypatch, tmp_path, calibration, encode(off_pitch_screen(48)))
+
+    assert result.exit_code != 0, result.output
+    assert "extent" in result.output.lower() or "divide" in result.output.lower(), result.output
+
+
+def test_the_command_rejects_a_board_of_the_wrong_size(monkeypatch, tmp_path, calibration):
+    result = run_calibrate(monkeypatch, tmp_path, calibration, encode(textured_screen(9)))
+
+    assert result.exit_code != 0, result.output
+    assert "calibration declares" in result.output, result.output

@@ -30,7 +30,7 @@ from typing import Any
 from third_party.mobile_use.utils.logger import get_logger
 
 from .cells import cell_hsv, read_matrix
-from .grid_probe import measure_grid
+from .grid_probe import declared_cells, identity_problem, measure_grid
 from .perception import calibration as skill_calibration
 from .pieces import split_pieces
 from .roi import board_crop
@@ -283,6 +283,16 @@ def verify_report(
     }
 
 
+def board_problem(report: dict[str, Any], calibration: dict[str, Any] | None = None) -> str | None:
+    """Why this frame is not this app's board, or ``None`` when it is.
+
+    The same judgement the perception loop makes before it acts on a frame, so a
+    calibration run cannot pass a screen the loop would refuse.
+    """
+    calibration = calibration or skill_calibration()
+    return identity_problem(report.get("grid") or {}, declared_cells(calibration))
+
+
 def render_verification(report: dict[str, Any], calibration: dict[str, Any] | None = None) -> str:
     """The report as text: what was measured, and what could be measured wrong."""
     calibration = calibration or skill_calibration()
@@ -296,8 +306,9 @@ def render_verification(report: dict[str, Any], calibration: dict[str, Any] | No
             f"screen: DARK (mean brightness < {SLEEP_BRIGHTNESS:g}) — the device was probably"
             " asleep; wake it and capture again"
         )
+    problem = board_problem(report, calibration)
     if not grid["columns"] or not grid["rows"]:
-        out.append("grid: NOT MEASURED — this frame is not a board (menu, ad, dialog)")
+        out.append(f"grid: NOT MEASURED — {problem}")
         out.append("extent: nothing to check without a grid")
         return "\n".join(out)
 
@@ -305,6 +316,11 @@ def render_verification(report: dict[str, Any], calibration: dict[str, Any] | No
         f"grid: {grid['columns']} x {grid['rows']} cells — extent"
         f" {'closed' if grid['extent_ok'] else 'NOT closed (the pitch does not divide the field)'}"
     )
+    if problem:
+        out.append(
+            f"identity: NOT THIS BOARD — {problem}: check that the game is on screen, and"
+            " that board_roi_ratios and grid still describe this app"
+        )
     out.append(
         "motion: "
         + (
@@ -347,6 +363,7 @@ def _borderline(report: dict[str, Any], v_min: float, s_min: float) -> list[str]
 __all__ = [
     "BORDERLINE_MARGIN",
     "SAMPLES_DIR",
+    "board_problem",
     "SLEEP_BRIGHTNESS",
     "analyse",
     "grid_from_blocks",

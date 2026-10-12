@@ -119,6 +119,24 @@ def _best_reply(board: Board, piece: str, weights: dict[str, float]) -> float:
     return 0.0 if best == float("-inf") else best
 
 
+def piece_column(state) -> int | None:
+    """The falling piece's current column, from whichever state shape this is.
+
+    The control layer turns "current column -> chosen column" into a horizontal swipe, so
+    a decision that does not carry the current column is a decision the device cannot
+    execute: it rotates and drops where the piece already is. The measured pipeline knows
+    the piece's cells (``current_piece_positions``, rows of ``[row, column]``); the older
+    letter path knows them as ``falling_cells`` (``(x, y)``).
+    """
+    positions = state.get("current_piece_positions") or []
+    if positions:
+        return min(int(cell[1]) for cell in positions)
+    falling = state.get("falling_cells") or []
+    if falling:
+        return min(int(cell[0]) for cell in falling)
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # The skill entry points
 # --------------------------------------------------------------------------- #
@@ -165,6 +183,7 @@ def decide(state, calibration):
             "placement": placement.as_dict(),
             "score": detail.get("score"),
             "counters": counters,
+            "current_column": piece_column(state),
             "board_rows": len(board),
             "filled": sum(1 for row in board for cell in row if cell != EMPTY),
         },
@@ -172,4 +191,4 @@ def decide(state, calibration):
     )
 
 
-__all__ = ["DEFAULT_WEIGHTS", "choose", "decide", "evaluate", "score_board"]
+__all__ = ["DEFAULT_WEIGHTS", "choose", "decide", "evaluate", "piece_column", "score_board"]

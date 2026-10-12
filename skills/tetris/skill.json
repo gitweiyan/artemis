@@ -13,5 +13,9 @@
   "plan_hint": "Plays a Tetris-like game at full speed: hand it the device for N seconds and it reads the board from pixels, picks a placement and plays. Verify the reported lines/score afterwards.",
   "requires": {
     "screenshot": true
+  },
+  "hooks": {
+    "on_start": "session:start",
+    "on_stop": "session:stop"
   }
 }

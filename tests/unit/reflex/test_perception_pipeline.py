@@ -190,3 +190,60 @@ def test_the_older_calibration_still_works(perception, calibration):
     assert state is not None
     assert "board" in state and "grid" in state
     assert state["grid"]["cols"] == 10
+
+
+# --------------------------------------------------------------------------- #
+# Identity: not every periodic screen is this board (fixed after review)
+# --------------------------------------------------------------------------- #
+
+
+def textured_screen(pitch):
+    """A screen filled with a fine periodic texture: what a UI screen actually looks like.
+
+    Measured over the 149 unique real 720x1600 frames in this repo's ``traces/``: 47 of
+    them (a video app, the Android settings list) pass the periodicity test with a closed
+    extent, at pitches of 6-8 px. Periodicity is 0.395-0.802 for those and 0.554-0.561 for
+    the three real boards, so the two ranges overlap and no threshold separates them.
+    """
+    image = np.zeros((*SCREEN, 3), dtype="float32")
+    image[:, :] = BACKGROUND
+    for x in range(0, SCREEN[1], pitch):
+        image[:, x : x + 1] = GRIDLINE
+    for y in range(0, SCREEN[0], pitch):
+        image[y : y + 1, :] = (90.0, 120.0, 140.0)
+    return image
+
+
+def test_a_fine_ui_texture_measures_as_a_grid_but_is_not_this_board(perception, calibration):
+    """The measurement is allowed to find periodicity; identity is a separate check.
+
+    Without it the loop reads a 57-column "board" out of a menu texture and never counts
+    a blind frame — the opposite of what Review Focus 5 asks for.
+    """
+    grid_probe = importlib.import_module("artemis_skills_tetris.grid_probe")
+    roi = importlib.import_module("artemis_skills_tetris.roi")
+    image = textured_screen(9)  # ~8 px in the normalised crop, like a real UI texture
+    field = roi.board_crop(image, calibration)
+    probe = grid_probe.measure_grid(field)
+    assert probe["extent_ok"] is True, "the periodicity test does accept this - that is the point"
+    assert probe["columns"] == 16, probe
+
+    perception.reset_history()
+
+    assert perception.parse(Frame(image), calibration) is None
+
+
+def test_a_board_of_the_wrong_size_is_not_this_board(perception, calibration):
+    """A grid that closes its own extent can still be the wrong game."""
+    image = np.zeros((*SCREEN, 3), dtype="float32")
+    image[:, :] = BACKGROUND
+    x0, y0, x1, y1 = BOX
+    for index in range(9):
+        x = min(x0 + index * 54, x1 - 2)
+        image[y0:y1, x : x + 2] = GRIDLINE
+    for index in range(17):
+        y = min(y0 + index * 54, y1 - 2)
+        image[y : y + 2, x0:x1] = GRIDLINE
+    perception.reset_history()
+
+    assert perception.parse(Frame(image), calibration) is None

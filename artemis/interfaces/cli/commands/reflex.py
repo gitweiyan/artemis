@@ -268,17 +268,17 @@ def _verify_frames(module, images, handle, samples, *, keep: bool, as_json: bool
             typer.echo(module.render_verification(report, handle.calibration))
 
     rejected = [
-        index + 1
+        (index + 1, module.board_problem(report, handle.calibration))
         for index, report in enumerate(reports)
-        if not report["grid"]["columns"] or not report["grid"]["extent_ok"]
     ]
-    if rejected:
+    failures = [(index, why) for index, why in rejected if why]
+    if failures:
         typer.echo("")
+        for index, why in failures:
+            typer.secho(f"frame {index}: {why}", fg=typer.colors.RED)
         typer.secho(
-            f"Frames {', '.join(str(index) for index in rejected)} did not measure as a board"
-            " (no periodic structure, or a pitch that does not divide the field)."
-            " Do not trust this calibration: check that the game is on screen, the device"
-            " is awake, and board_roi_ratios still matches the app.",
+            "Do not trust this calibration: check that the game is on screen, the device is"
+            " awake, and that board_roi_ratios and grid still describe this app.",
             fg=typer.colors.RED,
         )
         raise typer.Exit(code=1)

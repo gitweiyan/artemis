@@ -20,10 +20,13 @@ wide". The method:
    This is the part with real discriminating power: a pitch that does not divide the
    field is not this field's pitch.
 
-The periodicity threshold is the "is this a board at all" test, and it is what keeps
-an ad or a dialog from being read as a stack (Review Focus 5): measured periodicity
-is 0.54-0.94 for boards and 0.09-0.12 for UI text and noise. A field with no such
-structure reports ``None`` rather than an invented grid.
+The periodicity threshold rejects a field with no structure at all, and it is *not*
+enough on its own to tell a board from a menu: measured, the three real board frames of
+this game sit at 0.554-0.561, while 47 of the 149 unique real frames in this repo's
+``traces/`` — video-app screens, the Android settings list — reach up to 0.802 at 6-8 px
+pitches and close their extent. The ranges overlap, so identity is a separate check
+(:func:`identity_problem`): the count has to agree with the calibration. A field with no
+periodic structure reports ``None`` rather than an invented grid.
 """
 
 from __future__ import annotations
@@ -128,6 +131,47 @@ def _measure_axis(gray, along: str, extent: int) -> tuple[int | None, int | None
     return best[0], best[1], best[2] <= EXTENT_TOLERANCE
 
 
+def declared_cells(calibration: dict[str, Any] | None) -> tuple[int, int] | None:
+    """The cell count the calibration declares for this app, or ``None`` if it declares one.
+
+    One reading of ``grid.cols``/``grid.rows`` for every caller that has to compare a
+    measurement with an expectation — the loop and a calibration run must not disagree
+    about what "the wrong board" means.
+    """
+    grid = (calibration or {}).get("grid") or {}
+    if grid.get("cols") and grid.get("rows"):
+        return int(grid["cols"]), int(grid["rows"])
+    return None
+
+
+def identity_problem(probe: dict[str, Any], expected: tuple[int, int] | None = None) -> str | None:
+    """Why this measurement is **not** the board you were looking for, or ``None``.
+
+    The measurement above is deliberately assumption-free, which makes it *inclusive*:
+    measured over the 149 unique real 720x1600 frames in this repository's ``traces/``,
+    47 of them — a video-app screen, the Android settings list — pass it with a closed
+    extent, at 6-8 px pitches. Their periodicity is 0.395-0.802 against 0.554-0.561 for
+    the three real boards of this game, so those ranges overlap and no threshold on that
+    number separates a board from a menu.
+
+    Identity therefore has to be a *check* rather than an inference: the measured count
+    has to agree with what the calibration declares for this app. A caller that acts on a
+    frame (the perception loop) treats a problem as a blind frame; a caller that reports
+    (a calibration run) prints it and fails the run.
+    """
+    columns, rows = probe.get("columns"), probe.get("rows")
+    if not columns or not rows:
+        return "no grid measured: the field has no periodic structure"
+    if not probe.get("extent_ok"):
+        return f"the measured pitch does not divide the field ({columns} x {rows} of it)"
+    if expected and (columns, rows) != (int(expected[0]), int(expected[1])):
+        return (
+            f"measured {columns} x {rows} cells, but the calibration declares"
+            f" {int(expected[0])} x {int(expected[1])}"
+        )
+    return None
+
+
 __all__ = [
     "AMBIGUITY",
     "EXTENT_TOLERANCE",
@@ -135,7 +179,9 @@ __all__ = [
     "MIN_CELLS",
     "MIN_PERIODICITY",
     "MIN_PITCH",
+    "declared_cells",
     "edge_profile",
+    "identity_problem",
     "measure_grid",
     "period_candidates",
     "pitch",

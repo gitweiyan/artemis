@@ -33,7 +33,7 @@ from collections import deque
 from typing import Any
 
 from .cells import read_matrix
-from .grid_probe import measure_grid
+from .grid_probe import declared_cells, identity_problem, measure_grid
 from .pieces import split_pieces
 from .roi import RATIO_KEY, board_crop, roi_pixels
 from .simulator import PIECE_NAMES, mask_cells, orientations
@@ -52,9 +52,18 @@ _settled: list[list[str]] | None = None
 _history: deque[list[str]] = deque(maxlen=MAX_HISTORY)
 
 
-def reset_history() -> None:
-    """Forget the recent frames — a new session must not inherit the last one's motion."""
+def reset_history(*_args, **_kwargs) -> None:
+    """Forget the recent frames — a new session must not inherit the last one's motion.
+
+    Also clears what the older path remembered (the last board and its settled stack), for
+    the same reason. Called by the manifest's ``on_start`` hook (:mod:`session`), and takes
+    any arguments because the runtime hands a hook its skill handle.
+    """
+    global _previous, _settled
+
     _history.clear()
+    _previous = None
+    _settled = None
 
 
 def _decode(frame: Any):
@@ -257,8 +266,15 @@ def _measured_state(image, calibration: dict[str, Any]):
     field = board_crop(image, calibration)
     probe = measure_grid(field)
     columns, rows = probe["columns"], probe["rows"]
-    if not columns or not rows:
-        return None  # not a board — an ad or a dialog over the playfield (Review Focus 5)
+    if identity_problem(probe, declared_cells(calibration)) is not None:
+        # Not this board: a menu, an ad, a dialog, or a screen whose texture merely looks
+        # periodic (Review Focus 5). The runtime counts this as a blind frame, which is
+        # how the loop stops instead of flailing at it.
+        return None
+    if _history and (len(_history[-1]), len(_history[-1][0])) != (rows, columns):
+        # The grid changed between frames: mixing them would read motion across two
+        # different geometries (and `pieces.split_pieces` would refuse it anyway).
+        _history.clear()
 
     measured = {
         **calibration,

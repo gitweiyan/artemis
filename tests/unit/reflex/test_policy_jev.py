@@ -121,6 +121,7 @@ def test_the_candidate_the_model_is_confident_about_is_the_one_played(
 def test_the_message_the_model_is_asked_about_carries_geometry_not_letters(
     jev_policy, simulator, calibration, monkeypatch
 ):
+    jev_policy.reset_telemetry()
     seen = {}
 
     def fake_ask(payload, questions, **kwargs):
@@ -371,3 +372,114 @@ def test_the_dispatcher_routes_the_jev_backend(jev_policy, calibration, monkeypa
     action = dispatcher.decide(state_for(), dict(calibration, policy_backend="jev"))
 
     assert action.state["counters"]["source"] == "jev"
+
+
+# --------------------------------------------------------------------------- #
+# Counting, and asking once per piece (fixed after review)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_hedging_model_is_counted_as_the_fallback_it_is(jev_policy, calibration, monkeypatch):
+    """The number T10 reports: a low-confidence answer means the search played."""
+    answering(monkeypatch, [0.01, 0.02, 0.0])
+    jev_policy.reset_telemetry()
+
+    action = jev_policy.decide(state_for(), calibration)
+    telemetry = jev_policy.telemetry()
+
+    assert action.state["counters"]["source"] == "search"
+    assert telemetry["fallbacks"] == 1, "the search played; that is a fallback"
+    assert telemetry["calls"] == 1
+
+
+def test_a_confident_answer_is_not_counted_as_a_fallback(jev_policy, calibration, monkeypatch):
+    answering(monkeypatch, [0.9, 0.01, 0.01])
+    jev_policy.reset_telemetry()
+
+    jev_policy.decide(state_for(), calibration)
+
+    assert jev_policy.telemetry()["fallbacks"] == 0
+
+
+def test_the_model_is_asked_once_per_piece_not_once_per_frame(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """The plan's budget: one Jev decision per piece (the inner loop is 2-3 fps).
+
+    The same piece one row lower is the same decision: where it lands does not depend
+    on the row it is in when the question is asked.
+    """
+    asked = []
+
+    def fake_ask(payload, questions, **kwargs):
+        asked.append(payload)
+        return {f"cand_{index}": {"type": "noul", "noul": 0.9} for index in range(len(questions))}
+
+    monkeypatch.setattr(systemone, "ask", fake_ask)
+    jev_policy.reset_telemetry()
+    higher = state_for(
+        mask=[[1, 1], [1, 1]],
+        motion=[1, 0],
+        current_piece_positions=[[14, 3], [14, 4], [15, 3], [15, 4]],
+    )
+    lower = state_for(
+        mask=[[1, 1], [1, 1]],
+        motion=[1, 0],
+        current_piece_positions=[[15, 3], [15, 4], [16, 3], [16, 4]],
+    )
+
+    first = jev_policy.decide(higher, calibration)
+    second = jev_policy.decide(lower, calibration)
+
+    assert len(asked) == 1, "the same piece is not worth a second call"
+    assert second.state["placement"] == first.state["placement"]
+    assert second.state["counters"]["reused"] == 1
+    assert jev_policy.telemetry()["reuses"] == 1
+
+
+def test_a_new_piece_is_a_new_question(jev_policy, simulator, calibration, monkeypatch):
+    asked = []
+
+    def fake_ask(payload, questions, **kwargs):
+        asked.append(payload)
+        return {f"cand_{index}": {"type": "noul", "noul": 0.9} for index in range(len(questions))}
+
+    monkeypatch.setattr(systemone, "ask", fake_ask)
+    jev_policy.reset_telemetry()
+    jev_policy.decide(state_for(), calibration)
+    jev_policy.decide(
+        state_for(mask=[[1, 1], [1, 0]], current_piece_positions=[[14, 6], [15, 6]]), calibration
+    )
+
+    assert len(asked) == 2, "a different piece is a different question"
+
+
+# --------------------------------------------------------------------------- #
+# The decision has to reach the gesture layer
+# --------------------------------------------------------------------------- #
+
+
+def test_the_decision_carries_the_pieces_column_so_the_move_actually_runs(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """Without it the gesture layer only rotates and drops: no column is ever chosen."""
+    control = importlib.import_module("artemis_skills_tetris.control")
+    positions = [[14, 3], [14, 4], [15, 3], [15, 4]]
+    state = state_for(mask=[[1, 1], [1, 1]], motion=[1, 0], current_piece_positions=positions)
+    candidates = candidates_for(simulator, state)
+    elsewhere = next(
+        index for index, (placement, _cells) in enumerate(candidates) if placement.column != 3
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[elsewhere] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_telemetry()
+
+    action = jev_policy.decide(state, calibration)
+    real = json.loads((SKILLS / "tetris" / "calibration.json").read_text(encoding="utf-8"))
+    gestures = control.to_gestures(action, real)
+
+    assert action.state["current_column"] == 3, (
+        "the piece's left edge, as the gesture layer reads it"
+    )
+    assert any(gesture.description.startswith("move") for gesture in gestures), gestures
