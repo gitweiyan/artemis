@@ -125,5 +125,10 @@
       "right"
     ],
     "shapes": {}
+  },
+  "jev": {
+    "mode": "noul",
+    "min_confidence": 0.05,
+    "options_cap": 40
   }
 }

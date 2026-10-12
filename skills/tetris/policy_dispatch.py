@@ -5,6 +5,7 @@ switch is one calibrated string: ``calibration.json`` → ``"policy_backend"``.
 
     "policy_backend": "search"     # default: deterministic, offline, 16 ms/decision
     "policy_backend": "systemone"  # Jev picks among the legal placements
+    "policy_backend": "jev"        # the same, driven by calibration.jev (noul/choice)
 
 Either way the *legality* boundary is the simulator's: a model cannot invent a move.
 With ``systemone`` the search still plays whenever the call cannot be made (no key,
@@ -19,6 +20,10 @@ from . import policy as search
 
 def decide(state, calibration):
     backend = str((calibration or {}).get("policy_backend") or "search").lower()
+    if backend == "jev":
+        from . import policy_jev
+
+        return policy_jev.decide(state, calibration)
     if backend == "systemone":
         from . import policy_systemone
 
