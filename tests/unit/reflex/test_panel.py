@@ -378,9 +378,7 @@ def test_the_starting_step_can_be_forced(panel, calibration):
     """The outer loop may know better (it can read the screen); ``start`` overrides."""
     screen = Screen([bytes_of("panel-dialog.png")] * 3 + [bytes_of("session-0001.png")])
     taps: list[tuple[int, int]] = []
-    report = panel.restart(
-        screen.look, taps.append, calibration, start=0, sleep=lambda _s: None
-    )
+    report = panel.restart(screen.look, taps.append, calibration, start=0, sleep=lambda _s: None)
     assert taps == [(492, 1015), (259, 944)]
     assert report["started_at_step"] == 0
 

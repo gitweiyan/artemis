@@ -66,13 +66,39 @@ _last: dict[str, Any] = {
     "source": None,
     "shapes": (),
     "phase": None,
+    "rotate_frames": 0,
 }
 
 
 def reset_telemetry() -> None:
-    """Zero the counters *and* forget the last decision: a new session inherits neither."""
+    """Zero the counters: a new session starts counting from nothing.
+
+    Kept separate from :func:`forget_decision` because the counters are the session's
+    *report* — the only record of how many paid calls it made. The stop hook used to zero
+    them too, which wiped the report at the moment anyone would read it (a 60 s session
+    that answered from Jev five times reported ``calls: 0``).
+    """
     _telemetry.update({"calls": 0, "fallbacks": 0, "reuses": 0, "last_error": None})
-    _last.update({"key": None, "placement": None, "source": None, "shapes": (), "phase": None})
+
+
+def forget_decision() -> None:
+    """Forget the decision in force — a new session or a new round must not replay it."""
+    _last.update(
+        {
+            "key": None,
+            "placement": None,
+            "source": None,
+            "shapes": (),
+            "phase": None,
+            "rotate_frames": 0,
+        }
+    )
+
+
+def reset_decisions() -> None:
+    """Both, for a caller that wants the old behaviour (an offline test, say)."""
+    reset_telemetry()
+    forget_decision()
 
 
 def telemetry() -> dict[str, Any]:
@@ -125,20 +151,8 @@ def decide(state, calibration):
         taps = _taps_to_reach(mask, _last["shapes"], placement.rotation)
         if taps:
             # The turn is not finished (the device may need a frame to catch up): keep
-            # turning rather than measuring a half-turned piece.
-            counters["rotate_taps"] = taps
-            return Action(
-                gestures=(),
-                done=False,
-                state={
-                    "placement": placement.as_dict(),
-                    "phase": "rotate",
-                    "rotate_taps": taps,
-                    "counters": counters,
-                    "current_column": search_policy.piece_column(state),
-                    "note": f"jev {mode} (still turning the same piece)",
-                },
-            )
+            # turning — but not forever (see `_turning_action`).
+            return _turning_action(placement, state, counters, mode, "jev", taps, cal)
         # Second half: drive it to the chosen column, using the column this frame shows -
         # the device turns the piece about its second cell, so the column after the turn is
         # not the column before. Re-measured every frame, so a tap that repeated or missed
@@ -170,14 +184,14 @@ def decide(state, calibration):
         # the answer was read - is what keeps `source` and `fallbacks` from disagreeing.
         _telemetry["fallbacks"] += 1
         counters["source"] = "search"
-        return _decided(mask, key, chosen, "search", counters, mode, state)
+        return _decided(mask, key, chosen, "search", counters, mode, state, cal)
 
     counters["source"] = "jev"
     counters["mode"] = mode
-    return _decided(mask, key, chosen, "jev", counters, mode, state)
+    return _decided(mask, key, chosen, "jev", counters, mode, state, cal)
 
 
-def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state):
+def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state, cal):
     """Turn first, on this frame; placement follows on the next one.
 
     When nothing needs turning (the chosen orientation is the one already on screen - a
@@ -189,20 +203,10 @@ def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state):
     _remember(key, chosen, source, shapes=shapes, phase="rotate" if taps else "move")
     if not taps:
         return _placement_action(chosen, state, counters, mode)
-    counters["phase"] = "rotate"
-    counters["rotate_taps"] = taps
-    return Action(
-        gestures=(),
-        done=False,
-        state={
-            "placement": chosen.as_dict(),
-            "phase": "rotate",
-            "rotate_taps": taps,
-            "counters": counters,
-            "current_column": search_policy.piece_column(state),
-            "note": f"{source} {mode} r{chosen.rotation}c{chosen.column} (turn first)",
-        },
-    )
+    action = _turning_action(chosen, state, counters, mode, source, taps, cal)
+    if not action.done:
+        action.state["note"] = f"{source} {mode} r{chosen.rotation}c{chosen.column} (turn first)"
+    return action
 
 
 def _placement_action(placement, state, counters: dict, mode: str):
@@ -243,6 +247,53 @@ def _placement_action(placement, state, counters: dict, mode: str):
     )
 
 
+#: How many frames one piece may spend turning before the loop gives up on it. Measured on
+#: the device: eight frames in a row asked for two more rotations each and the terrain never
+#: changed once, which is 5 s of a 45 s session spent tapping a button that was getting
+#: nowhere. The count is per decision, so an ordinary turn (one or two frames) never sees it.
+DEFAULT_MAX_ROTATE_FRAMES = 3
+
+
+def _turning_action(placement, state, counters: dict, mode: str, source: str, taps: int, cal: dict):
+    """The rotate-phase frame, or an end-of-session when the turn is not happening.
+
+    A tap the game ignores and a shape reading that never matches look identical from here —
+    the loop cannot tell which, and continuing to tap burns the round. So it stops and says
+    what it measured, exactly like the still-board reading: the caller can look at the screen
+    and decide (this is what the outer loop is for).
+    """
+    frames = int(_last.get("rotate_frames") or 0) + 1
+    _last["rotate_frames"] = frames
+    limit = int(cal.get("max_rotate_frames") or DEFAULT_MAX_ROTATE_FRAMES)
+    if frames > limit:
+        counters["rotate_frames"] = frames
+        return Action(
+            done=True,
+            state={
+                "counters": counters,
+                "note": "the piece is not turning",
+                "placement": placement.as_dict(),
+                "rotate_frames": frames,
+                "rotate_taps": taps,
+            },
+        )
+    counters["phase"] = "rotate"
+    counters["rotate_taps"] = taps
+    counters["rotate_frames"] = frames
+    return Action(
+        gestures=(),
+        done=False,
+        state={
+            "placement": placement.as_dict(),
+            "phase": "rotate",
+            "rotate_taps": taps,
+            "counters": counters,
+            "current_column": search_policy.piece_column(state),
+            "note": f"{source} {mode} (still turning the same piece)",
+        },
+    )
+
+
 def _taps_to_reach(mask, shapes, target: int) -> int:
     """How many clockwise taps take the shape now on screen to ``shapes[target]``.
 
@@ -278,8 +329,16 @@ def _piece_key(state, gravity: str):
 
 
 def _remember(key, placement, source, *, shapes=(), phase=None) -> None:
+    """Remember the decision in force — and start its turn count from zero."""
     _last.update(
-        {"key": key, "placement": placement, "source": source, "shapes": shapes, "phase": phase}
+        {
+            "key": key,
+            "placement": placement,
+            "source": source,
+            "shapes": shapes,
+            "phase": phase,
+            "rotate_frames": 0,
+        }
     )
 
 

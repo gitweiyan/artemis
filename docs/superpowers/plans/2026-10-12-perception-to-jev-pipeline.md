@@ -279,6 +279,23 @@
 - `scripts/tetris_restart.py`：读面板 → 按标定顺序点两个按钮 → 复核棋盘是否可读；`--dry-run` 只检测不点，`--self-check` 覆盖全部离线路径并断言 `adb_calls == 0`（两点与出口码都已在自检里钉住）。真机 exit 0 ✓。
 - `scripts/tetris_probe.py`：一张截图 → 一行结论（亮度 / 标题带是否压暗 / 面板分 / parse 结果 / 静止读数 / 是否有遮罩与未压暗区 / a11y 可点文字）；`--tap X Y --wait N` 可先点一下再量化，`--fast` 跳过 a11y（1.5 s/次，适合边点边看）。
 
+### 追加：真机会话（2026-10-12 第四轮，`scripts/tetris_play.py`）
+
+**跑通了**：两局共 59.5 s、42 帧、9 次真实点击（左/右/旋转三个键）、0 盲帧、无错误；`telemetry` 给出 `calls: 5, fallbacks: 0`（Jev 全程应答，每块一次调用成立 ✓）；第 2 局**以"检测到游戏结束面板"自然收尾**（`source=jev` → 面板 `game_over` → 交回外循环）。
+
+本轮实测抓到并修掉的四个真问题（都属于"单元测试全绿、真机不工作"那一类）：
+
+| # | 症状 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | 60 s 会话 `actions: 0`，决策全对却**一个手势都没发出去** | 运行时调用 `skill.to_gestures(action)`（不带 calibration/state），而控制层按文档要求从 `action.state["calibration"]` 取标定——**两个 policy 都没挂** | `policy_dispatch._with_calibration()` 在所有后端出口统一挂上；新增 `tests/unit/reflex/test_runtime_wiring.py` 用真实运行时+回放帧断言"订单必须出手势" |
+| 2 | Jev 后端**静默 100% 退化成 search** | `systemone_timeout_s: 1.0` 太紧；实测一次真实决策 **7.63 s**（1.0 s 时死在 TLS 握手） | 改为 15.0 s 并记下实测（方块约 1.5 s 落一行、满屏约 30 s，7.6 s 的决策装得下） |
+| 3 | 会话报告 `calls: 0` 与 `source=jev` 矛盾 | `session.stop` 钩子也 `reset_telemetry()`，**会话一结束账本就被清零** | 拆成 `reset_telemetry()`（只在会话开始清）与 `forget_decision()`（进出都清）；`caps.telemetry()` 现在能读到这次会话花了多少次付费调用 |
+| 4 | 连续 8 帧每帧都要求 `rotate taps=2`，5 秒烧在旋转相位上 | 设备没真正转到位（或形状读数始终不匹配）时 `_taps_to_reach` 永远返回非零 | 加旋转护栏 `max_rotate_frames: 3`：超限即以 `note="the piece is not turning"` 结束会话交回外循环（与"静止"同一套哲学：只报测量，不臆断） |
+
+**真机运行环境的新发现**：游戏会**整体卡死**（Unity 暂停、棋盘与下落块完全不动，而广告 WebView 照常动画，所以整屏像素仍在变；点击棋盘无效）。恢复方式实测有效：`adb shell input keyevent KEYCODE_HOME` → `adb shell monkey -p cn.flytalk.tetris.nearme.gamecenter -c android.intent.category.LAUNCHER 1`（注意 `am start -n .../cn.flytalk.unity3d.MainActivity` **不起作用**，真正的启动 Activity 是 `cn.flytalk.game.SplashActivity`），进程未被杀、牌局仍在。`tetris_play.py` 的 `ensure_playable()` 已内置"检测不推进 → 重启 App → 必要时重开一局"。
+
+**关于 T10 的两个数字**：存活 59.5 s ✓ 但**消行数在 Jev 配置下达不到 10**——Jev 一次决策 7.6 s，60 s 只够 6–8 块；要冲 10 行需要更长预算或更快的策略路径（减少候选数、或先用 search 打底）。这一条建议在 T10 里按"预算/行数"二选一重新定义。
+
 **T10 之前值得先量一次的三个数（评审遗留，均未实测；"每块一次决策"已在一次真机 Jev 会话中量到 `calls=1 reuses=1`）**
 
 | 待量 | 为什么 |

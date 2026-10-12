@@ -108,7 +108,7 @@ def test_the_candidate_the_model_is_confident_about_is_the_one_played(
     probabilities = [0.01] * len(candidates)
     probabilities[target] = 0.9
     answering(monkeypatch, probabilities)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     action = jev_policy.decide(state, calibration)
 
@@ -121,7 +121,7 @@ def test_the_candidate_the_model_is_confident_about_is_the_one_played(
 def test_the_message_the_model_is_asked_about_carries_geometry_not_letters(
     jev_policy, simulator, calibration, monkeypatch
 ):
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
     seen = {}
 
     def fake_ask(payload, questions, **kwargs):
@@ -155,7 +155,7 @@ def test_a_hedging_model_hands_the_decision_to_the_search(
 ):
     state = state_for()
     answering(monkeypatch, [0.01, 0.02, 0.0])
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     action = jev_policy.decide(state, calibration)
 
@@ -172,7 +172,7 @@ def test_an_unavailable_model_falls_back_and_says_so(jev_policy, calibration, mo
         raise systemone.SystemOneUnavailable("HTTP 429")
 
     monkeypatch.setattr(systemone, "ask", unavailable)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     action = jev_policy.decide(state_for(), calibration)
     telemetry = jev_policy.telemetry()
@@ -192,7 +192,7 @@ def test_an_answer_naming_nothing_is_an_abstention_not_an_action(
         "ask",
         lambda payload, questions, **kwargs: {"ghost_move": {"type": "noul", "noul": 0.99}},
     )
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     action = jev_policy.decide(state, calibration)
 
@@ -228,7 +228,7 @@ def test_choice_mode_asks_one_criterion_per_candidate(
 
     monkeypatch.setattr(systemone, "ask", fake_ask)
     mode = dict(calibration, jev={"mode": "choice", "min_confidence": 0.05, "options_cap": 40})
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     action = jev_policy.decide(state, mode)
 
@@ -249,7 +249,7 @@ def test_choice_mode_still_plays_a_legal_move_when_the_winner_is_unknown(
         lambda payload, questions, **kwargs: {"placement": {"type": "choice", "choice": "r9c9"}},
     )
     mode = dict(calibration, jev={"mode": "choice", "min_confidence": 0.05, "options_cap": 40})
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     action = jev_policy.decide(state, mode)
 
@@ -387,7 +387,7 @@ def test_the_dispatcher_routes_the_jev_backend(jev_policy, calibration, monkeypa
 def test_a_hedging_model_is_counted_as_the_fallback_it_is(jev_policy, calibration, monkeypatch):
     """The number T10 reports: a low-confidence answer means the search played."""
     answering(monkeypatch, [0.01, 0.02, 0.0])
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     action = jev_policy.decide(state_for(), calibration)
     telemetry = jev_policy.telemetry()
@@ -399,7 +399,7 @@ def test_a_hedging_model_is_counted_as_the_fallback_it_is(jev_policy, calibratio
 
 def test_a_confident_answer_is_not_counted_as_a_fallback(jev_policy, calibration, monkeypatch):
     answering(monkeypatch, [0.9, 0.01, 0.01])
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     jev_policy.decide(state_for(), calibration)
 
@@ -421,7 +421,7 @@ def test_the_model_is_asked_once_per_piece_not_once_per_frame(
         return {f"cand_{index}": {"type": "noul", "noul": 0.9} for index in range(len(questions))}
 
     monkeypatch.setattr(systemone, "ask", fake_ask)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
     higher = state_for(
         mask=[[1, 1], [1, 1]],
         motion=[1, 0],
@@ -453,7 +453,7 @@ def test_a_new_piece_is_a_new_question(jev_policy, simulator, calibration, monke
         return {f"cand_{index}": {"type": "noul", "noul": 0.9} for index in range(len(questions))}
 
     monkeypatch.setattr(systemone, "ask", fake_ask)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
     jev_policy.decide(state_for(), calibration)
     jev_policy.decide(
         state_for(mask=[[1, 1], [1, 0]], current_piece_positions=[[14, 6], [15, 6]]), calibration
@@ -481,7 +481,7 @@ def test_the_decision_carries_the_pieces_column_so_the_move_actually_runs(
     probabilities = [0.01] * len(candidates)
     probabilities[elsewhere] = 0.9
     answering(monkeypatch, probabilities)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     action = jev_policy.decide(state, calibration)
     real = json.loads((SKILLS / "tetris" / "calibration.json").read_text(encoding="utf-8"))
@@ -496,7 +496,7 @@ def test_the_decision_carries_the_pieces_column_so_the_move_actually_runs(
 def test_every_question_names_the_candidate_it_asks_about(jev_policy, calibration, monkeypatch):
     """Measured: the first real call sent 18 *identical* questions, none of which said
     which candidate "this" was - an unanswerable question, answered with a flat 0.35."""
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
     seen = {}
 
     def fake_ask(payload, questions, **kwargs):
@@ -547,7 +547,7 @@ def test_a_turn_does_not_buy_a_second_decision(jev_policy, simulator, calibratio
         }
 
     monkeypatch.setattr(systemone, "ask", fake_ask)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     first = jev_policy.decide(before, calibration)
     second = jev_policy.decide(after, calibration)
@@ -570,7 +570,7 @@ def test_the_rotate_frame_only_asks_for_the_taps_still_missing(
     probabilities = [0.01] * len(candidates)
     probabilities[target] = 0.9
     answering(monkeypatch, probabilities)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     turn = jev_policy.decide(state, calibration)
     already_turned = jev_policy.decide(
@@ -581,6 +581,31 @@ def test_the_rotate_frame_only_asks_for_the_taps_still_missing(
     assert not already_turned.state.get("rotate_taps"), "already upright: nothing left to turn"
 
 
+def test_a_piece_whose_orientations_repeat_needs_no_taps_to_reach_them(jev_policy, simulator):
+    """An O piece is one shape however it is turned; an S/Z has two, and rotation 2 is the first.
+
+    The shape list is de-duplicated, which is what keeps the modulo honest: asking for
+    "rotation 2" of a piece whose second shape *is* its first has to cost zero taps, or the
+    rotate phase can never finish.
+    """
+    square = [[1, 1], [1, 1]]
+    square_shapes = simulator.orientations_from_mask(square)
+    assert len(square_shapes) == 1, "a square has one shape, however many times it is turned"
+    assert jev_policy._taps_to_reach(square, square_shapes, 2) == 0
+    assert jev_policy._taps_to_reach(square, square_shapes, 3) == 0
+
+    zed = [[1, 1, 0], [0, 1, 1]]
+    zed_shapes = simulator.orientations_from_mask(zed)
+    assert len(zed_shapes) == 2, "an S/Z has two shapes, and turning it four times repeats them"
+    assert jev_policy._taps_to_reach(zed, zed_shapes, 0) == 0
+    assert jev_policy._taps_to_reach(zed, zed_shapes, 1) == 1
+    assert jev_policy._taps_to_reach(zed, zed_shapes, 2) == 0, "rotation 2 is shape 0 again"
+    assert jev_policy._taps_to_reach(zed_shapes[1], zed_shapes, 2) == 1
+    # A shape that matches nothing on the list falls back to the requested count, which is
+    # what the rotate guard then catches if it never resolves.
+    assert jev_policy._taps_to_reach([[1, 0], [0, 1]], zed_shapes, 1) == 1
+
+
 def test_the_placement_frame_uses_the_column_measured_now(
     jev_policy, simulator, calibration, monkeypatch
 ):
@@ -588,7 +613,7 @@ def test_the_placement_frame_uses_the_column_measured_now(
     the column it started in: the move must be computed from the frame it is executed on."""
     state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
     answering(monkeypatch, [0.9] * len(candidates_for(simulator, state)))
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     jev_policy.decide(state, calibration)
     placed = jev_policy.decide(_three_bar([[1], [1], [1]], [(2, 6), (3, 6), (4, 6)]), calibration)
@@ -613,7 +638,7 @@ def test_the_placement_keeps_correcting_until_the_column_matches(
     probabilities = [0.01] * len(candidates)
     probabilities[target_index] = 0.9
     answering(monkeypatch, probabilities)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
 
     first = jev_policy.decide(state, calibration)
     assert first.state["placement"] == {"rotation": 0, "column": 4}
@@ -646,7 +671,7 @@ def test_the_piece_is_placed_once_per_piece_even_while_correcting(
         return {f"cand_{index}": {"type": "noul", "noul": 0.5} for index in range(len(questions))}
 
     monkeypatch.setattr(systemone, "ask", fake_ask)
-    jev_policy.reset_telemetry()
+    jev_policy.reset_decisions()
     for column in (3, 4, 2, 1):
         jev_policy.decide(
             _three_bar([[1, 1, 1]], [(6, column), (6, column + 1), (6, column + 2)]), calibration

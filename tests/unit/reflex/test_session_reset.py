@@ -54,6 +54,25 @@ def test_the_hook_forgets_the_frame_history(tetris, session):
     assert list(perception._history) == []
 
 
+def test_the_counters_survive_the_session_that_they_describe(tetris, session):
+    """The stop hook must not wipe the report at the moment the caller reads it.
+
+    ``telemetry()`` is the only record of how many paid calls a session made and how many
+    fell back to the search — the plan's budget question. The stop hook used to zero it, so
+    a 60 s session that answered from Jev five times reported ``calls: 0``.
+    """
+    policy_jev = importlib.import_module("artemis_skills_tetris.policy_jev")
+    session.start(tetris)
+    assert policy_jev.telemetry()["calls"] == 0, "a new session starts counting from nothing"
+
+    policy_jev._telemetry["calls"] = 5
+    policy_jev._last["key"] = ("stale",)
+    session.stop(tetris)
+
+    assert policy_jev.telemetry()["calls"] == 5, "the report of a finished session survives it"
+    assert policy_jev._last["key"] is None, "but the decision in force does not"
+
+
 def test_the_hook_forgets_the_last_decision(tetris, session, monkeypatch):
     """The one that would hurt: replaying a decision from the previous session."""
     policy_jev = importlib.import_module("artemis_skills_tetris.policy_jev")

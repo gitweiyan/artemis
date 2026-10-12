@@ -15,6 +15,10 @@ was — so a comparison never silently mixes the two.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+from artemis.reflex.contract import Action
+
 from . import policy as search
 
 
@@ -23,12 +27,33 @@ def decide(state, calibration):
     if backend == "jev":
         from . import policy_jev
 
-        return policy_jev.decide(state, calibration)
-    if backend == "systemone":
+        action = policy_jev.decide(state, calibration)
+    elif backend == "systemone":
         from . import policy_systemone
 
-        return policy_systemone.decide(state, calibration)
-    return search.decide(state, calibration)
+        action = policy_systemone.decide(state, calibration)
+    else:
+        action = search.decide(state, calibration)
+    return _with_calibration(action, calibration)
+
+
+def _with_calibration(action, calibration):
+    """Attach the calibration to the action — the only way the control layer receives it.
+
+    The runtime calls ``to_gestures(action)``: the action alone, no calibration, no state
+    (see ``ReflexRuntime.run``), and ``control.to_gestures`` documents exactly that — "the
+    calibration is attached to the action's state by the policy". Nothing attached it, so
+    every frame decided correctly and dispatched nothing: the first live run played 16 s
+    with ``actions: 0`` and never moved a piece. Doing it once, here, on the way out of
+    whichever backend ran, keeps that from depending on each policy remembering.
+    """
+    if not isinstance(action, Action) or not calibration:
+        return action
+    state = dict(action.state or {})
+    if state.get("calibration") is calibration:
+        return action
+    state["calibration"] = calibration
+    return replace(action, state=state)
 
 
 __all__ = ["decide"]

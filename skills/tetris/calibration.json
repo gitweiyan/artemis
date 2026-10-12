@@ -220,7 +220,7 @@
       "note": "the first point sits inside a 92 px wide, 28 px tall run of near-white pixels - the size of a four-glyph label - so it lands on the button's label and not on the panel's background. The second point sits in the dialog's un-dimmed body. Both words are the operator's reading; nothing here does OCR. Every number above is re-derived from the committed frames in tests/unit/reflex/test_panel.py."
     }
   },
-  "systemone_timeout_s": 1.0,
+  "systemone_timeout_s": 15.0,
   "package": "cn.flytalk.tetris.nearme.gamecenter",
   "brightness_threshold": 90,
   "measured": {
@@ -252,5 +252,8 @@
     "width": 720,
     "height": 1600,
     "note": "the screenshot size the button fractions below were measured on; the fractions are what matter, this is only what to multiply them by"
-  }
+  },
+  "systemone_timeout_note": "Measured on 2026-10-12, PEMM00: one real decision (a 40-question noul message) takes 7.63 s. At the previous 1.0 s every call died in the TLS handshake and the policy fell back to the search silently - counters said source=search and nothing said why. 15.0 s is the measurement with margin; the piece falls about one row per 1.5 s (a full board takes ~30 s), so a decision of this length still fits inside one piece's fall.",
+  "max_rotate_frames": 3,
+  "max_rotate_frames_note": "How many frames one piece may spend in the rotate phase before the loop gives up and ends the session with note 'the piece is not turning'. Measured 2026-10-12: eight consecutive frames each asked for two more rotations and the terrain never changed, so 5 s of a 45 s session went into a button that was getting nowhere. An ordinary turn takes one or two frames."
 }
