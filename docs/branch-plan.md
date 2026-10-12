@@ -98,7 +98,7 @@ git push fork integration/10101205-all-fixes --tags
 git push fork --delete <type>/<mmddhhmm>-<topic> && git branch -D <type>/<mmddhhmm>-<topic>
 ```
 
-**每次跑真机 / 全量回归前**：执行第 2 节第 4 条的代码身份断言，并确认所在分支是 `integration/10101205-all-fixes`。
+**每次跑真机 / 全量回归前**：执行 `make preflight`（= 第 2 节第 4 条的代码身份断言：分支 / HEAD / 未提交路径 / provider 档位；设了 `ARTEMIS_REQUIRE_CLEAN_TREE` 时脏工作区直接拒绝），并确认所在分支是 `integration/10101205-all-fixes`。
 
 ## 5. 本次执行记录（2026-10-10）
 
