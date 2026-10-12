@@ -1,35 +1,60 @@
 """Reading the board off the screen — deterministic computer vision, no model.
 
-Pipeline, in order, each step a function that can be tested on a recorded frame:
+The pipeline, in order, each step a function that can be tested on a recorded frame:
 
-1. **grid fit** — threshold the seven saturated block colours, project the mask onto
-   the rows and columns, and read the periodic peaks: that gives the cell size and
-   the board origin. No periodicity means "not on the board" (menu, ad, loading),
-   which the runtime counts as a blind frame.
-2. **cell classification** — the median colour of each cell's inner region against
-   the colour prototypes sampled during calibration (nearest neighbour in RGB).
-3. **stability** — a board is only trusted when two consecutive frames agree, which
-   is what makes line-clear animations harmless.
-4. **falling piece** — the settled stack is the per-cell mode over recent frames;
-   whatever differs from it is the piece in play (and the row it occupies).
+1. **proportional crop** — ``roi.board_crop`` takes the playfield as a *ratio* of the
+   screen and normalises it to 400x800, so every later step works on one geometry;
+2. **grid, measured not assumed** — ``grid_probe.measure_grid`` reads the cell pitch
+   from the periodic structure of the crop and checks it against the crop's own extent.
+   No periodicity means "not a board": a menu, an ad, a dialog. The runtime counts that
+   as a blind frame, which is how the loop stops instead of flailing at an ad;
+3. **cell classification** — ``cells.read_matrix``: the centre 5x5 HSV median of each
+   cell, thresholded, giving the board as rows of "0"/"1";
+4. **piece separation** — ``pieces.split_pieces`` over a few recent matrices: what moved
+   is the piece, what stayed is the terrain, and the displacement is the motion vector;
 5. **HUD** — lines/score read from a calibrated ROI by digit-template matching. Kept
    for the caller's verdict, never for the policy.
 
-Everything is driven by ``calibration.json``: geometry, colours, ROIs. Nothing in
-this file hardcodes a particular game.
+A skill calibrated *before* the ratios existed keeps the older path (``find_grid`` on
+the calibrated absolute grid, ``read_cells`` against colour prototypes); it is reached
+only when the calibration has no ``board_roi_ratios``. Everything is driven by
+``calibration.json``: geometry, ratios, thresholds, ROIs. Nothing in this file
+hardcodes a particular game.
+
+The state returned carries both worlds: the measured ``board_matrix`` /
+``current_piece_mask`` / ``motion_vector`` that :mod:`policy_jev` consumes, and a
+letter-named board for the older letter-based search policy, whose name is a *match*
+against the standard seven (- ``None`` for a custom shape, which has no letter).
 """
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
+
+from .cells import read_matrix
+from .grid_probe import measure_grid
+from .pieces import split_pieces
+from .roi import RATIO_KEY, board_crop, roi_pixels
+from .simulator import PIECE_NAMES, mask_cells, orientations
 
 EMPTY = "."
 
 #: Cell colours as calibrated (RGB), and which cell letter each maps to.
 DEFAULT_TOLERANCE = 60.0
 
+#: How many recent matrices the motion step keeps. Two frames carry the motion
+#: (`pieces.split_pieces`); the rest are context for a reader of a recorded session.
+MAX_HISTORY = 4
+
 _previous: list[list[str]] | None = None
 _settled: list[list[str]] | None = None
+_history: deque[list[str]] = deque(maxlen=MAX_HISTORY)
+
+
+def reset_history() -> None:
+    """Forget the recent frames — a new session must not inherit the last one's motion."""
+    _history.clear()
 
 
 def _decode(frame: Any):
@@ -213,13 +238,85 @@ def calibration() -> dict[str, Any]:
 
 
 def parse(frame, calibration: dict[str, Any] | None = None):
-    """``perception.parse(frame) -> state | None`` — the reflex runtime's contract."""
-    global _previous, _settled
+    """``perception.parse(frame) -> state | None`` — the reflex runtime's contract.
 
+    ``None`` means "not a board": the runtime counts it as a blind frame and stops the
+    session past its threshold, which is the right answer for a menu, an ad or a dialog.
+    """
     calibration = calibration or globals()["calibration"]()
     image = _decode(frame)
     if image is None:
         return None
+    if RATIO_KEY in calibration:
+        return _measured_state(image, calibration)
+    return _legacy_state(image, calibration)
+
+
+def _measured_state(image, calibration: dict[str, Any]):
+    """The measured pipeline: proportional crop → grid → cells → piece separation."""
+    field = board_crop(image, calibration)
+    probe = measure_grid(field)
+    columns, rows = probe["columns"], probe["rows"]
+    if not columns or not rows:
+        return None  # not a board — an ad or a dialog over the playfield (Review Focus 5)
+
+    measured = {
+        **calibration,
+        "grid": {**(calibration.get("grid") or {}), "cols": columns, "rows": rows},
+    }
+    _history.append(read_matrix(field, measured))
+    split = split_pieces(list(_history))
+    x0, y0, x1, y1 = roi_pixels(image.shape, calibration)
+    counters = read_hud(image, calibration)
+    return {
+        "board_matrix": split["board_matrix"],
+        # The same board for the letter-based search policy: it only distinguishes
+        # filled from empty, and its `current` carries a name when there is one.
+        "board": [[EMPTY if cell == "0" else "#" for cell in row] for row in split["board_matrix"]],
+        "current_piece_mask": split["current_piece_mask"],
+        "current_piece_positions": split["current_piece_positions"],
+        "motion_vector": split["motion_vector"],
+        "current": _name_of(split["current_piece_mask"]),
+        "grid": {
+            "origin_x": x0,
+            "origin_y": y0,
+            "cell_w": round((x1 - x0) / columns),
+            "cell_h": round((y1 - y0) / rows),
+            "cols": columns,
+            "rows": rows,
+        },
+        "grid_probe": probe,
+        "next": None,
+        "falling_cells": [(column, row) for row, column in split["current_piece_positions"]],
+        "lines": counters.get("lines"),
+        "score": counters.get("score"),
+        "counters": counters,
+        "game_over": bool(calibration.get("game_over_roi"))
+        and _roi_matches(
+            image, calibration["game_over_roi"], calibration.get("game_over_colours") or []
+        ),
+    }
+
+
+def _name_of(mask) -> str | None:
+    """The standard name of a shape, when it has one.
+
+    A convenience for the letter-based search policy, never for Jev: a game with custom
+    shapes has no letters, and ``None`` is the honest answer there (Review Focus 4).
+    """
+    if not mask:
+        return None
+    shape = mask_cells(mask)
+    for letter in PIECE_NAMES:
+        if shape in orientations(letter):
+            return letter
+    return None
+
+
+def _legacy_state(image, calibration: dict[str, Any]):
+    """The older path: a calibrated absolute grid and colour prototypes."""
+    global _previous, _settled
+
     grid = find_grid(image, calibration)
     if grid is None:
         return None
@@ -363,4 +460,4 @@ def _resize_nearest(array, shape, np):
     return array[rows][:, cols]
 
 
-__all__ = ["find_grid", "parse", "read_cells", "read_hud"]
+__all__ = ["find_grid", "parse", "read_cells", "read_hud", "reset_history"]
