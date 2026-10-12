@@ -264,7 +264,7 @@ def parse(frame, calibration: dict[str, Any] | None = None):
 def _measured_state(image, calibration: dict[str, Any]):
     """The measured pipeline: proportional crop → grid → cells → piece separation."""
     field = board_crop(image, calibration)
-    probe = measure_grid(field)
+    probe = measure_grid(field, calibration)
     columns, rows = probe["columns"], probe["rows"]
     if identity_problem(probe, declared_cells(calibration)) is not None:
         # Not this board: a menu, an ad, a dialog, or a screen whose texture merely looks
@@ -296,8 +296,10 @@ def _measured_state(image, calibration: dict[str, Any]):
         "grid": {
             "origin_x": x0,
             "origin_y": y0,
-            "cell_w": round((x1 - x0) / columns),
-            "cell_h": round((y1 - y0) / rows),
+            # Floats: this board's cell is 42.75 px tall, and the control layer needs that
+            # precision to aim a swipe at the right row.
+            "cell_w": (x1 - x0) / columns,
+            "cell_h": (y1 - y0) / rows,
             "cols": columns,
             "rows": rows,
         },

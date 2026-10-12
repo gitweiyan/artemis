@@ -27,8 +27,10 @@ from artemis.reflex.registry import load_skill
 
 SKILLS = Path(__file__).resolve().parents[3] / "skills"
 SCREEN = (1600, 720)  # (height, width) of a PEMM00 screenshot
-BOX = (35, 320, 465, 1180)  # the measured playfield box, in device pixels
-CELL = 43
+#: The measured playfield box and its cell size, in device pixels (2026-10-12: the box's
+#: own edges, not a descriptive answer - see tests/unit/reflex/test_board_alignment.py).
+BOX = (30, 380, 450, 1235)
+CELL_W, CELL_H = 42.0, 42.75
 BACKGROUND = (26.0, 68.0, 88.0)
 GRIDLINE = (60.0, 90.0, 110.0)
 BLOCK = (220.0, 40.0, 40.0)
@@ -48,22 +50,28 @@ def calibration():
     return json.loads((SKILLS / "tetris" / "calibration.json").read_text(encoding="utf-8"))
 
 
+def cell_box(row, column, *, inset=3):
+    """The device-pixel box of one board cell, inset like the game insets its blocks."""
+    x0, y0, _x1, _y1 = BOX
+    return (
+        slice(round(y0 + row * CELL_H + inset), round(y0 + (row + 1) * CELL_H - inset)),
+        slice(round(x0 + column * CELL_W + inset), round(x0 + (column + 1) * CELL_W - inset)),
+    )
+
+
 def screen_with(filled):
     """A 720x1600 screen showing the board: gridlines everywhere, blocks where given."""
     image = np.zeros((*SCREEN, 3), dtype="float32")
     image[:, :] = BACKGROUND
     x0, y0, x1, y1 = BOX
     for index in range(11):
-        x = min(x0 + index * CELL, x1 - 2)
+        x = min(round(x0 + index * CELL_W), x1 - 2)
         image[y0:y1, x : x + 2] = GRIDLINE
     for index in range(21):
-        y = min(y0 + index * CELL, y1 - 2)
+        y = min(round(y0 + index * CELL_H), y1 - 2)
         image[y : y + 2, x0:x1] = GRIDLINE
     for row, column in filled:
-        image[
-            y0 + row * CELL + 3 : y0 + (row + 1) * CELL - 3,
-            x0 + column * CELL + 3 : x0 + (column + 1) * CELL - 3,
-        ] = BLOCK
+        image[cell_box(row, column)] = BLOCK
     return image
 
 
@@ -123,14 +131,11 @@ def test_the_grid_is_measured_and_reported_in_screen_pixels(perception, calibrat
 
     state = perception.parse(Frame(screen_with(STACK)), calibration)
 
-    assert state["grid"] == {
-        "origin_x": BOX[0],
-        "origin_y": BOX[1],
-        "cell_w": CELL,
-        "cell_h": CELL,
-        "cols": 10,
-        "rows": 20,
-    }
+    grid = state["grid"]
+    assert (grid["origin_x"], grid["origin_y"]) == (BOX[0], BOX[1])
+    assert (grid["cols"], grid["rows"]) == (10, 20)
+    assert grid["cell_w"] == pytest.approx(CELL_W, abs=0.5)
+    assert grid["cell_h"] == pytest.approx(CELL_H, abs=0.5)
 
 
 def test_a_state_carries_a_name_for_a_standard_piece_only(perception, calibration):
@@ -224,9 +229,12 @@ def test_a_fine_ui_texture_measures_as_a_grid_but_is_not_this_board(perception, 
     roi = importlib.import_module("artemis_skills_tetris.roi")
     image = textured_screen(9)  # ~8 px in the normalised crop, like a real UI texture
     field = roi.board_crop(image, calibration)
-    probe = grid_probe.measure_grid(field)
-    assert probe["extent_ok"] is True, "the periodicity test does accept this - that is the point"
-    assert probe["columns"] == 16, probe
+    unconstrained = grid_probe.measure_grid(field)
+    constraining = grid_probe.measure_grid(field, calibration)
+    assert unconstrained["columns"] not in (None, 10), (
+        "without the declaration the texture reads as a grid - that is why identity is a check"
+    )
+    assert grid_probe.identity_problem(constraining, (10, 20)) is not None
 
     perception.reset_history()
 

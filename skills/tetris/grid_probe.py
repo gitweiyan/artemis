@@ -37,10 +37,19 @@ from typing import Any
 MIN_PERIODICITY = 0.35
 #: Periods whose autocorrelation is this close to the best are all candidates: the
 #: measurement alone cannot separate them, so the field's extent breaks the tie.
-AMBIGUITY = 0.05
-#: Plausible cell pitches, in pixels, for a normalised field.
+#: 0.15 rather than a hair: on the device frames a *falling piece* shifts the peak by a
+#: pixel (the same board measures 40 and 41 in different frames of one session), and a
+#: tight band threw the true pitch out and rejected seven good frames. Noise is kept out
+#: by the floor below, not by this band: a lag has to reach MIN_PERIODICITY on its own.
+AMBIGUITY = 0.15
+#: Plausible cell pitches, in pixels, for a normalised field, when the calibration does
+#: not declare one.
 MIN_PITCH = 6
 MAX_PITCH = 200
+#: How far a measured pitch may sit from the declared one (``normalized_size / cells``).
+#: Measured on the device frames: with the corrected box the 80 px period is *stronger*
+#: than the 40 px one, so an unconstrained search reports half the columns.
+PITCH_TOLERANCE = 0.15
 #: A board is at least this many cells across; one cell with borders is a frame.
 MIN_CELLS = 2
 #: The extent tolerance from the plan: ``n * pitch`` must land this close to the field.
@@ -55,12 +64,19 @@ def edge_profile(gray, along: str = "x"):
     return np.abs(np.diff(gray, axis=axis)).mean(axis=1 - axis)
 
 
-def period_candidates(profile) -> tuple[int, ...]:
+def period_candidates(
+    profile, *, expected: float | None = None, tolerance: float = PITCH_TOLERANCE
+) -> tuple[int, ...]:
     """Integer periods this profile's own autocorrelation cannot rule out, smallest first.
 
     Smallest first is deliberate: for a signal that is periodic at ``p`` it is also
     periodic at ``2p``, and the fundamental — the cell, not a pair of cells — is the
     smallest lag the correlation cannot distinguish from the best one.
+
+    ``expected`` narrows the search to a declared pitch (plus or minus ``tolerance``).
+    That is what a calibration is for: a skill that declares 10 columns of a 400 px field
+    has *told* us the pitch is 40, so a search that returns 80 has found the harmonic of
+    an answer it already had.
     """
     import numpy as np
 
@@ -72,24 +88,43 @@ def period_candidates(profile) -> tuple[int, ...]:
         return ()
     correlation = np.correlate(centred, centred, mode="full")[centred.size - 1 :]
     correlation = correlation / correlation[0]
-    upper = min(MAX_PITCH, correlation.size - 1)
-    if upper <= MIN_PITCH:
+    lower, upper = MIN_PITCH, min(MAX_PITCH, correlation.size - 1)
+    if expected:
+        lower = max(lower, int(round(expected * (1.0 - tolerance))))
+        upper = min(upper, int(round(expected * (1.0 + tolerance))))
+    if upper <= lower:
         return ()
-    best = float(correlation[MIN_PITCH : upper + 1].max())
+    best = float(correlation[lower : upper + 1].max())
     if best < MIN_PERIODICITY:
         return ()
-    return tuple(
-        lag for lag in range(MIN_PITCH, upper + 1) if float(correlation[lag]) >= best - AMBIGUITY
-    )
+    # Every candidate has to stand on its own: *and* be near the strongest peak in the
+    # window. The floor is what keeps a screen texture out — its harmonics can drift into
+    # a declared pitch's window, and letting the extent choose among weak lags would call
+    # a menu a board.
+    floor = max(MIN_PERIODICITY, best - AMBIGUITY)
+    lags = [lag for lag in range(lower, upper + 1) if float(correlation[lag]) >= floor]
+    if expected:
+        # The declared pitch wins ties; the extent still decides which lag divides.
+        return tuple(sorted(lags, key=lambda lag: abs(lag - expected)))
+    return tuple(lags)
 
 
-def pitch(profile) -> int | None:
+def pitch(profile, *, expected: float | None = None) -> int | None:
     """The dominant period of an edge-energy profile in pixels, or ``None``."""
-    candidates = period_candidates(profile)
+    candidates = period_candidates(profile, expected=expected)
     return candidates[0] if candidates else None
 
 
-def measure_grid(field) -> dict[str, Any]:
+def declared_pitch(calibration: dict[str, Any] | None) -> tuple[float, float] | None:
+    """The pitch the calibration implies: ``normalized_size`` divided by ``grid`` cells."""
+    size = (calibration or {}).get("normalized_size") or []
+    cells = declared_cells(calibration)
+    if len(size) != 2 or not cells:
+        return None
+    return float(size[0]) / cells[0], float(size[1]) / cells[1]
+
+
+def measure_grid(field, calibration: dict[str, Any] | None = None) -> dict[str, Any]:
     """``pitch_x/pitch_y/columns/rows/extent_ok`` for a normalised playfield crop.
 
     ``columns``/``rows`` stay ``None`` when the field has no periodic structure —
@@ -97,13 +132,17 @@ def measure_grid(field) -> dict[str, Any]:
     ``extent_ok`` is False when a grid was found but does not divide the field: a
     grid that does not fit its own extent is not trustworthy, even though it is
     worth reporting so a calibration reader can see *how* it failed.
+
+    Pass the calibration and the pitch search is narrowed to the declared pitch: a
+    skill that declares its board has already answered that question.
     """
     import numpy as np
 
     array = np.asarray(field, dtype="float32")
     gray = array.mean(axis=2) if array.ndim == 3 else array
-    pitch_x, columns, ok_x = _measure_axis(gray, "x", int(gray.shape[1]))
-    pitch_y, rows, ok_y = _measure_axis(gray, "y", int(gray.shape[0]))
+    declared = declared_pitch(calibration)
+    pitch_x, columns, ok_x = _measure_axis(gray, "x", int(gray.shape[1]), declared and declared[0])
+    pitch_y, rows, ok_y = _measure_axis(gray, "y", int(gray.shape[0]), declared and declared[1])
     return {
         "pitch_x": pitch_x,
         "pitch_y": pitch_y,
@@ -113,9 +152,11 @@ def measure_grid(field) -> dict[str, Any]:
     }
 
 
-def _measure_axis(gray, along: str, extent: int) -> tuple[int | None, int | None, bool]:
+def _measure_axis(
+    gray, along: str, extent: int, expected: float | None = None
+) -> tuple[int | None, int | None, bool]:
     """``(pitch, cells, extent_ok)`` along one axis, with the extent as the tie-break."""
-    candidates = period_candidates(edge_profile(gray, along))
+    candidates = period_candidates(edge_profile(gray, along), expected=expected)
     if not candidates:
         return None, None, False
     best: tuple[int, int, int] | None = None
@@ -179,7 +220,9 @@ __all__ = [
     "MIN_CELLS",
     "MIN_PERIODICITY",
     "MIN_PITCH",
+    "PITCH_TOLERANCE",
     "declared_cells",
+    "declared_pitch",
     "edge_profile",
     "identity_problem",
     "measure_grid",

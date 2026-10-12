@@ -25,7 +25,13 @@ SKILLS = Path(__file__).resolve().parents[3] / "skills"
 #: (height, width) of a PEMM00 screenshot.
 SCREEN = (1600, 720)
 MARKER = (220.0, 40.0, 40.0)
-MEASURED_BOX = (35, 320, 465, 1180)
+#: The real box on a 720x1600 PEMM00 screenshot, measured from the frame's own edges
+#: (2026-10-12: the outer background plateaus at brightness 47.3 and steps to >=67 inside
+#: the board at x=30, x=450, y=380, y=1235). It replaced x[35,465] y[320,1180], which was
+#: 60 px high in y - about 1.4 rows - and came from a descriptive answer, not a measurement.
+MEASURED_BOX = (30, 380, 450, 1235)
+#: Cell size in screen pixels, from the same measurement (10 and 20 cells across the box).
+CELL_W, CELL_H = 42.0, 42.75
 NORMALISED = (800, 400, 3)
 
 
@@ -46,13 +52,14 @@ def test_the_calibrated_ratio_lands_on_the_measured_pixel_box(roi, calibration):
 
 def test_the_crop_is_the_normalised_board_with_the_pattern_in_its_own_cell(roi, calibration):
     # A marker painted inside one known board cell of a 720x1600 screen: row 2,
-    # column 3 of the calibrated 10x20 grid (43 px cells from (35, 320)).
+    # column 3 of the measured 10x20 grid.
     row, column = 2, 3
+    x0, y0, _x1, _y1 = MEASURED_BOX
     image = np.zeros((*SCREEN, 3), dtype="float32")
     inset = 5  # more than half the cell, so the cell's median is the marker
     image[
-        320 + row * 43 + inset : 320 + (row + 1) * 43 - inset,
-        35 + column * 43 + inset : 35 + (column + 1) * 43 - inset,
+        round(y0 + row * CELL_H + inset) : round(y0 + (row + 1) * CELL_H - inset),
+        round(x0 + column * CELL_W + inset) : round(x0 + (column + 1) * CELL_W - inset),
     ] = MARKER
 
     crop = roi.board_crop(image, calibration)
@@ -65,14 +72,15 @@ def test_the_crop_is_the_normalised_board_with_the_pattern_in_its_own_cell(roi, 
     )
     neighbour = crop[(row + 1) * 40 : (row + 2) * 40, column * 40 : (column + 1) * 40]
     assert not np.allclose(np.median(neighbour.reshape(-1, 3), axis=0), MARKER), (
-        "the normalised cell must be 40 px, not a stretched 43 px"
+        "the normalised cell must be 40 px, not a stretched screen cell"
     )
 
 
 def test_the_crop_covers_the_whole_roi(roi, calibration):
     """A marker in the last row must survive: a half-open box would clip it."""
+    _x0, _y0, x1, y1 = MEASURED_BOX
     image = np.zeros((*SCREEN, 3), dtype="float32")
-    image[1180 - 10 : 1180, 465 - 10 : 465] = MARKER
+    image[y1 - 10 : y1, x1 - 10 : x1] = MARKER
 
     crop = roi.board_crop(image, calibration)
 

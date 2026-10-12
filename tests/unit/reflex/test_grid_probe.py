@@ -203,6 +203,32 @@ def test_the_reference_frames_measure_ten_by_twenty(probe, roi, calibration):
     assert len(frames) >= 3
     for name, data, _size in frames[:3]:
         field = roi.board_crop(decode(data), calibration)
-        report = probe.measure_grid(field)
+        report = probe.measure_grid(field, calibration)
         assert (report["columns"], report["rows"]) == (10, 20), f"{name}: {report}"
         assert report["extent_ok"] is True, f"{name}: {report}"
+
+
+def test_the_declared_pitch_wins_over_a_stronger_harmonic(probe):
+    """Measured on the device frames: with the corrected box the 80 px period is stronger.
+
+    Spikes every 40 px with every other one weaker make the *double* period the strongest
+    autocorrelation peak, so an unconstrained search reports half the columns. The
+    calibration declares 10 columns, which fixes the pitch: it is not a free parameter.
+    """
+    profile = profile_with_period(40)
+    profile[::80] *= 4.0  # every other gridline is much stronger
+
+    assert probe.pitch(profile) == 80, "unconstrained, the harmonic wins - hence the hint"
+    assert probe.pitch(profile, expected=40) == 40
+    assert probe.pitch(profile_with_period(40), expected=40) == 40
+
+
+def test_a_field_whose_pitch_disagrees_with_the_declaration_is_not_this_board(probe):
+    """A measurement that cannot match the declaration is a refusal, not a smaller board."""
+    field = board_like(8, 16)  # 40 px pitch, but this skill declares 10 x 20
+    calibration = {"normalized_size": [400, 800], "grid": {"cols": 10, "rows": 20}}
+
+    report = probe.measure_grid(field, calibration)
+
+    assert report["columns"] == 8, "the measurement still reports what it measured"
+    assert probe.identity_problem(report, (10, 20)) is not None

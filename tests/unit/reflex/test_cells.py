@@ -91,17 +91,20 @@ def test_the_matrix_is_exactly_what_the_pixels_show(cells, calibration):
     assert matrix == expected
 
 
-def test_the_reading_comes_from_the_cell_centre(cells, calibration):
-    """A colour in a cell's corner is somebody else's pixel — often the cell's glow."""
+def test_a_few_pixels_in_a_corner_are_not_a_block(cells, calibration):
+    """A colour in a cell's corner is somebody else's pixel — often the next cell's block.
+
+    The verdict is a *fraction* of the cell, so a corner that would have been "the centre
+    sample was elsewhere" is now simply too small a share to count.
+    """
     field = board_field()
-    paint_cell(field, 2, 2, BLOCK, inset=8)  # fills the centre, leaves the border
-    paint_cell(field, 4, 4, BLOCK)  # ...and a cell with colour only in one corner
-    field[4 * CELL + 12 : 5 * CELL, 4 * CELL + 12 : 5 * CELL] = BACKGROUND
+    paint_cell(field, 2, 2, BLOCK, inset=8)  # most of the cell
+    field[4 * CELL : 4 * CELL + 12, 4 * CELL : 4 * CELL + 12] = BLOCK  # 9% of the cell
 
     matrix = cells.read_matrix(field, calibration)
 
     assert matrix[2][2] == "1"
-    assert matrix[4][4] == "0", "the centre decides, not one corner of the cell"
+    assert matrix[4][4] == "0", "a ninth of a cell is not a block"
 
 
 def test_every_cell_reports_its_own_hsv_for_review(cells, calibration):
@@ -145,3 +148,45 @@ def test_the_thresholds_live_in_the_calibration_not_the_code(cells):
 
     with pytest.raises(ValueError, match="hsv"):
         cells.read_matrix(field, {"grid": {"cols": 10, "rows": 20}})
+
+
+# --------------------------------------------------------------------------- #
+# A block between two rows is still a block (fixed after the device session)
+# --------------------------------------------------------------------------- #
+
+#: What a cell's pixels look like when the game is animating a piece between rows: the
+#: device's blocks are 39 px on a 42.5 px pitch, so a piece one third of the way between
+#: two rows covers about 40% of each cell.
+STRADDLE = 18
+
+
+def test_a_block_straddling_a_row_boundary_is_still_a_block(cells, calibration):
+    """
+    中心 5x5 采样会两格都判空；整格占用率判据能看到那 40%。
+    """
+    field = board_field()
+    field[3 * CELL - STRADDLE : 3 * CELL + STRADDLE, 5 * CELL + 2 : 6 * CELL - 2] = BLOCK
+
+    matrix = cells.read_matrix(field, calibration)
+
+    assert matrix[2][5] == "1" and matrix[3][5] == "1", "the block is in both cells' pixels"
+    assert matrix[2][4] == "0" and matrix[3][4] == "0", "and in no other cell"
+
+
+def test_a_cell_that_is_mostly_glow_is_not_a_block(cells, calibration):
+    """The field's own glow sits just below the threshold; a fifth of a cell must not count."""
+    field = board_field()
+    paint_cell(field, 10, 3, BLOCK, inset=32)  # a 8x8 patch: far below the occupancy cut
+
+    assert cells.read_matrix(field, calibration)[10][3] == "0"
+
+
+def test_the_occupancy_threshold_lives_in_the_calibration(cells, calibration):
+    field = board_field()
+    field[3 * CELL - STRADDLE : 3 * CELL + STRADDLE, 5 * CELL + 2 : 6 * CELL - 2] = BLOCK
+
+    strict = {**calibration, "hsv": {**calibration["hsv"], "min_occupancy": 0.9}}
+    lenient = {**calibration, "hsv": {**calibration["hsv"], "min_occupancy": 0.1}}
+
+    assert cells.read_matrix(field, strict)[2][5] == "0"
+    assert cells.read_matrix(field, lenient)[2][5] == "1"

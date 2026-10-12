@@ -1,18 +1,18 @@
 {
-  "note": "geometry measured on PEMM00 from a live frame of cn.flytalk.tetris.nearme.gamecenter (2026-10-10). Cell classification uses max(RGB) above `brightness_threshold`; colours still need a frame with pieces in play.",
+  "note": "geometry measured on PEMM00 from a live frame of cn.flytalk.tetris.nearme.gamecenter (2026-10-12, re-measured). Cells are classified by the fraction of a cell's pixels above the HSV thresholds (hsv.min_occupancy), not by a centre sample: a piece the game is animating between two rows covers ~40% of each of them.",
   "grid": {
-    "origin_x": 35,
-    "origin_y": 320,
-    "cell_w": 43,
-    "cell_h": 43,
+    "origin_x": 30,
+    "origin_y": 380,
+    "cell_w": 42.0,
+    "cell_h": 42.75,
     "cols": 10,
     "rows": 20
   },
   "board_roi_ratios": [
-    0.0486,
-    0.2,
-    0.6458,
-    0.7375
+    0.041667,
+    0.2375,
+    0.625,
+    0.771875
   ],
   "normalized_size": [
     400,
@@ -20,7 +20,8 @@
   ],
   "hsv": {
     "v_min": 65,
-    "s_min": 45
+    "s_min": 45,
+    "min_occupancy": 0.3
   },
   "tolerance": 60,
   "background": [
@@ -107,13 +108,13 @@
   "package": "cn.flytalk.tetris.nearme.gamecenter",
   "brightness_threshold": 90,
   "measured": {
-    "source": "adb screencap 720x1600 + pixel projection over the hypothesised playfield",
-    "verified_by": "ASCII board shows a plausible stack (empty top rows, blocks at the bottom) and the vision model confirms a tetris board with stacked blocks",
+    "source": "screencap 720x1600; the board's own edges measured 2026-10-12: the outer background plateaus at mean brightness 47.3 and steps to >=67 inside the board at x=30, x=450, y=380, y=1235 (previously recorded as x[35,465] y[320,1180], which was 60 px high in y - about 1.4 rows - and was taken from a descriptive answer rather than measured)",
+    "verified_by": "39x39 px blocks on a 42.5 px pitch, the bottom-most block ending at y=1234 against the declared bottom 1235; the falling piece in skills/tetris/samples/session-0001.png is read as a piece (tests/unit/reflex/test_board_alignment.py)",
     "playfield_px": [
-      35,
-      320,
-      465,
-      1180
+      30,
+      380,
+      450,
+      1235
     ]
   },
   "mechanics": {

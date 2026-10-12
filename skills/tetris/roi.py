@@ -6,8 +6,8 @@ one device is wrong on the next; a ratio survives, and the crop it produces is t
 single geometry every later stage reads — so cell pitch, grid counting and piece
 separation all have the same numbers to work with.
 
-430x860 px -> 400x800 puts the cell pitch at exactly 40 px, which is what makes
-"the centre 5x5 of a cell" a well-defined region (see ``cells.py``).
+420x855 px -> 400x800 puts the cell at 40 x 40 px in the crop, which is what makes a
+cell's pixels a well-defined region (see ``cells.py``).
 
 Downscaling uses a bilinear filter on purpose: blocks have anti-aliased, glowing
 edges, and point sampling along such an edge would flip a cell's reading frame by

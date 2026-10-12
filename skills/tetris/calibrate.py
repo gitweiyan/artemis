@@ -262,7 +262,7 @@ def verify_report(
     calibration = calibration or skill_calibration()
     array = _decode(image)
     field = board_crop(array, calibration)
-    probe = measure_grid(field)
+    probe = measure_grid(field, calibration)
     columns, rows = probe["columns"], probe["rows"]
     matrix: list[str] = []
     hsv: list[list[tuple[int, int, int]]] = []

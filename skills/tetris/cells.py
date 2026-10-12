@@ -1,27 +1,35 @@
-"""One cell, one bit: is there a block in it? Read from the cell's own centre.
+"""One cell, one bit: is there a block in it? Measured over the cell, not sampled.
 
-The classifier is deliberately narrow, because this is where a vision reading turns
-into a number a policy will act on:
+A cell is filled when **enough of its pixels** are a block's pixels:
 
-* **the centre 5x5** — a cell's border is where the glow and the gridline are, the
-  noisiest pixels in the cell; the centre is entirely the block's own colour;
-* **a median** — block edges are anti-aliased and glowing, so a single sample on an
-  edge flips the reading between frames;
+* **an occupancy fraction, not a centre sample** — the device's blocks are 39 px on a
+  42.5 px pitch, and the game animates a falling piece *between* rows: a piece a third
+  of the way down covers ~40% of each of the two cells it spans, and a 5x5 centre sample
+  misses both of them. Measured on the device frames, the two judges agree on settled
+  blocks and only the occupancy judge sees the moving one;
+* **a fraction, not an average** — block edges are anti-aliased and glowing, and the
+  border of a cell is where the gridline is; averaging over the whole cell dilutes a
+  block that does not fill it, while counting the pixels that pass says how much of the
+  cell is block;
 * **HSV with two thresholds** — the game's field is a deep blue theme whose *empty*
   background is saturated (S ~ 70 of 100), so saturation alone calls every empty cell
-  a block; brightness alone calls white UI text (V ~ 94, S ~ 0) a block. A cell is
-  filled only when it is both bright and saturated.
+  a block; brightness alone calls white UI text (V ~ 94, S ~ 0) a block. A pixel counts
+  only when it is both bright and saturated.
 
-Thresholds and cell counts come from ``calibration.json``; nothing here hardcodes a
-game's theme or its board size.
+Thresholds (``hsv.v_min``/``s_min``, ``hsv.min_occupancy``, the cell margin) come from
+``calibration.json``; nothing here hardcodes a game's theme or its board size.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-#: Side of the sampled centre square, in normalised-crop pixels (cells are 40 px).
+#: Side of the centre square used by :func:`cell_hsv` for the calibration review.
 CENTRE_PIXELS = 5
+#: How much of a cell's inner region to ignore, so the gridline and a block's own glow at
+#: the cell's border do not decide the reading. Measured: device blocks start ~3 px inside
+#: a 42.5 px cell, so 0.12 of a normalised cell keeps them and drops the line.
+INNER_MARGIN = 0.12
 
 EMPTY = "0"
 FILLED = "1"
@@ -37,11 +45,23 @@ def _geometry(field, calibration: dict[str, Any]) -> tuple[int, int, float, floa
     return int(rows), int(cols), height / int(rows), width / int(cols)
 
 
-def _thresholds(calibration: dict[str, Any]) -> tuple[float, float]:
+def _thresholds(calibration: dict[str, Any]) -> tuple[float, float, float]:
+    """``(v_min, s_min, min_occupancy)`` — all three from the calibration file."""
     hsv = (calibration or {}).get("hsv") or {}
-    if "v_min" not in hsv or "s_min" not in hsv:
-        raise ValueError("calibration is missing hsv.v_min/hsv.s_min: no cell verdict is possible")
-    return float(hsv["v_min"]), float(hsv["s_min"])
+    if "v_min" not in hsv or "s_min" not in hsv or "min_occupancy" not in hsv:
+        raise ValueError(
+            "calibration is missing hsv.v_min/hsv.s_min/hsv.min_occupancy:"
+            " no cell verdict is possible"
+        )
+    return float(hsv["v_min"]), float(hsv["s_min"]), float(hsv["min_occupancy"])
+
+
+def _field_hsv(field):
+    """The whole field as HSV (H 0-360, S and V 0-100), per pixel."""
+    import numpy as np
+
+    array = np.asarray(field, dtype="float32")[:, :, :3]
+    return rgb_to_hsv(array.reshape(-1, 3)).reshape(array.shape[0], array.shape[1], 3)
 
 
 def _sampled_hsv(field, calibration: dict[str, Any]):
@@ -103,6 +123,28 @@ def cell_hsv(field, calibration: dict[str, Any]) -> list[list[tuple[int, int, in
     return [[(int(round(h)), int(round(s)), int(round(v))) for h, s, v in row] for row in hsv]
 
 
+def cell_occupancy(field, calibration: dict[str, Any]) -> list[list[float]]:
+    """Every cell's fraction of block-coloured pixels — the number the verdict comes from."""
+    import numpy as np
+
+    rows, cols, cell_h, cell_w = _geometry(field, calibration)
+    v_min, s_min, _cut = _thresholds(calibration)
+    hsv = _field_hsv(field)
+    hit = (hsv[:, :, 2] > v_min) & (hsv[:, :, 1] > s_min)
+    out: list[list[float]] = []
+    for r in range(rows):
+        line: list[float] = []
+        for c in range(cols):
+            y0 = int(r * cell_h + INNER_MARGIN * cell_h)
+            y1 = int((r + 1) * cell_h - INNER_MARGIN * cell_h)
+            x0 = int(c * cell_w + INNER_MARGIN * cell_w)
+            x1 = int((c + 1) * cell_w - INNER_MARGIN * cell_w)
+            patch = hit[y0:y1, x0:x1]
+            line.append(float(patch.mean()) if patch.size else 0.0)
+        out.append(line)
+    return out
+
+
 def read_matrix(field, calibration: dict[str, Any]) -> list[str]:
     """The board as ``rows`` strings of ``"0"``/``"1"``, one character per column.
 
@@ -110,12 +152,20 @@ def read_matrix(field, calibration: dict[str, Any]) -> list[str]:
     business, not this module's: the policy needs the shape of the stack, and the
     falling piece is separated by motion (``pieces.py``), not by hue.
     """
-    v_min, s_min = _thresholds(calibration)
-    hsv = _sampled_hsv(field, calibration)
-    matrix: list[str] = []
-    for row in hsv:
-        matrix.append("".join(FILLED if v > v_min and s > s_min else EMPTY for _h, s, v in row))
-    return matrix
+    _v_min, _s_min, cut = _thresholds(calibration)
+    return [
+        "".join(FILLED if fraction >= cut else EMPTY for fraction in line)
+        for line in cell_occupancy(field, calibration)
+    ]
 
 
-__all__ = ["CENTRE_PIXELS", "EMPTY", "FILLED", "cell_hsv", "read_matrix", "rgb_to_hsv"]
+__all__ = [
+    "CENTRE_PIXELS",
+    "EMPTY",
+    "FILLED",
+    "INNER_MARGIN",
+    "cell_hsv",
+    "cell_occupancy",
+    "read_matrix",
+    "rgb_to_hsv",
+]

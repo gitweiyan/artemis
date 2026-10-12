@@ -23,12 +23,17 @@ from artemis.reflex.contract import Gesture
 
 
 def _board_geometry(state, calibration):
-    """Board origin and cell size: perception's grid, or the calibrated one."""
+    """Board origin and cell size: perception's grid, or the calibrated one.
+
+    Floats, not ints: this board's cell is 42.75 px tall, and truncating it puts a
+    piece's resting row 15 px off by the bottom of the board — the swipe would aim at a
+    row the piece is not in.
+    """
     grid = (state or {}).get("grid") or (calibration or {}).get("grid") or {}
-    origin_x = int(grid.get("origin_x") or 0)
-    origin_y = int(grid.get("origin_y") or 0)
-    cell_w = int(grid.get("cell_w") or 0)
-    cell_h = int(grid.get("cell_h") or 0)
+    origin_x = float(grid.get("origin_x") or 0)
+    origin_y = float(grid.get("origin_y") or 0)
+    cell_w = float(grid.get("cell_w") or 0)
+    cell_h = float(grid.get("cell_h") or 0)
     return origin_x, origin_y, cell_w, cell_h
 
 
@@ -62,7 +67,7 @@ def to_gestures(action, calibration=None, *, state=None):
             move = dialect.get("move") or {}
             y = int(move.get("y") or (origin_y + cell_h))
             per_cell = int(move.get("per_cell_px") or cell_w)
-            start_x = origin_x + int(current_column) * cell_w + cell_w // 2
+            start_x = origin_x + int(current_column) * cell_w + cell_w / 2
             end_x = start_x + delta * per_cell
             gestures.append(
                 Gesture.swipe(

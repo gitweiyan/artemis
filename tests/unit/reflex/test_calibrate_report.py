@@ -31,8 +31,9 @@ from artemis.reflex.registry import load_skill
 
 SKILLS = Path(__file__).resolve().parents[3] / "skills"
 SCREEN = (1600, 720)
-BOX = (35, 320, 465, 1180)
-CELL = 43
+#: The measured playfield box and cell size on a 720x1600 PEMM00 screenshot.
+BOX = (30, 380, 450, 1235)
+CELL_W, CELL_H = 42.0, 42.75
 BACKGROUND = (26.0, 68.0, 88.0)
 GRIDLINE = (60.0, 90.0, 110.0)
 BLOCK = (220.0, 40.0, 40.0)
@@ -60,10 +61,10 @@ def screen_with(filled, *, extra=None):
     image[:, :] = BACKGROUND
     x0, y0, x1, y1 = BOX
     for index in range(11):
-        x = min(x0 + index * CELL, x1 - 2)
+        x = min(round(x0 + index * CELL_W), x1 - 2)
         image[y0:y1, x : x + 2] = GRIDLINE
     for index in range(21):
-        y = min(y0 + index * CELL, y1 - 2)
+        y = min(round(y0 + index * CELL_H), y1 - 2)
         image[y : y + 2, x0:x1] = GRIDLINE
     for row, column in filled:
         paint(image, row, column, BLOCK)
@@ -75,8 +76,8 @@ def screen_with(filled, *, extra=None):
 def paint(image, row, column, colour):
     x0, y0, _, _ = BOX
     image[
-        y0 + row * CELL + 3 : y0 + (row + 1) * CELL - 3,
-        x0 + column * CELL + 3 : x0 + (column + 1) * CELL - 3,
+        round(y0 + row * CELL_H + 3) : round(y0 + (row + 1) * CELL_H - 3),
+        round(x0 + column * CELL_W + 3) : round(x0 + (column + 1) * CELL_W - 3),
     ] = colour
 
 
@@ -187,6 +188,11 @@ def fake_capture(image_bytes, monkeypatch):
 
 
 def run_calibrate(monkeypatch, tmp_path, calibration, image_bytes):
+    # The command imports the skill's calibrate module *by name*
+    # (``artemis_skills_tetris.calibrate``), so the package has to be registered before
+    # the handle is faked — otherwise this test only passes when some other test in the
+    # session happened to load the skill first.
+    load_skill("tetris", directory=SKILLS)
     handle = SimpleNamespace(
         directory=tmp_path,
         arena=None,
@@ -249,8 +255,8 @@ def test_the_review_says_why_a_frame_is_not_this_board(calibrate, calibration):
 
     rendered = calibrate.render_verification(report, calibration)
 
-    assert report["grid"]["extent_ok"] is True, "the measurement itself accepts this"
-    assert "calibration declares 10 x 20" in rendered, rendered
+    assert "NOT THIS BOARD" in rendered, rendered
+    assert "declares" in rendered or "divide" in rendered, rendered
 
 
 def test_the_command_rejects_a_grid_that_does_not_divide_the_field(
@@ -267,4 +273,4 @@ def test_the_command_rejects_a_board_of_the_wrong_size(monkeypatch, tmp_path, ca
     result = run_calibrate(monkeypatch, tmp_path, calibration, encode(textured_screen(9)))
 
     assert result.exit_code != 0, result.output
-    assert "calibration declares" in result.output, result.output
+    assert "NOT THIS BOARD" in result.output, result.output
