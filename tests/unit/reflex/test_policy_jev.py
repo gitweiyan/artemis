@@ -133,7 +133,7 @@ def test_the_message_the_model_is_asked_about_carries_geometry_not_letters(
     jev_policy.decide(state_for(), calibration)
 
     assert seen["current_piece_mask"] == SQUARE
-    assert set(seen) == {
+    assert {
         "board_matrix",
         "current_piece_mask",
         "current_piece_positions",
@@ -141,7 +141,12 @@ def test_the_message_the_model_is_asked_about_carries_geometry_not_letters(
         "mechanics",
         "next_preview",
         "candidate_moves",
-    }
+        "task",
+        "goal",
+        "execution",
+        "encoding",
+        "piece_orientations",
+    } <= set(seen)
     assert json.dumps(seen), "the message has to survive JSON, it is sent as JSON"
 
 
@@ -432,9 +437,12 @@ def test_the_model_is_asked_once_per_piece_not_once_per_frame(
     second = jev_policy.decide(lower, calibration)
 
     assert len(asked) == 1, "the same piece is not worth a second call"
-    assert second.state["placement"] == first.state["placement"]
     assert second.state["counters"]["reused"] == 1
     assert jev_policy.telemetry()["reuses"] == 1
+    waiting = second.state.get("counters", {}).get("waiting_for_lock")
+    assert second.state.get("placement") == first.state.get("placement") or waiting, (
+        "a frame with nothing left to do says so instead of repeating the move"
+    )
 
 
 def test_a_new_piece_is_a_new_question(jev_policy, simulator, calibration, monkeypatch):
@@ -483,3 +491,165 @@ def test_the_decision_carries_the_pieces_column_so_the_move_actually_runs(
         "the piece's left edge, as the gesture layer reads it"
     )
     assert any(gesture.description.startswith("move") for gesture in gestures), gestures
+
+
+def test_every_question_names_the_candidate_it_asks_about(jev_policy, calibration, monkeypatch):
+    """Measured: the first real call sent 18 *identical* questions, none of which said
+    which candidate "this" was - an unanswerable question, answered with a flat 0.35."""
+    jev_policy.reset_telemetry()
+    seen = {}
+
+    def fake_ask(payload, questions, **kwargs):
+        seen["payload"] = payload
+        seen["questions"] = questions
+        return {key: {"type": "noul", "noul": 0.5} for key in questions}
+
+    monkeypatch.setattr(systemone, "ask", fake_ask)
+
+    jev_policy.decide(state_for(), calibration)
+
+    moves = seen["payload"]["candidate_moves"]
+    assert len(seen["questions"]) == len(moves)
+    for index, move in enumerate(moves):
+        instructions = seen["questions"][f"cand_{index}"]["instructions"]
+        assert move["id"] in instructions, f"cand_{index} does not name {move['id']}"
+        assert str(move["column"]) in instructions
+
+
+# --------------------------------------------------------------------------- #
+# Two phases: rotate first, then place - each measured on its own frame
+# (following the device truth: rotation is clockwise and pivots on the piece's
+#  second cell, so a move computed *before* the turn lands in the wrong column)
+# --------------------------------------------------------------------------- #
+
+
+def _three_bar(mask, positions):
+    return state_for(mask=mask, motion=[1, 0], current_piece_positions=[list(c) for c in positions])
+
+
+def test_a_turn_does_not_buy_a_second_decision(jev_policy, simulator, calibration, monkeypatch):
+    """The budget is one Jev call per piece. Rotating it is the same piece."""
+    asked = []
+
+    before = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+    after = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])  # 转过去了、也移位了
+    # 让模型选一个 rotation=1 的候选（横放转竖放），这样第二帧看到竖条 = 旋转已完成
+    candidates = candidates_for(simulator, before)
+    target = next(
+        index for index, (placement, _) in enumerate(candidates) if placement.rotation == 1
+    )
+
+    def fake_ask(payload, questions, **kwargs):
+        asked.append(payload)
+        return {
+            f"cand_{index}": {"type": "noul", "noul": 0.9 if index == target else 0.05}
+            for index in range(len(questions))
+        }
+
+    monkeypatch.setattr(systemone, "ask", fake_ask)
+    jev_policy.reset_telemetry()
+
+    first = jev_policy.decide(before, calibration)
+    second = jev_policy.decide(after, calibration)
+
+    assert len(asked) == 1, "a rotated piece is the same piece"
+    assert first.state["phase"] == "rotate"
+    assert second.state["phase"] == "move", "the second frame places what the first one turned"
+    assert second.state["placement"] == first.state["placement"]
+
+
+def test_the_rotate_frame_only_asks_for_the_taps_still_missing(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    mask = [[1, 1, 1]]
+    state = _three_bar(mask, [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, state)
+    target = next(
+        index for index, (placement, _) in enumerate(candidates) if placement.rotation == 1
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_telemetry()
+
+    turn = jev_policy.decide(state, calibration)
+    already_turned = jev_policy.decide(
+        _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)]), calibration
+    )
+
+    assert turn.state["rotate_taps"] == 1, "one clockwise turn takes the bar from flat to upright"
+    assert not already_turned.state.get("rotate_taps"), "already upright: nothing left to turn"
+
+
+def test_the_placement_frame_uses_the_column_measured_now(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """The device pivots on the second cell, so the column it lands in after a turn is not
+    the column it started in: the move must be computed from the frame it is executed on."""
+    state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+    answering(monkeypatch, [0.9] * len(candidates_for(simulator, state)))
+    jev_policy.reset_telemetry()
+
+    jev_policy.decide(state, calibration)
+    placed = jev_policy.decide(_three_bar([[1], [1], [1]], [(2, 6), (3, 6), (4, 6)]), calibration)
+
+    assert placed.state["current_column"] == 6, "the column that frame showed, not the old one"
+
+
+def test_the_placement_keeps_correcting_until_the_column_matches(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """With no hard drop the piece keeps falling, so every frame is a chance to check the
+    column again - a tap that repeated (or was missed) is corrected instead of silently
+    landing a column or two out."""
+    state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, state)
+    # Pick a middle column, so the correction can go either way.
+    target_index = next(
+        index
+        for index, (placement, _) in enumerate(candidates)
+        if (placement.rotation, placement.column) == (0, 4)
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target_index] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_telemetry()
+
+    first = jev_policy.decide(state, calibration)
+    assert first.state["placement"] == {"rotation": 0, "column": 4}
+    assert first.state["phase"] == "move" and first.state["move_columns"] == 1
+
+    # Next frame: a tap repeated, the piece is past the target - tap back.
+    overshot = _three_bar([[1, 1, 1]], [(4, 6), (4, 7), (4, 8)])
+    second = jev_policy.decide(overshot, calibration)
+    assert second.state["phase"] == "move" and second.state["move_columns"] == -2
+
+    # And the other way: it fell short.
+    short = _three_bar([[1, 1, 1]], [(6, 2), (6, 3), (6, 4)])
+    third = jev_policy.decide(short, calibration)
+    assert third.state["phase"] == "move" and third.state["move_columns"] == 2
+
+    # On target: nothing to do, the piece falls on its own.
+    on_target = _three_bar([[1, 1, 1]], [(8, 4), (8, 5), (8, 6)])
+    fourth = jev_policy.decide(on_target, calibration)
+    assert fourth.state["phase"] == "hold"
+    assert not fourth.state.get("move_columns")
+
+
+def test_the_piece_is_placed_once_per_piece_even_while_correcting(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    asked = []
+
+    def fake_ask(payload, questions, **kwargs):
+        asked.append(payload)
+        return {f"cand_{index}": {"type": "noul", "noul": 0.5} for index in range(len(questions))}
+
+    monkeypatch.setattr(systemone, "ask", fake_ask)
+    jev_policy.reset_telemetry()
+    for column in (3, 4, 2, 1):
+        jev_policy.decide(
+            _three_bar([[1, 1, 1]], [(6, column), (6, column + 1), (6, column + 2)]), calibration
+        )
+
+    assert len(asked) == 1, "correcting the same piece is not a new decision"

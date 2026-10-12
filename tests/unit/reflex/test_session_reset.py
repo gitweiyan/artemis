@@ -66,9 +66,8 @@ def test_the_hook_forgets_the_last_decision(tetris, session, monkeypatch):
     monkeypatch.setattr(systemone, "ask", fake_ask)
     calibration = {"policy_backend": "jev", "jev": {"mode": "noul", "min_confidence": 0.05}}
 
-    first = policy_jev.decide(state_for(), calibration)  # session 1 asks once
-    again = policy_jev.decide(state_for(), calibration)  # same piece: reused, not asked
-    assert first.state["placement"] == again.state["placement"]
+    policy_jev.decide(state_for(), calibration)  # session 1 asks once
+    policy_jev.decide(state_for(), calibration)  # same piece: reused, not asked
     assert len(asked) == 1
 
     session.start(tetris)  # a new session

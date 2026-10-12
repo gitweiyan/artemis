@@ -24,6 +24,38 @@ from typing import Any, Iterable, Sequence
 DEFAULT_GRAVITY = "down"
 DEFAULT_PIECE_SOURCE = "vision"
 
+#: What the skill tells the model about the task itself. Measured: without this the first
+#: real call came back flat (0.34-0.37 over 18 candidates) — the message never said what
+#: game it was, what the goal was, or how to read the numbers.
+#:
+#: The rotation is described as an *index into ``piece_orientations``*, never as
+#: "clockwise": the game's rotate control has never been checked for direction on the
+#: device, and a payload that leans on an unverified convention would silently invert
+#: every rotation. The model gets the shapes instead.
+TASK = (
+    "Tetris. One piece is falling on a {columns}x{rows} board. Decide two things:"
+    " how many times to turn the piece, and which column it should land in."
+)
+GOAL = "The best resulting stack: clear lines, keep the stack low, avoid holes and bumpiness."
+EXECUTION = (
+    "Before it drops, the piece is turned `rotation` times with the rotate control and slid"
+    " horizontally so that its leftmost cell is in `column`; then it falls straight down"
+    " until it lands."
+)
+ENCODING = {
+    "board_matrix": "20 rows top to bottom, 10 columns left to right; '1' is a settled block, '0' is empty",
+    "current_piece_mask": "the falling piece's own footprint as it looks now, rows top to bottom",
+    "current_piece_positions": "where that piece is now, [row, column]",
+    "piece_orientations": "the piece's shape at each rotation index; index 0 is what the screen shows now",
+    "motion_vector": "[drow, dcol] movement between the last two frames; [1,0] = falling down",
+    "candidate_moves": (
+        "every legal placement; id = r<rotation>c<column>; rotation is an index into"
+        " piece_orientations; column is where the piece's leftmost cell lands after the turn"
+    ),
+    "next_preview": "the next piece, or null when the screen does not show it",
+}
+
+
 #: Measured displacement → gravity direction.
 _DIRECTIONS = {
     (1, 0): "down",
@@ -66,12 +98,22 @@ def build_state(
     ``candidates`` are legal placements, or ``(placement, mask)`` pairs as
     :func:`simulator.legal_placements` returns them.
     """
+    from .simulator import orientations_from_mask
+
     pieces = pieces or {}
     declared = mechanics or {}
     mask = _mask(pieces.get("current_piece_mask") or [], "current_piece_mask")
     motion = _motion(pieces.get("motion_vector"))
+    board = ["".join(row) for row in board_matrix]
     return {
-        "board_matrix": ["".join(row) for row in board_matrix],
+        "task": TASK.format(columns=len(board[0]) if board else 0, rows=len(board)),
+        "goal": GOAL,
+        "execution": EXECUTION,
+        "encoding": dict(ENCODING),
+        "board_matrix": board,
+        "piece_orientations": [list(shape) for shape in orientations_from_mask(mask)]
+        if mask
+        else [],
         "current_piece_mask": mask,
         "current_piece_positions": [
             [int(row), int(column)] for row, column in pieces.get("current_piece_positions") or []
@@ -120,4 +162,13 @@ def _preview(next_preview):
     return _mask(next_preview, "next_preview")
 
 
-__all__ = ["DEFAULT_GRAVITY", "DEFAULT_PIECE_SOURCE", "build_state", "gravity_direction"]
+__all__ = [
+    "DEFAULT_GRAVITY",
+    "DEFAULT_PIECE_SOURCE",
+    "ENCODING",
+    "EXECUTION",
+    "GOAL",
+    "TASK",
+    "build_state",
+    "gravity_direction",
+]

@@ -5,21 +5,38 @@ A placement (rotation + target column) is not a gesture; how a given app accepts
 reads from ``calibration.json``: the board geometry the perception step produced,
 and a ``gestures`` block naming the input dialect:
 
+    "screen":   {"width": 720, "height": 1600},
     "gestures": {
-      "rotate":   {"kind": "tap", "at": [360, 1180]},
-      "hard_drop":{"kind": "swipe", "from": [360, 300], "to": [360, 1100], "duration_ms": 140},
-      "move":     {"kind": "swipe", "y": 900, "duration_ms": 90},
-      "settle_frames": 2
+      "rotate":     {"kind": "tap", "at_ratio": [0.81, 0.84]},
+      "move_left":  {"kind": "tap", "at_ratio": [0.13, 0.84]},
+      "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+      "drop":       {"kind": "tap", "at_ratio": [0.33, 0.84], "taps": 1}
     }
 
-With ``move`` the skill swipes horizontally inside the board: one swipe that covers
-the whole column delta is faster than N single-cell swipes, and the app's own
-repeat timer does the rest.
+Buttons, not swipes: this game draws its own four controls along the bottom, so a move is
+``|delta|`` taps on the left or right button and the fall is a tap on the drop button. The
+positions are **fractions of the screen**, multiplied by ``screen`` here, so another
+resolution is a calibration edit rather than a code change.
 """
 
 from __future__ import annotations
 
 from artemis.reflex.contract import Gesture
+
+
+def _tap_point(entry: dict, calibration: dict) -> tuple[float, float] | None:
+    """Where a button is: either absolute pixels, or a fraction of the screen."""
+    screen = (calibration or {}).get("screen") or {}
+    ratio = entry.get("at_ratio")
+    if ratio and len(ratio) == 2 and screen.get("width") and screen.get("height"):
+        return (
+            float(ratio[0]) * float(screen["width"]),
+            float(ratio[1]) * float(screen["height"]),
+        )
+    at = entry.get("at")
+    if at and len(at) == 2:
+        return (float(at[0]), float(at[1]))
+    return None
 
 
 def _board_geometry(state, calibration):
@@ -54,46 +71,45 @@ def to_gestures(action, calibration=None, *, state=None):
 
     gestures: list[Gesture] = []
     origin_x, origin_y, cell_w, cell_h = _board_geometry(state or (action.state or {}), cal)
+    phase = (action.state or {}).get("phase")
 
-    for _ in range(int(placement.get("rotation") or 0)):
-        rotate = dialect.get("rotate") or {}
-        x, y = rotate.get("at") or (0, 0)
-        gestures.append(Gesture.tap(x, y, description="rotate"))
+    # The turn and the placement are executed on separate frames, so that the placement is
+    # measured on a frame that shows the piece already turned - the device turns a piece
+    # about its second cell, so the column changes as it turns.
+    taps = (action.state or {}).get("rotate_taps")
+    if taps is None:
+        taps = 0 if phase == "move" else int(placement.get("rotation") or 0)
+    rotate_point = _tap_point(dialect.get("rotate") or {}, cal or {})
+    for _ in range(int(taps)):
+        if rotate_point is None:
+            break
+        gestures.append(Gesture.tap(*rotate_point, description="rotate"))
 
-    target_column = int(placement.get("column") or 0)
-    if current_column is not None and cell_w:
-        delta = target_column - int(current_column)
-        if delta:
-            move = dialect.get("move") or {}
-            y = int(move.get("y") or (origin_y + cell_h))
-            per_cell = int(move.get("per_cell_px") or cell_w)
-            start_x = origin_x + int(current_column) * cell_w + cell_w / 2
-            end_x = start_x + delta * per_cell
-            gestures.append(
-                Gesture.swipe(
-                    start_x,
-                    y,
-                    end_x,
-                    y,
-                    duration_ms=int(move.get("duration_ms") or 90),
-                    description=f"move {delta:+d}",
-                )
-            )
+    if phase == "rotate":
+        return gestures
 
-    drop = dialect.get("hard_drop") or {}
-    if drop:
-        start = drop.get("from") or [origin_x, origin_y]
-        end = drop.get("to") or [origin_x, origin_y + cell_h * 10]
-        gestures.append(
-            Gesture.swipe(
-                start[0],
-                start[1],
-                end[0],
-                end[1],
-                duration_ms=int(drop.get("duration_ms") or 140),
-                description="hard drop",
-            )
-        )
+    delta = (action.state or {}).get("move_columns")
+    if delta is None:
+        target_column = int(placement.get("column") or 0)
+        delta = target_column - int(current_column) if current_column is not None else 0
+    if delta:
+        # One tap moves the piece one column: the buttons are the game's own controls,
+        # so a four-column move is four taps on the same button.
+        delta = int(delta)
+        button = "move_right" if delta > 0 else "move_left"
+        point = _tap_point(dialect.get(button) or {}, cal or {})
+        for _ in range(abs(delta)):
+            if point is None:
+                break
+            gestures.append(Gesture.tap(*point, description=button.replace("_", " ")))
+
+    # The drop button is opt-in: this game's pieces fall on their own, and *not* ending the
+    # piece early is what leaves every later frame free to correct the column.
+    drop = dialect.get("drop") or {}
+    point = _tap_point(drop, cal or {})
+    if drop.get("enabled") and point is not None:
+        for _ in range(int(drop.get("taps") or 1)):
+            gestures.append(Gesture.tap(*point, description="drop"))
     return gestures
 
 

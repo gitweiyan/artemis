@@ -1,0 +1,235 @@
+{
+  "note": "真实对局中 2026-10-12 的连续 43 帧（30.0 s），已按标定 ROI 裁成 420x855 的棋盘区域（JPEG q88，原始为 PNG）。t_mono 是真实抓帧时刻（秒），不是帧序。文件本身就是棋盘区域，读它们时用 roi_ratios=[0,0,1,1]。",
+  "source_session": "captures/20261012T061819Z-passive",
+  "roi_px": [
+    30,
+    380,
+    450,
+    1235
+  ],
+  "measured": {
+    "window_s": 5.0,
+    "worst_similarity": 0.9351,
+    "closest_to_threshold": 0.9823,
+    "windows": 35,
+    "fired_at_0.95": 22,
+    "panel_similarity": 0.9991
+  },
+  "frames": [
+    {
+      "file": "frame-0001.jpg",
+      "t_mono": 0.0001,
+      "filled": 4
+    },
+    {
+      "file": "frame-0002.jpg",
+      "t_mono": 0.7818,
+      "filled": 4
+    },
+    {
+      "file": "frame-0003.jpg",
+      "t_mono": 1.3665,
+      "filled": 4
+    },
+    {
+      "file": "frame-0004.jpg",
+      "t_mono": 2.0897,
+      "filled": 4
+    },
+    {
+      "file": "frame-0005.jpg",
+      "t_mono": 2.766,
+      "filled": 4
+    },
+    {
+      "file": "frame-0006.jpg",
+      "t_mono": 3.4533,
+      "filled": null
+    },
+    {
+      "file": "frame-0007.jpg",
+      "t_mono": 4.1475,
+      "filled": 7
+    },
+    {
+      "file": "frame-0008.jpg",
+      "t_mono": 4.8724,
+      "filled": null
+    },
+    {
+      "file": "frame-0009.jpg",
+      "t_mono": 5.5942,
+      "filled": null
+    },
+    {
+      "file": "frame-0010.jpg",
+      "t_mono": 6.2707,
+      "filled": 7
+    },
+    {
+      "file": "frame-0011.jpg",
+      "t_mono": 7.0026,
+      "filled": 7
+    },
+    {
+      "file": "frame-0012.jpg",
+      "t_mono": 7.7003,
+      "filled": 7
+    },
+    {
+      "file": "frame-0013.jpg",
+      "t_mono": 8.4228,
+      "filled": 7
+    },
+    {
+      "file": "frame-0014.jpg",
+      "t_mono": 9.1467,
+      "filled": 7
+    },
+    {
+      "file": "frame-0015.jpg",
+      "t_mono": 9.8467,
+      "filled": 7
+    },
+    {
+      "file": "frame-0016.jpg",
+      "t_mono": 10.5962,
+      "filled": 7
+    },
+    {
+      "file": "frame-0017.jpg",
+      "t_mono": 11.299,
+      "filled": 7
+    },
+    {
+      "file": "frame-0018.jpg",
+      "t_mono": 12.014,
+      "filled": 7
+    },
+    {
+      "file": "frame-0019.jpg",
+      "t_mono": 12.7289,
+      "filled": 9
+    },
+    {
+      "file": "frame-0020.jpg",
+      "t_mono": 13.4214,
+      "filled": 11
+    },
+    {
+      "file": "frame-0021.jpg",
+      "t_mono": 14.1658,
+      "filled": 11
+    },
+    {
+      "file": "frame-0022.jpg",
+      "t_mono": 14.8493,
+      "filled": 11
+    },
+    {
+      "file": "frame-0023.jpg",
+      "t_mono": 15.5694,
+      "filled": 11
+    },
+    {
+      "file": "frame-0024.jpg",
+      "t_mono": 16.2954,
+      "filled": 11
+    },
+    {
+      "file": "frame-0025.jpg",
+      "t_mono": 17.0018,
+      "filled": 11
+    },
+    {
+      "file": "frame-0026.jpg",
+      "t_mono": 17.7984,
+      "filled": 11
+    },
+    {
+      "file": "frame-0027.jpg",
+      "t_mono": 18.5168,
+      "filled": 11
+    },
+    {
+      "file": "frame-0028.jpg",
+      "t_mono": 19.2509,
+      "filled": 11
+    },
+    {
+      "file": "frame-0029.jpg",
+      "t_mono": 19.9905,
+      "filled": 11
+    },
+    {
+      "file": "frame-0030.jpg",
+      "t_mono": 20.6985,
+      "filled": 13
+    },
+    {
+      "file": "frame-0031.jpg",
+      "t_mono": 21.4117,
+      "filled": 12
+    },
+    {
+      "file": "frame-0032.jpg",
+      "t_mono": 22.1194,
+      "filled": 12
+    },
+    {
+      "file": "frame-0033.jpg",
+      "t_mono": 22.8203,
+      "filled": 14
+    },
+    {
+      "file": "frame-0034.jpg",
+      "t_mono": 23.5427,
+      "filled": 14
+    },
+    {
+      "file": "frame-0035.jpg",
+      "t_mono": 24.27,
+      "filled": 14
+    },
+    {
+      "file": "frame-0036.jpg",
+      "t_mono": 24.9904,
+      "filled": 14
+    },
+    {
+      "file": "frame-0037.jpg",
+      "t_mono": 25.7217,
+      "filled": 14
+    },
+    {
+      "file": "frame-0038.jpg",
+      "t_mono": 26.4305,
+      "filled": 14
+    },
+    {
+      "file": "frame-0039.jpg",
+      "t_mono": 27.1771,
+      "filled": 14
+    },
+    {
+      "file": "frame-0040.jpg",
+      "t_mono": 27.8742,
+      "filled": 15
+    },
+    {
+      "file": "frame-0041.jpg",
+      "t_mono": 28.5771,
+      "filled": null
+    },
+    {
+      "file": "frame-0042.jpg",
+      "t_mono": 29.2819,
+      "filled": 15
+    },
+    {
+      "file": "frame-0043.jpg",
+      "t_mono": 29.9837,
+      "filled": 15
+    }
+  ]
+}

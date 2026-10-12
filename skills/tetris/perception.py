@@ -32,6 +32,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
+from . import panel, stall
 from .cells import read_matrix
 from .grid_probe import declared_cells, identity_problem, measure_grid
 from .pieces import split_pieces
@@ -50,24 +51,45 @@ MAX_HISTORY = 4
 _previous: list[list[str]] | None = None
 _settled: list[list[str]] | None = None
 _history: deque[list[str]] = deque(maxlen=MAX_HISTORY)
+#: How still the playfield has been (``stall.py``). Built on the first parsed frame, from
+#: the calibration, and reset with the rest of the history.
+_stall: Any = None
+
+
+def _stall_tracker(calibration: dict[str, Any]):
+    global _stall
+
+    if _stall is None:
+        _stall = stall.StallTracker(**stall.settings(calibration))
+    return _stall
 
 
 def reset_history(*_args, **_kwargs) -> None:
     """Forget the recent frames — a new session must not inherit the last one's motion.
 
-    Also clears what the older path remembered (the last board and its settled stack), for
-    the same reason. Called by the manifest's ``on_start`` hook (:mod:`session`), and takes
-    any arguments because the runtime hands a hook its skill handle.
+    Also clears what the older path remembered (the last board and its settled stack) and
+    the stillness history, for the same reason: a new round starts with a fresh board, and
+    inheriting the last one's "nothing has moved for five seconds" would end it instantly.
+    Called by the manifest's ``on_start`` hook (:mod:`session`), and takes any arguments
+    because the runtime hands a hook its skill handle.
     """
     global _previous, _settled
 
     _history.clear()
     _previous = None
     _settled = None
+    if _stall is not None:
+        _stall.reset()
 
 
 def _decode(frame: Any):
-    """JPEG/PNG bytes → an ``(H, W, 3)`` float array, or None when undecodable."""
+    """JPEG/PNG bytes → an ``(H, W, 3)`` float array, or None when undecodable.
+
+    Accepts a capture object (``.image``) *and* the raw bytes themselves: ``panel`` takes
+    either, and a caller that hands one function bytes and the other a capture would
+    otherwise get "no board" from a frame that is perfectly readable — a silent,
+    plausible-looking wrong answer.
+    """
     try:
         import io
 
@@ -75,9 +97,14 @@ def _decode(frame: Any):
         from PIL import Image
     except ImportError:  # pragma: no cover - numpy/PIL are hard deps of the project
         return None
+    raw = getattr(frame, "image", None)
+    if raw is None and isinstance(frame, (bytes, bytearray, memoryview)):
+        raw = bytes(frame)
+    if not raw:
+        return None
     try:
-        image = Image.open(io.BytesIO(bytes(getattr(frame, "image", b"")))).convert("RGB")
-    except (OSError, ValueError):
+        image = Image.open(io.BytesIO(bytes(raw))).convert("RGB")
+    except (OSError, ValueError, TypeError):
         return None
     return np.asarray(image, dtype="float32")
 
@@ -251,17 +278,54 @@ def parse(frame, calibration: dict[str, Any] | None = None):
 
     ``None`` means "not a board": the runtime counts it as a blind frame and stops the
     session past its threshold, which is the right answer for a menu, an ad or a dialog.
+
+    The game-over panel is checked *before* the board, and returns a state rather than
+    ``None``: the identity check below rejects the panel (it is not a 10x20 board either),
+    so without this the session would end on blind frames with no reason recorded, and the
+    caller would not know it should restart rather than stop.
     """
     calibration = calibration or globals()["calibration"]()
     image = _decode(frame)
     if image is None:
         return None
+    # The stillness reading is taken for every frame, before any of the checks below: a
+    # frame this pipeline rejects as "not a board" is exactly the kind of frame that also
+    # stops moving, and the outer loop wants that measurement either way.
+    reading = _stall_tracker(calibration).push(stall.now(), stall.board_roi(image, calibration))
+    if panel.is_game_over(image, calibration):
+        return _game_over_state(image, calibration, reading)
     if RATIO_KEY in calibration:
-        return _measured_state(image, calibration)
-    return _legacy_state(image, calibration)
+        return _measured_state(image, calibration, reading)
+    return _legacy_state(image, calibration, reading)
 
 
-def _measured_state(image, calibration: dict[str, Any]):
+def _game_over_state(image, calibration: dict[str, Any], reading=None) -> dict[str, Any]:
+    """The state for a screen showing the game-over panel: no board, and a reason to stop.
+
+    The board keys are present but empty so that a reader (or a policy) that asks for them
+    gets "nothing" rather than a ``KeyError`` — the panel covers the playfield, so there is
+    no honest board to report.
+    """
+    counters = read_hud(image, calibration)
+    return {
+        "board_matrix": None,
+        "board": [],
+        "current_piece_mask": [],
+        "current_piece_positions": [],
+        "motion_vector": None,
+        "current": None,
+        "grid": None,
+        "next": None,
+        "falling_cells": [],
+        "lines": counters.get("lines"),
+        "score": counters.get("score"),
+        "counters": counters,
+        "game_over": True,
+        "stall": reading,
+    }
+
+
+def _measured_state(image, calibration: dict[str, Any], reading=None):
     """The measured pipeline: proportional crop → grid → cells → piece separation."""
     field = board_crop(image, calibration)
     probe = measure_grid(field, calibration)
@@ -309,10 +373,12 @@ def _measured_state(image, calibration: dict[str, Any]):
         "lines": counters.get("lines"),
         "score": counters.get("score"),
         "counters": counters,
-        "game_over": bool(calibration.get("game_over_roi"))
-        and _roi_matches(
-            image, calibration["game_over_roi"], calibration.get("game_over_colours") or []
-        ),
+        # `parse` already answered the panel question for this frame (it checks first), so
+        # a board that got this far is not the panel.
+        "game_over": False,
+        # How still the playfield has been: the inner loop ends the session on it (see
+        # `stall.py`), and the outer loop decides whether that means the round is over.
+        "stall": reading,
     }
 
 
@@ -331,7 +397,7 @@ def _name_of(mask) -> str | None:
     return None
 
 
-def _legacy_state(image, calibration: dict[str, Any]):
+def _legacy_state(image, calibration: dict[str, Any], reading=None):
     """The older path: a calibrated absolute grid and colour prototypes."""
     global _previous, _settled
 
@@ -378,29 +444,10 @@ def _legacy_state(image, calibration: dict[str, Any]):
         "lines": counters.get("lines"),
         "score": counters.get("score"),
         "counters": counters,
-        "game_over": bool(calibration.get("game_over_roi"))
-        and _roi_matches(
-            image, calibration["game_over_roi"], calibration.get("game_over_colours") or []
-        ),
+        # As in `_measured_state`: the panel question is `parse`'s, answered before this.
+        "game_over": False,
+        "stall": reading,
     }
-
-
-def _roi_matches(image, roi, colours) -> bool:
-    """Whether a calibrated ROI looks like a given set of colours (e.g. 'GAME OVER')."""
-    import numpy as np
-
-    y0, y1, x0, x1 = (int(v) for v in roi)
-    patch = image[y0:y1, x0:x1]
-    if patch.size == 0:
-        return False
-    median = np.median(patch.reshape(-1, 3), axis=0)
-    tolerance = 80.0
-    return any(
-        isinstance(rgb, (list, tuple))
-        and len(rgb) == 3
-        and float(np.abs(median - np.asarray(rgb, dtype="float32")).max()) <= tolerance
-        for rgb in colours
-    )
 
 
 def read_hud(image, calibration: dict[str, Any]) -> dict[str, int]:

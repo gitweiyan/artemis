@@ -67,29 +67,39 @@
     ]
   },
   "gestures": {
+    "note": "the game's own on-screen controls: four buttons along the bottom, measured from a PEMM00 screenshot on 2026-10-12 (13%, 33%, 53%, 81% of the width at 84% of the height). The earlier dialect - a horizontal swipe, a vertical hard-drop swipe and a rotate tap inside the playfield - was a guess and never worked on this game. Positions are fractions so another resolution only needs `screen` updated. One tap on a move button moves the piece one column (the operator's reading of the game).",
     "rotate": {
       "kind": "tap",
-      "at": [
-        360,
-        1180
+      "at_ratio": [
+        0.81,
+        0.84
       ]
     },
-    "move": {
-      "kind": "swipe",
-      "y": 900,
-      "duration_ms": 90
+    "move_left": {
+      "kind": "tap",
+      "at_ratio": [
+        0.13,
+        0.84
+      ],
+      "note": "one tap moves the piece one column; not verified on the device yet"
     },
-    "hard_drop": {
-      "kind": "swipe",
-      "from": [
-        360,
-        300
+    "move_right": {
+      "kind": "tap",
+      "at_ratio": [
+        0.53,
+        0.84
       ],
-      "to": [
-        360,
-        1100
+      "note": "one tap moves the piece one column; not verified on the device yet"
+    },
+    "drop": {
+      "kind": "tap",
+      "at_ratio": [
+        0.33,
+        0.84
       ],
-      "duration_ms": 140
+      "taps": 1,
+      "enabled": false,
+      "note": "disabled on purpose (operator's rule for this game): no hard drop while playing. The piece falls on its own, which leaves every frame free to re-measure the column and correct a stray tap. Set enabled=true only for a game whose pieces do not fall."
     }
   },
   "weights": {
@@ -103,7 +113,85 @@
     "well_sums": -0.2
   },
   "target_lines": 0,
-  "policy_backend": "search",
+  "policy_backend": "jev",
+  "stall": {
+    "note": "A round that has stopped is noticed by the playfield holding still, not by reading text: this app is a Unity surface with nothing in the accessibility tree, and the repo's OCR needs a cloud key. The reading rides in the perception state as `stall`; the inner loop ends the session on it and reports what it measured, and the OUTER loop decides what it means (a finished game, a pause, a dialog and a frozen app all look the same from here) and starts the next round. Similarity is computed on a brightness-normalised, 4x downsampled crop of the playfield, so a screen-wide dimming (measured on the device: 0.61x) is not a change.",
+    "window_s": 5.0,
+    "min_similarity": 0.995,
+    "tolerance": 0.12,
+    "downsample": 4,
+    "max_samples": 64,
+    "measured": {
+      "source": "captures/20261012T061819Z-passive: 43 frames over 30.0 s of the game BEING PLAYED (the board filled from 4 to 15 cells), committed as skills/tetris/samples/session-play (420x855 crops with their real capture times in manifest.json)",
+      "playing_worst_similarity": 0.9351,
+      "playing_closest_to_threshold": 0.9823,
+      "windows": 35,
+      "fired_at_0.95": 22,
+      "panel_similarity": 0.9991,
+      "corpus_frames": 43,
+      "corpus_span_s": 30.0,
+      "note": "the first proposal was 'similarity > 95% over 5 s'. Measured on that session: it fires in 22 of its 35 five-second windows while the game is still being played, because a tetromino is ~6000 of the playfield's 359100 pixels and moving it one row changes ~2% of the frame. 0.995 is the middle of the measured gap (0.9823 played, 0.9991 for the panel, whose two captures differ by a 0.61x dimming), not a round number. tests/unit/reflex/test_stall.py re-derives all of these from the committed corpus."
+    }
+  },
+  "panel": {
+    "note": "The game-over panel, recognised by correlating a committed patch of its title against the same rectangle of each frame. Offline pixels only: this app is a Unity surface, so nothing about it is in the accessibility tree, and the repo's OCR is a cloud service the inner loop must not call. Which glyphs the patch contains (游戏结束) is the operator's reading of the live screen on 2026-10-12 - the code never interprets the text. What is measured is the discrimination: 1.000 on two captures of the panel against 0.051 on six frames of the game being played. roi_ratios is in (x0, y0, x1, y1) like board_roi_ratios, and the patch is resized to that box, so another resolution is a calibration edit.",
+    "roi_ratios": [
+      0.379167,
+      0.345,
+      0.619444,
+      0.395
+    ],
+    "template": "samples/panel-title.png",
+    "match_threshold": 0.6,
+    "measured": {
+      "source": "PEMM00 720x1600, 2026-10-12: the operator read 游戏结束 at ~(50%, 37%) and 重新开始 at ~(66%, 64%) off captures/review/panel-grid.png; the patch is that box's crop from samples/panel-gameover.png",
+      "template_box_px": [
+        273,
+        552,
+        446,
+        632
+      ],
+      "panel_score": 1.0,
+      "max_playing_score": 0.051,
+      "panel_frames_checked": 2,
+      "playing_frames_checked": 6,
+      "title_text_centroid_ratio": [
+        0.498,
+        0.374
+      ],
+      "note": "panel_score is the worst match among samples/panel-{gameover,now}.png and max_playing_score the best among session-000{1,2,21}.png plus reference-{1,2,3}.jpg - a 0.55-wide gap, so the threshold is not a tuned constant. The title's own white text (y[584,612], 28 px tall, centroid x 49.8%) lands on the operator's 50%/37%: an independent check of the box, not of the words."
+    }
+  },
+  "restart_flow": {
+    "note": "Starting a new round after the panel: tap the 重新开始 button, then look again and tap only while the panel is still on screen (panel.restart). The plan assumed a fixed 'tap once, wait 5 s, tap again'; that second tap would land in the middle of a fresh board if the first one had already worked, so the count is decided by the screen instead. wait_s is how long the app needs to bring the new board up before a re-read means anything - 5 s is the operator's figure, not measured.",
+    "button_ratios": [
+      0.66,
+      0.64
+    ],
+    "wait_s": 5,
+    "max_taps": 3,
+    "label_roi_ratios": [
+      0.5,
+      0.615,
+      0.8,
+      0.665
+    ],
+    "measured": {
+      "source": "PEMM00 720x1600, 2026-10-12, from samples/panel-gameover.png and samples/panel-now.png",
+      "label_box_px": [
+        447,
+        1004,
+        538,
+        1031
+      ],
+      "label_centre_ratio": [
+        0.684,
+        0.636
+      ],
+      "label_run_px": 92,
+      "note": "the operator's tap (66%, 64%) = pixel (475, 1024) falls inside a 92 px wide, 28 px tall run of near-white pixels in that ROI - the size of a four-glyph label, centred at 68.4%/63.6%. So the point lands on the button's label and not on the panel's background; the words themselves are the operator's reading. label_roi_ratios is the window that check looks in."
+    }
+  },
   "systemone_timeout_s": 1.0,
   "package": "cn.flytalk.tetris.nearme.gamecenter",
   "brightness_threshold": 90,
@@ -131,5 +219,10 @@
     "mode": "noul",
     "min_confidence": 0.05,
     "options_cap": 40
+  },
+  "screen": {
+    "width": 720,
+    "height": 1600,
+    "note": "the screenshot size the button fractions below were measured on; the fractions are what matter, this is only what to multiply them by"
   }
 }

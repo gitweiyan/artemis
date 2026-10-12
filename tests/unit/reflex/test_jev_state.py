@@ -80,7 +80,61 @@ def build(jev_state, **overrides):
 
 
 def test_the_message_has_exactly_the_keys_jev_is_told_about(jev_state):
-    assert set(build(jev_state)) == KEYS
+    assert set(build(jev_state)) == KEYS | {
+        "task",
+        "goal",
+        "execution",
+        "encoding",
+        "piece_orientations",
+    }
+
+
+def test_the_message_tells_jev_what_the_task_is(jev_state):
+    """Measured: the first real call was flat (0.34-0.37 over 18 candidates) and the
+    message never said what game it was, what the goal was, or how to read the numbers."""
+    message = build(jev_state)
+
+    assert "10x20" in message["task"] and "turn" in message["task"]
+    assert "lines" in message["goal"] and "holes" in message["goal"]
+    assert "column" in message["execution"]
+    for key in (
+        "board_matrix",
+        "current_piece_mask",
+        "current_piece_positions",
+        "piece_orientations",
+        "motion_vector",
+        "candidate_moves",
+        "next_preview",
+    ):
+        assert key in message["encoding"], key
+    assert "rotation is an index into piece_orientations" in message["encoding"]["candidate_moves"]
+
+
+def test_the_shapes_are_given_instead_of_a_rotation_direction(jev_state):
+    """The game's rotate control has never been checked for direction, so the payload
+    must not make Jev depend on it: it gets the shape of every orientation instead."""
+    message = build(jev_state)
+    text = json.dumps(message, ensure_ascii=False).lower()
+
+    assert "clockwise" not in text and "counter" not in text
+    square = build(jev_state, pieces=dict(PIECES, current_piece_mask=[[1, 1], [1, 1]]))
+    assert square["piece_orientations"] == [[[1, 1], [1, 1]]], "a square has one orientation"
+    l_shape = build(jev_state, pieces=dict(PIECES, current_piece_mask=[[1, 1], [1, 0]]))
+    assert l_shape["piece_orientations"][0] == [[1, 1], [1, 0]], "index 0 is what the screen shows"
+    assert len(l_shape["piece_orientations"]) == 4
+
+
+def test_every_rotation_index_carries_the_shape_it_means(jev_state):
+    mask = [[1, 0], [1, 0], [1, 1]]
+    message = build(jev_state, pieces=dict(PIECES, current_piece_mask=mask))
+
+    orientations = message["piece_orientations"]
+
+    assert orientations[0] == mask, "index 0 is what the screen shows now"
+    assert len(orientations) == 4
+    assert {move["rotation"] for move in message["candidate_moves"]} <= set(
+        range(len(orientations))
+    )
 
 
 def test_the_board_travels_as_text_rows_top_to_bottom(jev_state):

@@ -12,6 +12,8 @@ flat, transitions avoid spiky surfaces, clears are rewarded.
 from __future__ import annotations
 
 from artemis.reflex.contract import Action
+
+from . import stall
 from .simulator import (
     Board,
     EMPTY,
@@ -159,6 +161,14 @@ def decide(state, calibration):
     if target_lines and lines >= target_lines:
         counters["target_reached"] = target_lines
         return Action(done=True, state={"counters": counters})
+    stopped = stall.stalled(state)
+    if stopped:
+        # Same rule as the Jev policy: the playfield has stopped changing, so there is
+        # nothing to decide; the note carries the measurement, not a verdict.
+        return Action(
+            done=True,
+            state={"counters": counters, "note": "board static", "stall": stopped},
+        )
 
     board = state.get("board") or []
     piece = state.get("current")

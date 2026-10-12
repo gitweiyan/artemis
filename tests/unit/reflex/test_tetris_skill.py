@@ -22,6 +22,7 @@ itself before it gets a real game.
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -231,30 +232,96 @@ def test_the_arena_reports_one_row_per_policy(arena):
 
 
 def test_gestures_come_from_the_calibration_not_from_the_code(tetris, control):
+    """The game is driven by four on-screen buttons, and *where* they are is calibration.
+
+    Measured from a PEMM00 screenshot (2026-10-12): four buttons along the bottom, given
+    as fractions of the screen so they survive another resolution.
+    """
     from artemis.reflex.contract import Action
 
     calibration = {
-        "grid": {"origin_x": 100, "origin_y": 200, "cell_w": 50, "cell_h": 50},
+        "screen": {"width": 720, "height": 1600},
         "gestures": {
-            "rotate": {"kind": "tap", "at": [300, 1400]},
-            "move": {"kind": "swipe", "y": 900, "duration_ms": 80},
-            "hard_drop": {
-                "kind": "swipe",
-                "from": [300, 400],
-                "to": [300, 1300],
-                "duration_ms": 120,
-            },
+            "rotate": {"kind": "tap", "at_ratio": [0.81, 0.84]},
+            "move_left": {"kind": "tap", "at_ratio": [0.13, 0.84]},
+            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+            "drop": {"kind": "tap", "at_ratio": [0.33, 0.84], "taps": 1},
         },
     }
     action = Action(state={"placement": {"rotation": 2, "column": 7}, "current_column": 3})
 
     gestures = control.to_gestures(action, calibration)
 
-    assert [g.kind for g in gestures] == ["tap", "tap", "swipe", "swipe"]
-    assert gestures[0].points == ((300.0, 1400.0),)
-    assert gestures[2].points[0][0] == 100 + 3 * 50 + 25  # start: current column centre
-    assert gestures[2].points[1][0] > gestures[2].points[0][0]  # moving right
-    assert gestures[3].description == "hard drop"
+    assert [g.description for g in gestures] == [
+        "rotate",
+        "rotate",
+        "move right",
+        "move right",
+        "move right",
+        "move right",
+    ], "no drop while playing: the piece falls on its own, so every frame can still correct it"
+    assert gestures[0].points == ((0.81 * 720, 0.84 * 1600),)
+    assert gestures[2].points == ((0.53 * 720, 0.84 * 1600),), "the right button, not a swipe"
+    assert gestures[-1].points == ((0.53 * 720, 0.84 * 1600),)
+
+
+def test_a_move_left_taps_the_left_button(tetris, control):
+    from artemis.reflex.contract import Action
+
+    calibration = {
+        "screen": {"width": 720, "height": 1600},
+        "gestures": {
+            "rotate": {"kind": "tap", "at_ratio": [0.81, 0.84]},
+            "move_left": {"kind": "tap", "at_ratio": [0.13, 0.84]},
+            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+            "drop": {"kind": "tap", "at_ratio": [0.33, 0.84]},
+        },
+    }
+    action = Action(state={"placement": {"rotation": 0, "column": 5}, "current_column": 8})
+
+    gestures = control.to_gestures(action, calibration)
+
+    assert [g.description for g in gestures] == ["move left"] * 3
+    assert all(g.points == ((0.13 * 720, 0.84 * 1600),) for g in gestures)
+
+
+def test_the_turn_phase_turns_without_moving_or_dropping(tetris, control):
+    """Two phases, one frame each: the turn first, the placement on the next frame.
+
+    The device turns a piece about its second cell, so the column it sits in after the
+    turn is not the column it sat in before: a move computed on the turn's own frame would
+    land one column off.
+    """
+    from artemis.reflex.contract import Action
+
+    calibration = {
+        "screen": {"width": 720, "height": 1600},
+        "gestures": {
+            "rotate": {"kind": "tap", "at_ratio": [0.81, 0.84]},
+            "move_left": {"kind": "tap", "at_ratio": [0.13, 0.84]},
+            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+            "drop": {"kind": "tap", "at_ratio": [0.33, 0.84]},
+        },
+    }
+    turning = Action(
+        state={
+            "placement": {"rotation": 1, "column": 4},
+            "phase": "rotate",
+            "rotate_taps": 1,
+            "current_column": 3,
+        }
+    )
+
+    assert [g.description for g in control.to_gestures(turning, calibration)] == ["rotate"]
+
+    placing = Action(
+        state={"placement": {"rotation": 1, "column": 4}, "phase": "move", "current_column": 6}
+    )
+    gestures = control.to_gestures(placing, calibration)
+
+    assert [g.description for g in gestures] == ["move left", "move left"], (
+        "no extra turn and no drop, and the move is counted from the column this frame shows (6), not the turn's frame (3)"
+    )
 
 
 def test_without_a_calibrated_dialect_no_gesture_is_invented(tetris, control):
@@ -358,12 +425,31 @@ def test_a_confident_model_answer_is_not_second_guessed(tetris, monkeypatch):
 
 
 def test_the_manifest_switches_backend_by_calibration_file(tetris):
+    """The calibration names the backend, and a file that names none stays offline.
+
+    The shipped value is this operator's choice for the device phase (``jev``: System One
+    decides, one paid call per piece). What must not drift is the *default*: a skill with
+    no ``policy_backend`` — a fresh clone, another game — plays the deterministic search
+    and needs no key, no network and no model, which is what the test below checks.
+    """
     calibration = json.loads((SKILLS / "tetris" / "calibration.json").read_text(encoding="utf-8"))
 
-    assert calibration["policy_backend"] in {"search", "systemone"}
-    assert calibration["policy_backend"] == "search", (
-        "the shipped default must not depend on a network service"
-    )
+    assert calibration["policy_backend"] in {"search", "systemone", "jev"}
+
+
+def test_a_calibration_without_a_backend_stays_offline(tetris, monkeypatch):
+    """No backend named: the dispatcher must not reach for a model."""
+    from artemis.services import systemone
+
+    dispatch = importlib.import_module("artemis_skills_tetris.policy_dispatch")
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("a calibration without a backend must not call a model")
+
+    monkeypatch.setattr(systemone, "ask", explode)
+    state = {"board": [["."] * 10 for _ in range(20)], "current": "T", "counters": {}}
+    action = dispatch.decide(state, {})
+    assert action is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -524,3 +610,66 @@ def test_the_search_policy_tells_the_control_layer_where_the_piece_is(policy):
 
     assert policy.decide(measured, {}).state["current_column"] == 3
     assert policy.decide(legacy, {}).state["current_column"] == 4
+
+
+def test_no_hard_drop_is_sent_while_playing(tetris, control):
+    """The operator's rule for this game: never hard-drop, so the piece keeps falling and
+    every frame can still re-measure the column and correct it."""
+    from artemis.reflex.contract import Action
+
+    calibration = {
+        "screen": {"width": 720, "height": 1600},
+        "gestures": {
+            "rotate": {"kind": "tap", "at_ratio": [0.81, 0.84]},
+            "move_left": {"kind": "tap", "at_ratio": [0.13, 0.84]},
+            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+            "drop": {"kind": "tap", "at_ratio": [0.33, 0.84], "enabled": False},
+        },
+    }
+    action = Action(
+        state={"placement": {"rotation": 0, "column": 6}, "phase": "move", "current_column": 4}
+    )
+
+    gestures = control.to_gestures(action, calibration)
+
+    assert [g.description for g in gestures] == ["move right", "move right"]
+
+
+def test_an_enabled_drop_button_is_still_honoured(tetris, control):
+    """Kept as an explicit opt-in: a game whose pieces do not fall on their own needs it."""
+    from artemis.reflex.contract import Action
+
+    calibration = {
+        "screen": {"width": 720, "height": 1600},
+        "gestures": {
+            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+            "drop": {"kind": "tap", "at_ratio": [0.33, 0.84], "enabled": True},
+        },
+    }
+    action = Action(
+        state={"placement": {"rotation": 0, "column": 6}, "phase": "move", "current_column": 4}
+    )
+
+    gestures = control.to_gestures(action, calibration)
+
+    assert [g.description for g in gestures] == ["move right", "move right", "drop"]
+
+
+def test_the_move_phase_corrects_an_overshoot_in_the_other_direction(tetris, control):
+    """A tap that repeats must not be a silent miss: the next frame sees it and taps back."""
+    from artemis.reflex.contract import Action
+
+    calibration = {
+        "screen": {"width": 720, "height": 1600},
+        "gestures": {
+            "move_left": {"kind": "tap", "at_ratio": [0.13, 0.84]},
+            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+        },
+    }
+    action = Action(
+        state={"placement": {"rotation": 0, "column": 5}, "phase": "move", "move_columns": -2}
+    )
+
+    gestures = control.to_gestures(action, calibration)
+
+    assert [g.description for g in gestures] == ["move left", "move left"]

@@ -32,6 +32,7 @@ from artemis.reflex.contract import Action
 from artemis.services import systemone
 
 from . import jev_state
+from . import stall as stall_module
 from . import policy as search_policy
 from . import simulator as sim
 
@@ -41,9 +42,13 @@ DEFAULT_MIN_CONFIDENCE = 0.05
 DEFAULT_OPTIONS_CAP = 40
 MODES = ("noul", "choice")
 
+#: One question per candidate, and it *names* the candidate: the first version asked
+#: "is this the best placement?" eighteen times without ever binding "this", and came
+#: back flat (0.34-0.37) — an unanswerable question answered with a constant.
 _NOUL_INSTRUCTIONS = (
-    "Is this the best placement for the current piece, judged by the resulting stack"
-    " (fewest holes, lowest height, flattest surface, most lines cleared)?"
+    "Would {identifier} (rotation {rotation}, leftmost cell landing in column {column})"
+    " give the best resulting stack of all the candidates: most lines cleared, fewest"
+    " holes, lowest and flattest surface?"
 )
 _CHOICE_INSTRUCTIONS = (
     "Which single placement is best for the current piece, judged by the resulting"
@@ -52,14 +57,22 @@ _CHOICE_INSTRUCTIONS = (
 
 _telemetry: dict[str, Any] = {"calls": 0, "fallbacks": 0, "reuses": 0, "last_error": None}
 
-#: The last decision, so the same piece is not asked about twice (see ``_piece_key``).
-_last: dict[str, Any] = {"key": None, "placement": None, "source": None}
+#: The decision in force for the piece on screen, and which of its two parts is left to
+#: execute. One Jev call per piece: the turn and the placement are two *frames* of the
+#: same decision, not two decisions (``see _piece_key`` and the module docstring).
+_last: dict[str, Any] = {
+    "key": None,
+    "placement": None,
+    "source": None,
+    "shapes": (),
+    "phase": None,
+}
 
 
 def reset_telemetry() -> None:
     """Zero the counters *and* forget the last decision: a new session inherits neither."""
     _telemetry.update({"calls": 0, "fallbacks": 0, "reuses": 0, "last_error": None})
-    _last.update({"key": None, "placement": None, "source": None})
+    _last.update({"key": None, "placement": None, "source": None, "shapes": (), "phase": None})
 
 
 def telemetry() -> dict[str, Any]:
@@ -77,6 +90,17 @@ def decide(state, calibration):
     counters = dict(state.get("counters") or {})
     board = _board(state)
     mask = state.get("current_piece_mask") or []
+
+    # A playfield that has stopped moving ends the session before any decision is asked
+    # for: there is nothing to place, and asking Jev about a frozen board would spend a
+    # call to learn that. The reading, not a conclusion, is what goes into the note — the
+    # outer loop decides whether "still for 5 s" means the round is over.
+    stopped = stall_module.stalled(state)
+    if stopped:
+        return Action(
+            done=True,
+            state={"counters": counters, "note": "board static", "stall": stopped},
+        )
 
     if not board:
         return _delegate(state, cal, counters)
@@ -97,16 +121,31 @@ def decide(state, calibration):
         _telemetry["reuses"] += 1
         counters["reused"] = 1
         counters["source"] = _last["source"]
-        return Action(
-            gestures=(),
-            done=False,
-            state={
-                "placement": _last["placement"].as_dict(),
-                "counters": counters,
-                "current_column": search_policy.piece_column(state),
-                "note": f"jev {mode} (reused for the same piece)",
-            },
-        )
+        placement = _last["placement"]
+        taps = _taps_to_reach(mask, _last["shapes"], placement.rotation)
+        if taps:
+            # The turn is not finished (the device may need a frame to catch up): keep
+            # turning rather than measuring a half-turned piece.
+            counters["rotate_taps"] = taps
+            return Action(
+                gestures=(),
+                done=False,
+                state={
+                    "placement": placement.as_dict(),
+                    "phase": "rotate",
+                    "rotate_taps": taps,
+                    "counters": counters,
+                    "current_column": search_policy.piece_column(state),
+                    "note": f"jev {mode} (still turning the same piece)",
+                },
+            )
+        # Second half: drive it to the chosen column, using the column this frame shows -
+        # the device turns the piece about its second cell, so the column after the turn is
+        # not the column before. Re-measured every frame, so a tap that repeated or missed
+        # is corrected rather than silently landing in the wrong place; and with no hard
+        # drop the piece keeps falling, which is exactly what leaves those frames available.
+        _last["phase"] = "move"
+        return _placement_action(placement, state, counters, mode)
 
     message = jev_state.build_state(
         board_matrix=state.get("board_matrix") or _as_matrix(board),
@@ -131,41 +170,100 @@ def decide(state, calibration):
         # the answer was read - is what keeps `source` and `fallbacks` from disagreeing.
         _telemetry["fallbacks"] += 1
         counters["source"] = "search"
-        _remember(key, chosen, "search")
-        return Action(
-            gestures=(),
-            done=False,
-            state={
-                "placement": chosen.as_dict(),
-                "counters": counters,
-                "current_column": search_policy.piece_column(state),
-                "note": "search fallback",
-            },
-        )
+        return _decided(mask, key, chosen, "search", counters, mode, state)
 
     counters["source"] = "jev"
     counters["mode"] = mode
-    _remember(key, chosen, "jev")
+    return _decided(mask, key, chosen, "jev", counters, mode, state)
+
+
+def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state):
+    """Turn first, on this frame; placement follows on the next one.
+
+    When nothing needs turning (the chosen orientation is the one already on screen - a
+    square, or the piece is already the right way up) the placement happens on this frame:
+    there is no measurement to wait for, and a wasted frame is a wasted frame.
+    """
+    shapes = tuple(sim.orientations_from_mask(mask))
+    taps = _taps_to_reach(mask, shapes, chosen.rotation)
+    _remember(key, chosen, source, shapes=shapes, phase="rotate" if taps else "move")
+    if not taps:
+        return _placement_action(chosen, state, counters, mode)
+    counters["phase"] = "rotate"
+    counters["rotate_taps"] = taps
     return Action(
         gestures=(),
         done=False,
         state={
             "placement": chosen.as_dict(),
+            "phase": "rotate",
+            "rotate_taps": taps,
             "counters": counters,
             "current_column": search_policy.piece_column(state),
-            "note": f"jev {mode} r{chosen.rotation}c{chosen.column}",
+            "note": f"{source} {mode} r{chosen.rotation}c{chosen.column} (turn first)",
         },
     )
+
+
+def _placement_action(placement, state, counters: dict, mode: str):
+    """Drive the piece to the chosen column on this frame, or hold if it is already there.
+
+    Re-measured every frame on purpose: a move button can repeat or a tap can be missed,
+    and with no hard drop the piece keeps falling, so those frames exist to notice.
+    """
+    current = search_policy.piece_column(state)
+    delta = None if current is None else int(placement.column) - int(current)
+    if not delta:
+        counters["phase"] = "hold"
+        counters["on_target"] = 1
+        return Action(
+            gestures=(),
+            done=False,
+            state={
+                "placement": placement.as_dict(),
+                "phase": "hold",
+                "counters": counters,
+                "current_column": current,
+                "note": f"jev {mode} (on target; letting it fall)",
+            },
+        )
+    counters["phase"] = "move"
+    counters["move_columns"] = delta
+    return Action(
+        gestures=(),
+        done=False,
+        state={
+            "placement": placement.as_dict(),
+            "phase": "move",
+            "move_columns": delta,
+            "counters": counters,
+            "current_column": current,
+            "note": f"jev {mode} (move {delta:+d} to column {placement.column})",
+        },
+    )
+
+
+def _taps_to_reach(mask, shapes, target: int) -> int:
+    """How many clockwise taps take the shape now on screen to ``shapes[target]``.
+
+    Counted from what is on screen rather than assumed: the device may still be showing a
+    half-finished turn, and a missed tap would otherwise leave the piece in the wrong
+    orientation while the placement phase measured its column as if it had turned.
+    """
+    observed = tuple(tuple(row) for row in sim.mask_bitmap(mask))
+    for index, shape in enumerate(shapes or ()):
+        if tuple(tuple(row) for row in shape) == observed:
+            return (int(target) - index) % max(1, len(shapes))
+    return int(target)
 
 
 def _piece_key(state, gravity: str):
     """What makes two decisions *the same decision*: the board, the gravity, the piece.
 
-    The piece's row is deliberately not part of it: where a piece lands does not depend on
-    the row it is in when the question is asked, so asking again because it fell one row
-    spends a network call and a second of the inner loop's budget for the same answer. A
-    changed board (a lock, a clear) or a different piece is a new question. ``None`` means
-    the state is too thin to identify, and then nothing is reused.
+    Neither the piece's row nor its **orientation** nor its column is part of it: where a
+    piece lands does not depend on the row it is in, the two-phase execution turns it
+    between frames, and a key that changed on every turn asked Jev a second time for the
+    same piece — measured, that breaks the plan's "one call per piece" budget.
     """
     mask = state.get("current_piece_mask") or []
     if not mask:
@@ -173,13 +271,16 @@ def _piece_key(state, gravity: str):
     return (
         tuple(state.get("board_matrix") or ()),
         gravity,
-        tuple(tuple(int(cell) for cell in row) for row in mask),
-        search_policy.piece_column(state),
+        tuple(
+            sorted(tuple(tuple(row) for row in shape) for shape in sim.orientations_from_mask(mask))
+        ),
     )
 
 
-def _remember(key, placement, source) -> None:
-    _last.update({"key": key, "placement": placement, "source": source})
+def _remember(key, placement, source, *, shapes=(), phase=None) -> None:
+    _last.update(
+        {"key": key, "placement": placement, "source": source, "shapes": shapes, "phase": phase}
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -210,7 +311,14 @@ def _ask(mode, message, candidates, cal, counters):
 
 def _noul(message, candidates, timeout):
     questions = {
-        f"cand_{index}": {"type": "noul", "instructions": _NOUL_INSTRUCTIONS}
+        f"cand_{index}": {
+            "type": "noul",
+            "instructions": _NOUL_INSTRUCTIONS.format(
+                identifier=_identifier(candidates[index][0]),
+                rotation=candidates[index][0].rotation,
+                column=candidates[index][0].column,
+            ),
+        }
         for index in range(len(candidates))
     }
     answers = systemone.ask(message, questions, timeout=timeout)
