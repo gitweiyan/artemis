@@ -12,9 +12,10 @@ and the repo's OCR is a cloud service this loop must not call — so both are re
 * the button: ``restart_flow.button_ratios``, the operator's reading of the live screen,
   checked in the tests against the white glyphs the frame actually shows at that spot.
 
-How many taps the button needs is decided by the screen, not by this script: the panel is
-looked for again after each tap, and tapping stops the moment it is gone. A blind second
-tap would land in the middle of the new board.
+This game's restart is **two** buttons (the operator walked through both): the panel's own
+重新开始 opens a confirm dialog and dims the screen, and the dialog's left button starts the
+round. They are pressed in order, looking at the screen between them, so a first step that
+already worked is never followed by a second tap into a fresh board.
 
 "Panel gone" and "board readable" are reported separately: a restart that dismissed the
 panel but left an ad or a dialog over the playfield has not started a round, and calling
@@ -144,8 +145,8 @@ def board_is_readable(frame, calibration: dict, perception) -> tuple[bool, str]:
 
 def run(serial: str, *, dry_run: bool, out_dir: Path, calibration: dict) -> dict:
     panel, perception = modules()
-    point = panel.restart_point(calibration)
-    if point is None:
+    points = panel.restart_points(calibration)
+    if not points:
         return {"ok": False, "reason": "no restart point in the calibration", "exit": 3}
 
     wake(serial)
@@ -214,8 +215,8 @@ def self_check() -> int:
 
     taps: list[tuple[int, int]] = []
     report = panel.restart(look, taps.append, calibration, sleep=lambda _s: None)
-    if not report["restarted"] or report["taps"] != 2 or len(taps) != 2:
-        failures.append(f"the restart flow did not tap-until-gone: {report}")
+    if not report["restarted"] or taps != list(panel.restart_points(calibration)):
+        failures.append(f"the restart flow did not press both buttons in order: {report}")
 
     readable, detail = board_is_readable(board_frame, calibration, perception)
     if not readable:
@@ -229,7 +230,7 @@ def self_check() -> int:
             {
                 **checks,
                 "restart_taps": report["taps"],
-                "restart_point": list(panel.restart_point(calibration) or ()),
+                "restart_points": [list(point) for point in panel.restart_points(calibration)],
                 "board_readable": readable,
                 "adb_calls": ADB_CALLS["count"],
                 "failures": failures,

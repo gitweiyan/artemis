@@ -244,16 +244,24 @@ def test_the_game_over_state_ends_the_session_on_the_jev_backend(calibration):
 # --------------------------------------------------------------------------- #
 
 
-def test_the_restart_point_is_where_the_operator_sees_the_button(panel, calibration):
-    assert panel.restart_point(calibration) == (475, 1024)
+def test_the_restart_points_are_the_two_the_operator_walked_through(panel, calibration):
+    """Two buttons, in order: the panel's own, then the dialog's left one.
+
+    The operator found this on the device: pressing the panel's 重新开始 opens a confirm
+    dialog (the screen dims to 0.61x), and the button that actually starts the new round is
+    the dialog's left one. Tapping the same point twice never worked because the second tap
+    landed on the dialog's body, below its buttons.
+    """
+    assert panel.restart_points(calibration) == ((492, 1015), (259, 944))
+    assert panel.restart_point(calibration) == (492, 1015), "step one is still the panel's button"
 
 
-def test_the_restart_point_lands_on_the_white_label_the_frame_shows(panel, calibration):
+def test_the_first_step_lands_on_the_white_label_the_frame_shows(panel, calibration):
     """The tap must land on the button's label, not on the panel's background.
 
     The label is found in the frame rather than assumed: the widest run of white glyphs
     inside the declared label ROI. 92 px of white in one row, in a four-glyph group, is a
-    label; the operator's point has to be inside it.
+    label; the point has to be inside it.
     """
     image = frame(PANEL_FRAMES[0])
     x0, y0, x1, y1 = box_of(calibration["restart_flow"]["label_roi_ratios"], image.shape)
@@ -281,16 +289,114 @@ def test_the_restart_point_lands_on_the_white_label_the_frame_shows(panel, calib
     assert rows.min() + y0 <= point_y <= rows.max() + y0
 
 
-def test_the_restart_taps_the_button_until_the_board_is_back(panel, calibration):
-    """The plan's open question — one tap or two — is settled by looking, not by guessing."""
+def test_the_second_step_lands_on_the_dialog_the_first_step_opens(panel, calibration):
+    """The dialog frame is committed, so "is the second point on the dialog?" is measured.
+
+    The dialog is the part of the screen the scrim is *not* over: dividing this frame by the
+    undimmed panel gives ~0.61 everywhere except the dialog's own pixels. The second point
+    has to sit in that un-dimmed region — otherwise the tap is just dismissing the scrim
+    (which is what happened when step two was a second tap on the panel).
+    """
+    image = frame("panel-dialog.png")
+    reference = frame(PANEL_FRAMES[1])
+    grey, base = image.mean(axis=2), reference.mean(axis=2)
+    valid = base > 40
+    ratio = np.where(valid, grey / np.maximum(base, 1e-6), np.nan)
+    scrim_ratio = float(np.nanmedian(ratio))
+    assert scrim_ratio == pytest.approx(0.61, abs=0.02), "this frame is not the dimmed dialog"
+    undimmed = valid & (ratio > scrim_ratio * 1.35)
+
+    point_x, point_y = panel.restart_points(calibration)[1]
+    neighbourhood = undimmed[point_y - 30 : point_y + 30, point_x - 30 : point_x + 30]
+    assert neighbourhood.mean() > 0.7, (
+        f"only {neighbourhood.mean():.0%} of the 60x60 px around the second point is "
+        "un-dimmed: that is the scrim, not the dialog"
+    )
+    # And the first point, in this same frame, is behind the scrim — the two steps are
+    # different buttons, not the same one tapped twice.
+    first_x, first_y = panel.restart_points(calibration)[0]
+    behind = undimmed[first_y - 30 : first_y + 30, first_x - 30 : first_x + 30]
+    assert behind.mean() < 0.1
+
+
+def test_the_dialog_frame_still_matches_the_panel(panel, calibration):
+    """Why the flow is step-based and not "tap until the panel is gone".
+
+    A normalised correlation is immune to a uniform dimming, so the panel scores a perfect
+    match *behind* the dialog: "the panel is still there" cannot tell the two states apart,
+    and a loop that retried its first tap would tap the dialog's body forever.
+    """
+    assert panel.score(frame("panel-dialog.png"), calibration) >= 0.9
+    assert panel.is_game_over(frame("panel-dialog.png"), calibration) is True
+
+
+def test_the_restart_taps_both_buttons_in_order(panel, calibration):
+    """One pass over the two steps, and the second one is what ends the panel."""
     screen = Screen(
-        [bytes_of(PANEL_FRAMES[0]), bytes_of(PANEL_FRAMES[1]), bytes_of("session-0001.png")]
+        [
+            bytes_of(PANEL_FRAMES[0]),  # before anything
+            bytes_of("panel-dialog.png"),  # after the first tap: the dialog, dimmed
+            bytes_of("session-0001.png"),  # after the second: the board is back
+        ]
     )
     taps: list[tuple[int, int]] = []
     report = panel.restart(screen.look, taps.append, calibration, sleep=lambda _s: None)
-    assert taps == [(475, 1024), (475, 1024)]
+    assert taps == [(492, 1015), (259, 944)]
     assert report["taps"] == 2
     assert report["restarted"] is True
+    assert report["reason"] == "the panel is gone"
+    # The report says what each step looked like: the first one left a dimmed panel (the
+    # dialog frame), the second one a bright board.
+    assert report["steps"][0]["score"] >= 0.9, "step one left the panel on screen (dimmed)"
+    assert report["steps"][0]["brightness"] < 55.0
+    assert report["steps"][1]["brightness"] > 55.0
+    assert report["steps"][1]["point"] == [259, 944]
+
+
+def test_a_second_run_does_not_toggle_the_dialog_shut(panel, calibration):
+    """Already dimmed at the start: the first press would only close the dialog again.
+
+    This is how the first device run of the two-step flow failed: a dialog was left open by
+    an earlier attempt, so pressing the panel's button closed it, and the press meant for
+    the dialog landed on the panel's background. The panel check cannot see the difference
+    (a normalised correlation matches behind a scrim just as well), so the flow asks for the
+    screen's dimming, which is measured: 88.1 on the title box with the panel alone, 53.6
+    once a scrim is over it.
+    """
+    assert panel.dimmed(frame(PANEL_FRAMES[0]), calibration) is False
+    assert panel.dimmed(frame("panel-dialog.png"), calibration) is True
+
+    screen = Screen([bytes_of("panel-dialog.png"), bytes_of("session-0001.png")])
+    taps: list[tuple[int, int]] = []
+    report = panel.restart(screen.look, taps.append, calibration, sleep=lambda _s: None)
+    assert taps == [(259, 944)], "the first press must not be replayed on an open dialog"
+    assert report["started_at_step"] == 1
+    assert report["restarted"] is True
+
+
+def test_the_starting_step_can_be_forced(panel, calibration):
+    """The outer loop may know better (it can read the screen); ``start`` overrides."""
+    screen = Screen([bytes_of("panel-dialog.png")] * 3 + [bytes_of("session-0001.png")])
+    taps: list[tuple[int, int]] = []
+    report = panel.restart(
+        screen.look, taps.append, calibration, start=0, sleep=lambda _s: None
+    )
+    assert taps == [(492, 1015), (259, 944)]
+    assert report["started_at_step"] == 0
+
+
+def test_the_restart_stops_when_the_first_step_was_already_enough(panel, calibration):
+    """If the panel is gone after step one, step two must not be pressed at all.
+
+    The second button belongs to a dialog that is no longer there; pressing where it would
+    be lands on whatever is underneath — on this game, the middle of a fresh board.
+    """
+    screen = Screen([bytes_of(PANEL_FRAMES[0]), bytes_of("session-0001.png")])
+    taps: list[tuple[int, int]] = []
+    report = panel.restart(screen.look, taps.append, calibration, sleep=lambda _s: None)
+    assert taps == [(492, 1015)]
+    assert report["restarted"] is True
+    assert report["taps"] == 1
 
 
 def test_the_restart_leaves_a_screen_that_is_not_the_panel_alone(panel, calibration):
@@ -298,22 +404,35 @@ def test_the_restart_leaves_a_screen_that_is_not_the_panel_alone(panel, calibrat
     taps: list[tuple[int, int]] = []
     report = panel.restart(screen.look, taps.append, calibration, sleep=lambda _s: None)
     assert taps == []
-    assert report == {"taps": 0, "restarted": True, "reason": "no panel on screen"}
+    assert report == {"taps": 0, "restarted": True, "reason": "no panel on screen", "steps": []}
 
 
 def test_the_restart_gives_up_and_says_so(panel, calibration):
     """A panel that never goes away must not be tapped forever."""
     screen = Screen([bytes_of(PANEL_FRAMES[0])])
     taps: list[tuple[int, int]] = []
-    report = panel.restart(screen.look, taps.append, calibration, max_taps=3, sleep=lambda _s: None)
-    assert len(taps) == 3
+    report = panel.restart(screen.look, taps.append, calibration, sleep=lambda _s: None)
+    assert taps == [(492, 1015), (259, 944)]
     assert report["restarted"] is False
-    assert report["reason"] == "the panel is still on screen after 3 taps"
+    assert report["reason"] == "the panel is still on screen after 2 taps"
+
+
+def test_the_restart_can_repeat_the_sequence_when_one_pass_is_not_enough(panel, calibration):
+    """``cycles`` exists because the app may drop the dialog once (an ad, a hiccup)."""
+    # Six panel frames: one for the check before the first tap, then one per tap, so the
+    # third cycle's second step is the first look that sees a board.
+    screen = Screen([bytes_of(PANEL_FRAMES[0])] * 6 + [bytes_of("session-0001.png")])
+    taps: list[tuple[int, int]] = []
+    report = panel.restart(screen.look, taps.append, calibration, cycles=3, sleep=lambda _s: None)
+    assert taps == [(492, 1015), (259, 944)] * 3
+    assert report["taps"] == 6
+    assert report["restarted"] is True
 
 
 def test_an_uncalibrated_skill_recognises_nothing_and_taps_nothing(panel):
     empty = {"restart_flow": {}}
     assert panel.is_game_over(np.zeros((1600, 720, 3), dtype="float32"), {}) is False
+    assert panel.restart_points(empty) == ()
     assert panel.restart_point(empty) is None
     taps: list[tuple[int, int]] = []
     report = panel.restart(lambda: bytes_of(PANEL_FRAMES[0]), taps.append, empty)

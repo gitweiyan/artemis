@@ -195,9 +195,19 @@ def probe(serial: str, calibration: dict, save: Path | None = None, *, fast: boo
 def summarise(report: dict) -> str:
     if not report.get("ok"):
         return f"probe failed: {report.get('reason')}"
+    # Dimming and the scrim only mean something while the panel is up: the title box then
+    # shows the panel's own text, and dividing by the panel reference says whether a dialog
+    # or an ad is over it. On a playing screen both questions are meaningless (measured: the
+    # title box reads 61.2 with a game under way, and the ratio against the panel 0.84).
+    panel_is_up = bool(report.get("is_game_over_panel"))
+    dimming = (
+        f"标题带 {report['title_band']}({'压暗' if report['dimmed'] else '未压暗'})"
+        if panel_is_up
+        else f"标题带 {report['title_band']}(无面板，压暗/遮罩不适用)"
+    )
     parts = [
         f"亮度 {report['brightness']}",
-        f"标题带 {report['title_band']}({'压暗' if report['dimmed'] else '未压暗'})",
+        dimming,
         f"面板分 {report['panel_score']}",
         f"parse={report['parse']}",
     ]
@@ -210,7 +220,7 @@ def summarise(report: dict) -> str:
             f" stalled={stall.get('stalled')} (样本 {stall.get('samples')}，1 时无历史)"
         )
     scrim_info = report.get("scrim") or {}
-    if scrim_info.get("detected"):
+    if panel_is_up and scrim_info.get("detected"):
         parts.append(
             f"有遮罩(比例 {scrim_info.get('ratio')}) 未压暗区 {scrim_info.get('undimmed_box_px')}"
         )

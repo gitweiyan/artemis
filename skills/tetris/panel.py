@@ -39,7 +39,10 @@ RESTART_KEY = "restart_flow"
 #: A correlation this high in practice means "the same pixels"; the calibrated threshold
 #: is far below it, because the measured gap is 1.000 against 0.051 (see the calibration).
 DEFAULT_THRESHOLD = 0.6
-DEFAULT_MAX_TAPS = 3
+DEFAULT_CYCLES = 1
+#: Title-box brightness (0-255) below which a scrim is over the screen: 53.6 dimmed vs
+#: 88.1 undimmed, measured on the device, so the threshold sits in that gap.
+DEFAULT_DIMMED_BELOW = 70.0
 DEFAULT_WAIT_S = 5.0
 #: Below this standard deviation a patch has no structure to correlate.
 FLAT = 1e-6
@@ -184,21 +187,77 @@ def is_game_over(frame, calibration: dict[str, Any] | None = None) -> bool:
     return score(frame, calibration) >= threshold
 
 
-def restart_point(calibration: dict[str, Any] | None = None) -> tuple[int, int] | None:
-    """Where the restart button is, in pixels, or ``None`` when it is not calibrated.
+def dimmed(frame, calibration: dict[str, Any] | None = None) -> bool | None:
+    """Whether a scrim is over the screen — a dialog or an ad is open on top of it.
 
-    A ratio of the calibrated screen, like the other buttons: another resolution is a
-    calibration edit, not a code change.
+    The panel's own check cannot answer this: a zero-mean normalised correlation matches the
+    panel just as well behind a 0.61x scrim, which is exactly how "the panel is still there"
+    hid an open dialog on the first device run (a second attempt then closed the dialog
+    instead of pressing its button). The measured discriminator is the title box's own
+    brightness: 88.1 with the panel alone, 53.6 once a scrim is over it.
+
+    Only meaningful *while the panel is on screen*: the title box is the panel's own text,
+    so on a playing screen it is showing the board and its brightness says nothing about a
+    scrim (measured: 61.2 with a game under way).
+
+    ``None`` when there is nothing to measure (no frame, no box).
     """
-    block = (calibration or {}).get(RESTART_KEY) or {}
-    ratios = block.get("button_ratios")
-    screen = (calibration or {}).get("screen") or {}
-    if not ratios or len(ratios) != 2 or not screen.get("width") or not screen.get("height"):
+    calibration = calibration or {}
+    block = calibration.get(PANEL_KEY) or {}
+    ratios = block.get("roi_ratios")
+    image = image_of(frame)
+    if image is None or not ratios:
         return None
-    return (
-        round(float(ratios[0]) * float(screen["width"])),
-        round(float(ratios[1]) * float(screen["height"])),
-    )
+    x0, y0, x1, y1 = box(image.shape, ratios)
+    band = image[y0:y1, x0:x1]
+    if band.size == 0:
+        return None
+    threshold = float(block.get("dimmed_below") or DEFAULT_DIMMED_BELOW)
+    return float(band.mean()) < threshold
+
+
+def restart_points(calibration: dict[str, Any] | None = None) -> tuple[tuple[int, int], ...]:
+    """The buttons to press, in order, to start a new round — in pixels.
+
+    This game needs **two**: the panel's own 重新开始 opens a confirm dialog and dims the
+    screen, and the dialog's left button is what actually starts the round (the operator
+    walked through both on the device). A single ``button_ratios`` — an older calibration —
+    is still accepted as a one-step flow.
+
+    Ratios, not pixels: another resolution is a calibration edit, not a code change.
+    """
+    calibration = calibration or {}
+    block = calibration.get(RESTART_KEY) or {}
+    screen = calibration.get("screen") or {}
+    width, height = screen.get("width"), screen.get("height")
+    if not width or not height:
+        return ()
+    steps = block.get("steps")
+    if not steps:
+        single = block.get("button_ratios")
+        steps = [{"at_ratio": single}] if single else []
+    points: list[tuple[int, int]] = []
+    for step in steps:
+        ratios = (step or {}).get("at_ratio")
+        if isinstance(ratios, (list, tuple)) and len(ratios) == 2:
+            points.append(
+                (round(float(ratios[0]) * float(width)), round(float(ratios[1]) * float(height)))
+            )
+    return tuple(points)
+
+
+def restart_point(
+    calibration: dict[str, Any] | None = None, index: int = 0
+) -> tuple[int, int] | None:
+    """One of those buttons (the first by default), or ``None`` when uncalibrated."""
+    points = restart_points(calibration)
+    return points[index] if 0 <= index < len(points) else None
+
+
+def _brightness(frame) -> float | None:
+    """The frame's mean brightness — how the dimming between the two steps shows up."""
+    image = image_of(frame)
+    return round(float(image.mean()), 1) if image is not None else None
 
 
 def restart(
@@ -206,45 +265,84 @@ def restart(
     tap: Callable[[tuple[int, int]], Any],
     calibration: dict[str, Any] | None = None,
     *,
-    max_taps: int | None = None,
+    start: int | None = None,
+    cycles: int | None = None,
     wait: float | None = None,
     sleep: Callable[[float], Any] = time.sleep,
 ) -> dict[str, Any]:
-    """Tap the restart button until the panel is gone, then report what it took.
+    """Press the restart buttons in order until the panel is gone, then report what it took.
 
     ``look()`` returns a fresh frame (anything :func:`image_of` accepts) and ``tap(point)``
-    presses it — the device stays outside this function, so the loop is testable without
-    one. Taps stop as soon as the panel is off the screen: a blind second tap on a screen
-    that already restarted would land in the middle of the new board.
+    presses it — the device stays outside this function, so the flow is testable without
+    one.
 
-    Returns ``{"taps": int, "restarted": bool, "reason": str}``. ``restarted`` is about the
-    panel, not about the board being playable: whether the new board reads correctly is
-    the caller's check (``perception.parse`` returning a state), and conflating the two
-    would hide a broken board behind a successful restart.
+    One pass over the calibrated steps, looking at the screen after each: if the panel goes
+    away after the first button, the second is never pressed — it belongs to a dialog that
+    is no longer there, and the tap would land on whatever is underneath (on this game, the
+    middle of a fresh board). ``cycles`` repeats the whole sequence for an app that drops
+    the dialog once.
+
+    The between-steps check is the *panel's*, deliberately: a normalised correlation still
+    matches the panel behind the dialog, so "the panel is gone" means the round really
+    started rather than "the screen got darker".
+
+    An already-dimmed screen means a dialog (or an ad) is open *now*: pressing the panel's
+    own button would only close it, so the flow starts at the step after it and says so in
+    the report. ``start`` overrides that for a caller that knows better — the outer loop can
+    read the screen, this function can only measure its brightness.
+
+    Returns ``{"taps", "restarted", "reason", "steps", "started_at_step"}``; each step
+    records the point it pressed and what the screen looked like right after. ``restarted`` is about the panel,
+    not about the board being playable — whether the new board reads correctly is the
+    caller's check (``perception.parse`` returning a state), and conflating the two would
+    hide a broken board behind a successful restart.
     """
     calibration = calibration or {}
-    point = restart_point(calibration)
-    if point is None:
+    points = restart_points(calibration)
+    if not points:
         return {"taps": 0, "restarted": False, "reason": "no restart point in the calibration"}
-    if not is_game_over(look(), calibration):
-        return {"taps": 0, "restarted": True, "reason": "no panel on screen"}
+    first = look()
+    if not is_game_over(first, calibration):
+        return {"taps": 0, "restarted": True, "reason": "no panel on screen", "steps": []}
 
     block = calibration.get(RESTART_KEY) or {}
     if wait is None:
         wait = float(block.get("wait_s") or DEFAULT_WAIT_S)
-    if max_taps is None:
-        max_taps = int(block.get("max_taps") or DEFAULT_MAX_TAPS)
+    if cycles is None:
+        cycles = int(block.get("cycles") or DEFAULT_CYCLES)
+
+    if start is None:
+        start = 1 if (len(points) > 1 and dimmed(first, calibration)) else 0
+    start = max(0, min(int(start), len(points) - 1))
     taps = 0
-    while taps < max_taps:
-        tap(point)
-        taps += 1
-        sleep(wait)
-        if not is_game_over(look(), calibration):
-            return {"taps": taps, "restarted": True, "reason": "the panel is gone"}
+    steps: list[dict[str, Any]] = []
+    for _ in range(max(1, cycles)):
+        for point in points[start:]:
+            tap(point)
+            taps += 1
+            sleep(wait)
+            frame = look()
+            steps.append(
+                {
+                    "point": list(point),
+                    "score": round(score(frame, calibration), 4),
+                    "brightness": _brightness(frame),
+                }
+            )
+            if not is_game_over(frame, calibration):
+                return {
+                    "taps": taps,
+                    "restarted": True,
+                    "reason": "the panel is gone",
+                    "steps": steps,
+                    "started_at_step": start,
+                }
     return {
         "taps": taps,
         "restarted": False,
         "reason": f"the panel is still on screen after {taps} taps",
+        "steps": steps,
+        "started_at_step": start,
     }
 
 
@@ -253,10 +351,12 @@ __all__ = [
     "RESTART_KEY",
     "box",
     "correlation",
+    "dimmed",
     "image_of",
     "is_game_over",
     "restart",
     "restart_point",
+    "restart_points",
     "score",
     "template",
 ]

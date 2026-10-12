@@ -159,17 +159,36 @@
         0.498,
         0.374
       ],
-      "note": "panel_score is the worst match among samples/panel-{gameover,now}.png and max_playing_score the best among session-000{1,2,21}.png plus reference-{1,2,3}.jpg - a 0.55-wide gap, so the threshold is not a tuned constant. The title's own white text (y[584,612], 28 px tall, centroid x 49.8%) lands on the operator's 50%/37%: an independent check of the box, not of the words."
-    }
+      "note": "panel_score is the worst match among samples/panel-{gameover,now}.png and max_playing_score the best among session-000{1,2,21}.png plus reference-{1,2,3}.jpg - a 0.55-wide gap, so the threshold is not a tuned constant. The title's own white text (y[584,612], 28 px tall, centroid x 49.8%) lands on the operator's 50%/37%: an independent check of the box, not of the words.",
+      "dimmed_title_band": {
+        "panel_alone": 88.1,
+        "scrim_over_panel": 53.6,
+        "threshold": 70.0,
+        "note": "measured on PEMM00: the title box's own mean brightness. The panel *check* cannot use this (a normalised correlation is immune to it), and that is the point: it is what tells 'the panel' from 'the panel behind a dialog'."
+      }
+    },
+    "dimmed_below": 70.0
   },
   "restart_flow": {
-    "note": "Starting a new round after the panel: tap the 重新开始 button, then look again and tap only while the panel is still on screen (panel.restart). The plan assumed a fixed 'tap once, wait 5 s, tap again'; that second tap would land in the middle of a fresh board if the first one had already worked, so the count is decided by the screen instead. wait_s is how long the app needs to bring the new board up before a re-read means anything - 5 s is the operator's figure, not measured.",
-    "button_ratios": [
-      0.66,
-      0.64
+    "note": "Starting a new round after the panel takes TWO buttons, which the operator walked through on the device: the panel's own 重新开始 opens a confirm dialog (and dims the screen to 0.61x), and the dialog's left button is what actually starts the round. panel.restart presses them in order and looks at the screen after each, so a first step that already worked is not followed by a second tap into a fresh board. The between-steps check is the panel's own: a normalised correlation still matches the panel behind the dialog, so it cannot be 'the screen got darker' - hence the sequence is calibrated rather than retried. wait_s is how long the app needs before a re-read means anything: 5 s is the operator's figure, not measured.",
+    "steps": [
+      {
+        "at_ratio": [
+          0.6833333333333333,
+          0.634375
+        ],
+        "note": "the panel's button. The operator's (66%, 64%) = (475, 1024) is inside the same button; this is its measured centre (the 4-glyph label spans x[447,538] y[1004,1031], the button's body x[408,576] y[980,1050]). Pressing it dims the whole screen to 0.61x and opens the dialog. (the ratios are the measured centre 492/720 and 1015/1600, so the stored point is that pixel exactly)"
+      },
+      {
+        "at_ratio": [
+          0.36,
+          0.59
+        ],
+        "note": "the dialog's left button - the operator's reading of the yellow 重新开始, at 36%/59% = (259, 944). Measured inside the dialog's un-dimmed body (x[175,343] y[900,960]); the 60x60 px around it is 84% un-dimmed, while the first point in the same frame is 0% un-dimmed. That is the button that starts the round."
+      }
     ],
     "wait_s": 5,
-    "max_taps": 3,
+    "cycles": 1,
     "label_roi_ratios": [
       0.5,
       0.615,
@@ -177,7 +196,7 @@
       0.665
     ],
     "measured": {
-      "source": "PEMM00 720x1600, 2026-10-12, from samples/panel-gameover.png and samples/panel-now.png",
+      "source": "PEMM00 720x1600, 2026-10-12: samples/panel-gameover.png and samples/panel-now.png (the panel), samples/panel-dialog.png (the same screen after the first press, scrim 0.610)",
       "label_box_px": [
         447,
         1004,
@@ -189,7 +208,16 @@
         0.636
       ],
       "label_run_px": 92,
-      "note": "the operator's tap (66%, 64%) = pixel (475, 1024) falls inside a 92 px wide, 28 px tall run of near-white pixels in that ROI - the size of a four-glyph label, centred at 68.4%/63.6%. So the point lands on the button's label and not on the panel's background; the words themselves are the operator's reading. label_roi_ratios is the window that check looks in."
+      "dialog_box_px": [
+        72,
+        644,
+        647,
+        983
+      ],
+      "dialog_scrim_ratio": 0.61,
+      "second_step_neighbourhood_undimmed": 0.84,
+      "first_step_neighbourhood_undimmed": 0.0,
+      "note": "the first point sits inside a 92 px wide, 28 px tall run of near-white pixels - the size of a four-glyph label - so it lands on the button's label and not on the panel's background. The second point sits in the dialog's un-dimmed body. Both words are the operator's reading; nothing here does OCR. Every number above is re-derived from the committed frames in tests/unit/reflex/test_panel.py."
     }
   },
   "systemone_timeout_s": 1.0,
