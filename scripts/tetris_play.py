@@ -186,6 +186,9 @@ def traced_skill(handle, trace: Trace, perception: dict):
                 "note": detail.get("note"),
                 "placement": detail.get("placement"),
                 "source": detail.get("source") or (detail.get("counters") or {}).get("source"),
+                # Whether this frame reused the previous decision: without it a trace cannot
+                # tell "one Jev call per piece" from "one per frame".
+                "reused": (detail.get("counters") or {}).get("reused"),
             }
         )
         if action.done:
@@ -285,7 +288,22 @@ def ensure_playable(panel, perception_mod, calibration, device, serial, *, fresh
     frame = device.grab()
     if panel.is_game_over(frame.image, calibration):
         report = start_a_round(panel, perception_mod, calibration, device, fresh=True)
-        return {"route": "restart", **report}
+        if report.get("restarted"):
+            return {"route": "restart", **report}
+        # Measured: a frozen game shows the panel and ignores the buttons (both presses left
+        # the panel at the same brightness instead of dimming it), so the round is skipped
+        # unless the app is woken first. Relaunch, then try the buttons again.
+        print("  the restart did not take (a frozen game ignores its buttons) → relaunching")
+        if not relaunch(serial):
+            return {"route": "restart-failed", **report}
+        frame = device.grab()
+        if panel.is_game_over(frame.image, calibration):
+            retry = start_a_round(panel, perception_mod, calibration, device, fresh=True)
+            return {"route": "relaunch+restart", "first_attempt": report, **retry}
+        state = perception_mod.parse(frame, calibration)
+        if state is not None and state.get("board_matrix"):
+            return {"route": "relaunch", "relaunched": True, "first_attempt": report}
+        return {"route": "restart-failed", **report}
     state = perception_mod.parse(frame, calibration)
     if state is None or not state.get("board_matrix"):
         return {"route": "none", "reason": "no readable board on screen"}
@@ -383,6 +401,9 @@ def main(argv: list[str] | None = None) -> int:
                 fps_cap=args.fps_cap,
             )
             spent += result.seconds
+            # The counters are reset when a session starts, so a multi-round run has to read
+            # them per round: reading once at the end reports only the last one.
+            round_telemetry = policy_jev.telemetry() if hasattr(policy_jev, "telemetry") else {}
             note = (
                 (result.final_state or {}).get("note")
                 if isinstance(result.final_state, dict)
@@ -403,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
                 "counters": result.counters,
                 "final_note": note,
                 "route": route,
+                "jev": round_telemetry,
             }
             rounds.append(entry)
             print(
@@ -418,6 +440,10 @@ def main(argv: list[str] | None = None) -> int:
 
     telemetry = policy_jev.telemetry() if hasattr(policy_jev, "telemetry") else {}
     totals = {
+        "jev": {
+            key: sum(int(entry.get("jev", {}).get(key) or 0) for entry in rounds)
+            for key in ("calls", "fallbacks", "reuses")
+        },
         "rounds_played": len(rounds),
         "seconds": round(spent, 1),
         "frames": sum(entry.get("frames", 0) for entry in rounds),
@@ -430,7 +456,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     report = {
         **totals,
-        "jev": telemetry,
+        "jev": totals["jev"],
+        "jev_last_session": telemetry,
         "per_round": rounds,
         "directory": str(out),
         "trace": str(trace.path),
