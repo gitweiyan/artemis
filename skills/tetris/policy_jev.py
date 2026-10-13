@@ -381,6 +381,37 @@ def _remember(key, placement, source, *, shapes=(), phase=None) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _closeness(mode: str, raw: Any) -> dict[str, Any]:
+    """How close the decision was: runner-up, margin, and the next-best candidates.
+
+    One number cannot answer "was it a hard call". Under ``noul`` the answers are independent
+    probabilities (they do not sum to one), under ``choice`` they are shares of a normalised
+    distribution — so the record says which kind it is, and a reader can tell "wrong and sure"
+    from "wrong and unsure" without guessing what the number meant.
+    """
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    scored: list[tuple[float, str]] = []
+    for name, answer in raw.items():
+        try:
+            scored.append((systemone.probability(answer), str(name)))
+        except systemone.SystemOneUnavailable:
+            continue
+    if not scored:
+        return {}
+    scored.sort(key=lambda pair: (-pair[0], pair[1]))
+    best = scored[0][0]
+    runner_up = scored[1][0] if len(scored) > 1 else best
+    return {
+        "distribution": "normalized" if mode == "choice" else "independent",
+        "best": scored[0][1],
+        "confidence": round(best, 4),
+        "runner_up": round(runner_up, 4),
+        "margin": round(best - runner_up, 4),
+        "alternatives": [name for _, name in scored[1:4]],
+    }
+
+
 def _ask(mode, message, candidates, cal, counters):
     """``(placement, confidence)`` from Jev, or ``(None, None)`` for the search to play.
 
@@ -418,6 +449,7 @@ def _ask(mode, message, candidates, cal, counters):
             seconds=time.monotonic() - started,
             failure=str(exc),
             record=record,
+            closeness=_closeness(mode, raw),
         )
         return None, None
     _telemetry["calls"] += 1
@@ -432,12 +464,23 @@ def _ask(mode, message, candidates, cal, counters):
         raw,
         seconds=time.monotonic() - started,
         record=record,
+        closeness=_closeness(mode, raw),
     )
     return placement, confidence
 
 
 def _dump_jev(
-    mode, message, candidates, placement, confidence, raw, *, seconds, failure=None, record=None
+    mode,
+    message,
+    candidates,
+    placement,
+    confidence,
+    raw,
+    *,
+    seconds,
+    failure=None,
+    record=None,
+    closeness=None,
 ):
     """Append one call to ``ARTEMIS_JEV_DUMP``: the input, the output and the outcome.
 
@@ -467,6 +510,7 @@ def _dump_jev(
                         else {"rotation": placement.rotation, "column": placement.column},
                         "confidence": confidence,
                         "failure": failure,
+                        **{k: v for k, v in (closeness or {}).items() if k != "confidence"},
                     },
                     ensure_ascii=False,
                     default=str,

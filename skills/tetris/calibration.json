@@ -244,9 +244,10 @@
     "shapes": {}
   },
   "jev": {
-    "mode": "noul",
+    "mode": "choice",
     "min_confidence": 0.05,
-    "options_cap": 40
+    "options_cap": 40,
+    "mode_note": "choice, not noul: noul asks N independent questions ('would r0c3 be the best?') and the policy takes the argmax, which is not a ranking — measured answers spread 0.18-0.54 and do not sum to one, and the winner once landed at position 10 of 18 by the search policy's own ordering. choice asks one question that picks among all candidates and returns a normalised distribution, so the ranking and the margin come out of the same call. The switch is pending the offline comparison in scripts/tetris_jev_modes.py; if it scores worse, revert this line."
   },
   "screen": {
     "width": 720,

@@ -606,6 +606,41 @@ def test_a_piece_whose_orientations_repeat_needs_no_taps_to_reach_them(jev_polic
     assert jev_policy._taps_to_reach([[1, 0], [0, 1]], zed_shapes, 1) == 1
 
 
+def test_the_record_says_how_close_the_decision_was(
+    jev_policy, simulator, calibration, monkeypatch, tmp_path
+):
+    """Confidence alone cannot tell "wrong and sure" from "wrong and unsure".
+
+    A single number is ambiguous in both modes: under `noul` it is one independent
+    "is this the best" probability, under `choice` it is a share of a normalised
+    distribution. The record therefore carries the runner-up, the margin and the
+    distribution kind, plus the next-best candidates, which is what a reader needs to judge
+    a decision rather than just read it.
+    """
+    import json as _json
+
+    state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, state)
+    probabilities = [0.02] * len(candidates)
+    probabilities[0] = 0.9
+    probabilities[1] = 0.5
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    dump = tmp_path / "jev.jsonl"
+    monkeypatch.setenv("ARTEMIS_JEV_DUMP", str(dump))
+    jev_policy.decide(state, calibration)
+
+    record = _json.loads(dump.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert record["mode"] == "noul"
+    assert record["distribution"] == "independent", "noul answers do not sum to one"
+    assert record["confidence"] == pytest.approx(0.9, abs=0.01)
+    assert record["runner_up"] == pytest.approx(0.5, abs=0.01), "the second-best answer"
+    assert record["margin"] == pytest.approx(0.4, abs=0.02)
+    assert record["alternatives"], "the next-best candidates, in order"
+    assert all(isinstance(name, str) for name in record["alternatives"])
+
+
 def test_every_jev_call_can_be_recorded_when_asked_for(
     jev_policy, simulator, calibration, monkeypatch, tmp_path
 ):
