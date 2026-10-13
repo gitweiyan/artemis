@@ -97,6 +97,7 @@ def build_state(
     candidates: Iterable[Any] | None,
     *,
     resulting_boards: bool = False,
+    consequences: bool = False,
 ) -> dict[str, Any]:
     """The state a Jev question is asked about — exactly these keys, nothing else.
 
@@ -133,10 +134,21 @@ def build_state(
         },
         "next_preview": _preview(next_preview),
         "candidate_moves": [
-            _candidate(entry, board=board, mask=mask, gravity=gravity, results=resulting_boards)
+            _candidate(
+                entry,
+                board=board,
+                mask=mask,
+                gravity=gravity,
+                results=resulting_boards,
+                consequences=consequences,
+            )
             for entry in candidates or []
         ],
-        **({"encoding": {**ENCODING, **RESULT_ENCODING}} if resulting_boards else {}),
+        **(
+            {"encoding": {**ENCODING, **RESULT_ENCODING}}
+            if resulting_boards
+            else ({"encoding": {**ENCODING, **ACTION_ENCODING}} if consequences else {})
+        ),
     }
 
 
@@ -388,7 +400,13 @@ def _done_so_far(history) -> str:
 
 
 def _candidate(
-    entry: Any, *, board=None, mask=None, gravity: str = "down", results: bool = False
+    entry: Any,
+    *,
+    board=None,
+    mask=None,
+    gravity: str = "down",
+    results: bool = False,
+    consequences: bool = False,
 ) -> dict[str, Any]:
     """One candidate move, with the id an answer has to name to be understood.
 
@@ -403,6 +421,21 @@ def _candidate(
     else:
         rotation, column = int(placement.rotation), int(placement.column)
     move = {"id": f"r{rotation}c{column}", "rotation": rotation, "column": column}
+    if consequences and board is not None and mask is not None:
+        from .simulator import EMPTY, MASK_FILL, outcome
+
+        cells = entry[1] if isinstance(entry, (tuple, list)) and len(entry) > 1 else None
+        playable = [
+            [EMPTY if cell in {"0", ".", ""} else MASK_FILL for cell in row] for row in board
+        ]
+        landed = outcome(playable, cells if cells is not None else mask, column, gravity=gravity)
+        if landed is not None:
+            # The five advertised numbers, and nothing that ranks them: the environment says
+            # what would happen, the model says which of those is better (the C'/D' arms).
+            move["then_lands"] = {
+                key: landed[key]
+                for key in ("in_columns", "on_row", "clears_lines", "new_holes", "roughness_after")
+            }
     if results and board and mask:
         from .simulator import EMPTY, MASK_FILL, clear_lines, drop
 

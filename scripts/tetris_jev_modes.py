@@ -47,15 +47,17 @@ SKILL = "tetris"
 PLAY = SKILLS / SKILL / "samples" / "session-play"
 #: The committed playfield samples are the playfield itself, so the ROI is the whole image.
 WHOLE = {"board_roi_ratios": [0.0, 0.0, 1.0, 1.0]}
-#: The four arms: question type x whether the environment hands over the resulting board.
-#: A and B are the "formulation" comparison, C and D the "observability" one, and A vs C
-#: isolates observability under `noul` while B vs C isolates it under `choice` — which is
-#: what makes the 2x2 readable instead of two things changing at once.
+#: The six arms of the redesign plan (§4), each one variable away from a neighbour:
+#:   A/B  placements, bare ids        — the formulation pair (noul vs choice)
+#:   C'/D' placements + consequences  — observability, without the 14 KB board of the first C/D
+#:   E/F  actions + / without consequences — option granularity (one button vs one landing)
 ARMS = (
-    ("A", "noul", False),
-    ("B", "choice", False),
-    ("C", "choice", True),
-    ("D", "noul", True),
+    ("A", "placement", "noul", False),
+    ("B", "placement", "choice", False),
+    ("C'", "placement", "choice", True),
+    ("D'", "placement", "noul", True),
+    ("E", "action", "choice", True),
+    ("F", "action", "choice", False),
 )
 
 
@@ -78,12 +80,58 @@ def modules():
         "policy_jev": importlib.import_module(f"artemis_skills_{SKILL}.policy_jev"),
         "jev_state": importlib.import_module(f"artemis_skills_{SKILL}.jev_state"),
         "sim": importlib.import_module(f"artemis_skills_{SKILL}.simulator"),
+        "policy_actions": importlib.import_module(f"artemis_skills_{SKILL}.policy_actions"),
     }
 
 
 # --------------------------------------------------------------------------- #
 # States, from the committed corpus (no device)
 # --------------------------------------------------------------------------- #
+
+
+def synthetic_states(calibration: dict, count: int, *, seed: int = 7) -> list[dict]:
+    """Boards built here, so the sample is not one 30-second recording.
+
+    The corpus is a single session; the first four-arm run reported statistics over four
+    states that were nearly the same position. These are deterministic (seeded), varied in
+    stack shape, and use the game's own shapes from ``mechanics.shapes`` — including the 1, 2
+    and 3 cell pieces, which are half of what this game spawns.
+    """
+    import random
+
+    rng = random.Random(seed)
+    shapes = list((calibration["mechanics"].get("shapes") or {}).values()) or [[[1, 1], [1, 1]]]
+    states: list[dict] = []
+    for index in range(count):
+        heights = [rng.randint(0, 7) for _ in range(10)]
+        rows = [["0"] * 10 for _ in range(20)]
+        for column, height in enumerate(heights):
+            for row in range(20 - height, 20):
+                rows[row][column] = "1"
+        if index % 4 == 1:  # a well
+            for row in range(20 - max(heights) - 1, 20):
+                rows[row][3] = "0"
+        if index % 4 == 2:  # a hole under an overhang
+            rows[20 - max(heights)][5] = "0"
+        board = ["".join(row) for row in rows]
+        shape = shapes[index % len(shapes)]
+        top = rng.randint(0, 2)
+        column = rng.randint(0, 10 - len(shape[0]))
+        states.append(
+            {
+                "board_matrix": board,
+                "current_piece_mask": shape,
+                "current_piece_positions": [
+                    [top + r, column + c]
+                    for r, line in enumerate(shape)
+                    for c, cell in enumerate(line)
+                    if cell
+                ],
+                "motion_vector": [1, 0],
+                "_source": "synthetic",
+            }
+        )
+    return states
 
 
 def states_from_corpus(mods, calibration: dict, limit: int) -> list[dict]:
@@ -165,7 +213,7 @@ def judge(mods, calibration: dict, board: list[str], candidates):
 
 
 def compare_state(mods, calibration: dict, sample: dict) -> dict:
-    """Same state, same candidates, same message — only the question type differs."""
+    """Same state, and per arm only one thing changes: space, question type, or consequences."""
     state = sample["state"]
     policy_jev, jev_state = mods["policy_jev"], mods["jev_state"]
     board = policy_jev._board(state)
@@ -175,37 +223,113 @@ def compare_state(mods, calibration: dict, sample: dict) -> dict:
     candidates = policy_jev._candidates(board, mask, gravity, calibration)
     ordered, ranks, score_of = judge(mods, calibration, board, candidates)
     best_score = ordered[0][1] if ordered else None
+    action_message = jev_state.build_action_state(
+        board_matrix=board,
+        pieces=state,
+        mechanics=policy_jev._mechanics(calibration),
+        next_preview=state.get("next_preview"),
+        rotation=0,
+        column=min((int(c) for _, c in state.get("current_piece_positions") or []), default=0),
+        consequences=True,
+        plan=False,
+    )
+    action_ids = [entry["id"] for entry in action_message["candidate_actions"]]
+    start_column = min((int(c) for _, c in state.get("current_piece_positions") or []), default=0)
 
     arms = {}
-    for name, mode, with_results in ARMS:
-        message = jev_state.build_state(
-            board_matrix=board,
-            pieces=state,
-            mechanics=policy_jev._mechanics(calibration),
-            next_preview=state.get("next_preview"),
-            candidates=candidates,
-            resulting_boards=with_results,
-        )
-        arm_cal = {**calibration, "jev": {**calibration["jev"], "mode": mode}}
-        started = time.monotonic()
-        placement, confidence = policy_jev._ask(mode, message, candidates, arm_cal, {})
-        seconds = time.monotonic() - started
-        if placement is None:
-            arms[name] = {"chosen": None, "seconds": round(seconds, 2), "reason": "no answer"}
+    for name, space, mode, consequences in ARMS:
+        if space == "placement":
+            message = jev_state.build_state(
+                board_matrix=board,
+                pieces=state,
+                mechanics=policy_jev._mechanics(calibration),
+                next_preview=state.get("next_preview"),
+                candidates=candidates,
+                consequences=consequences,
+            )
+            started = time.monotonic()
+            placement, confidence = policy_jev._ask(
+                mode,
+                message,
+                candidates,
+                {**calibration, "jev": {**calibration["jev"], "mode": mode}},
+                {},
+            )
+            seconds = time.monotonic() - started
+            key = None if placement is None else (int(placement.rotation), int(placement.column))
+            score = (
+                None
+                if key is None
+                else score_of(type("P", (), {"rotation": key[0], "column": key[1]})())
+            )
+            arms[name] = {
+                "space": space,
+                "mode": mode,
+                "consequences": consequences,
+                "bytes": len(json.dumps(message, ensure_ascii=False)),
+                "seconds": round(seconds, 2),
+                "chosen": None if key is None else {"rotation": key[0], "column": key[1]},
+                "confidence": confidence,
+                "judge_score": None if score is None else round(score, 3),
+                "judge_rank": None if key is None else ranks.get(key),
+                "regret": None
+                if score is None or best_score is None
+                else round(best_score - score, 3),
+            }
             continue
-        key = (int(placement.rotation), int(placement.column))
-        chosen_score = score_of(placement)
+        bare = dict(action_message)
+        if not consequences:
+            bare = {
+                **action_message,
+                "candidate_actions": [
+                    {k: v for k, v in entry.items() if k != "then_lands"}
+                    for entry in action_message["candidate_actions"]
+                ],
+            }
+        started = time.monotonic()
+        chosen, _note, _source = mods["policy_actions"]._ask(
+            mode,
+            bare,
+            action_ids,
+            {**calibration, "jev": {**calibration["jev"], "mode": mode}},
+            {},
+        )
+        seconds = time.monotonic() - started
+        # The action leads to one specific landing; score it with the same judge, so regret is
+        # in the same units as the placement arms.
+        key = None
+        if chosen:
+            shapes = list(mods["sim"].orientations_from_mask(mask))
+            rotation = 1 % max(1, len(shapes)) if chosen == "rotate" else 0
+            reach = jev_state._reach(
+                board,
+                shapes,
+                0,
+                start_column,
+                chosen,
+                mask,
+                mods["sim"].drop,
+                mods["sim"].mask_cells,
+                "down",
+            )
+            if reach is not None:
+                key = (rotation, reach[1])
+        score = (
+            None
+            if key is None
+            else score_of(type("P", (), {"rotation": key[0], "column": key[1]})())
+        )
         arms[name] = {
+            "space": space,
             "mode": mode,
-            "resulting_boards": with_results,
-            "chosen": {"rotation": key[0], "column": key[1]},
-            "confidence": None if confidence is None else round(float(confidence), 4),
+            "consequences": consequences,
+            "bytes": len(json.dumps(bare, ensure_ascii=False)),
             "seconds": round(seconds, 2),
-            "judge_score": None if chosen_score is None else round(chosen_score, 3),
-            "judge_rank": ranks.get(key),
-            "regret": None
-            if chosen_score is None or best_score is None
-            else round(best_score - chosen_score, 3),
+            "chosen": {"action": chosen} if chosen else None,
+            "confidence": None,
+            "judge_score": None if score is None else round(score, 3),
+            "judge_rank": None if key is None else ranks.get(key),
+            "regret": None if score is None or best_score is None else round(best_score - score, 3),
         }
 
     return {
@@ -223,7 +347,7 @@ def compare_state(mods, calibration: dict, sample: dict) -> dict:
 
 def summarise(rows: list[dict]) -> dict:
     out: dict = {"states": len(rows), "modes": {}}
-    for name, _mode, _results in ARMS:
+    for name, _space, _mode, _results in ARMS:
         arms = [row["arms"][name] for row in rows if row["arms"].get(name, {}).get("chosen")]
         regrets = [arm["regret"] for arm in arms if arm.get("regret") is not None]
         ranks = [arm["judge_rank"] for arm in arms if arm.get("judge_rank")]
@@ -247,7 +371,12 @@ def summarise(rows: list[dict]) -> dict:
             if any(a["confidence"] is not None for a in arms)
             else None,
         }
-    pairs = {"A_vs_B": ("A", "B"), "A_vs_D": ("A", "D"), "B_vs_C": ("B", "C"), "C_vs_D": ("C", "D")}
+    pairs = {
+        "A_vs_B": ("A", "B"),
+        "B_vs_C'": ("B", "C'"),
+        "C'_vs_E": ("C'", "E"),
+        "E_vs_F": ("E", "F"),
+    }
     out["agreement"] = {}
     for label, (left, right) in pairs.items():
         same = sum(
@@ -283,7 +412,7 @@ def self_check(mods, calibration: dict) -> int:
             failures.append("the committed corpus produced no state with a piece")
         else:
             row = compare_state(mods, calibration, samples[0])
-            for name, _mode, _results in ARMS:
+            for name, _space, _mode, _results in ARMS:
                 arm = row["arms"].get(name) or {}
                 if "chosen" not in arm:
                     failures.append(f"{name}: no arm produced a choice")
@@ -303,6 +432,12 @@ def self_check(mods, calibration: dict) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--states", type=int, default=6)
+    parser.add_argument(
+        "--source",
+        choices=("corpus", "synthetic", "both"),
+        default="synthetic",
+        help="where the states come from: the committed recording, generated boards, or both",
+    )
     parser.add_argument("--out", help="write the full report here")
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--json", action="store_true")
@@ -318,8 +453,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.self_check:
         return self_check(mods, calibration)
 
-    samples = states_from_corpus(mods, calibration, args.states)
-    print(f"从已提交语料取到 {len(samples)} 个含下落块的状态（离线，无设备）", flush=True)
+    samples = []
+    if args.source in ("corpus", "both"):
+        found = states_from_corpus(mods, calibration, args.states)
+        samples += [{"file": f["file"], "t_mono": f["t_mono"], "state": f["state"]} for f in found]
+    if args.source in ("synthetic", "both"):
+        wanted = args.states if args.source == "synthetic" else max(1, args.states - len(samples))
+        samples += [
+            {"file": f"synthetic-{index + 1:02d}", "t_mono": None, "state": state}
+            for index, state in enumerate(synthetic_states(calibration, wanted))
+        ]
+    print(
+        f"状态 {len(samples)} 个（来源 {args.source}，离线、无设备）"
+        f"；六臂 = {', '.join(name for name, *_ in ARMS)}",
+        flush=True,
+    )
     rows = []
     for index, sample in enumerate(samples, 1):
         row = compare_state(mods, calibration, sample)
@@ -333,11 +481,15 @@ def main(argv: list[str] | None = None) -> int:
                 + (
                     "无答案"
                     if not arms[name].get("chosen")
-                    else f"r{arms[name]['chosen']['rotation']}c{arms[name]['chosen']['column']} "
-                    f"rank{arms[name]['judge_rank']} regret{arms[name]['regret']} "
-                    f"{arms[name]['seconds']}s"
+                    else (
+                        f"r{arms[name]['chosen']['rotation']}c{arms[name]['chosen']['column']}"
+                        if "rotation" in arms[name]["chosen"]
+                        else str(arms[name]["chosen"]["action"])
+                    )
+                    + f" regret{arms[name]['regret']} {arms[name]['seconds']}s "
+                    f"{arms[name]['bytes']}B"
                 )
-                for name, _mode, _results in ARMS
+                for name, _space, _mode, _results in ARMS
             ),
             flush=True,
         )
