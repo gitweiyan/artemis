@@ -8,7 +8,8 @@ and the inner loop as it will run for real:
    (`panel.restart`) and check that a board is readable before playing;
 2. **play** — the reflex runtime drives the skill: capture → ``perception.parse`` → Jev
    decides the rotation and then the column (``policy_jev``) → taps through the game's own
-   four buttons. No hard drop (the piece falls on its own, which leaves frames to correct);
+   four buttons, including the drop button (the operator cancelled the no-hard-drop rule on
+   2026-10-13: dropping in the same frame as the shift locks the piece where the plan put it);
 3. **report** — the runtime's metrics, the skill's counters, the Jev call telemetry, and a
    per-frame trace under ``captures/play/<stamp>/trace.jsonl``: the board matrix, the piece,
    the decision and every gesture. The frames themselves are kept every ``--frames-every``

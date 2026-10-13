@@ -649,9 +649,42 @@ def test_the_search_policy_tells_the_control_layer_where_the_piece_is(policy):
     assert policy.decide(legacy, {}).state["current_column"] == 4
 
 
-def test_no_hard_drop_is_sent_while_playing(tetris, control):
-    """The operator's rule for this game: never hard-drop, so the piece keeps falling and
-    every frame can still re-measure the column and correct it."""
+def test_the_shipped_calibration_uses_the_drop_button(tetris, control):
+    """The operator cancelled the no-hard-drop rule on 2026-10-13.
+
+    What enabling it actually changes, so it is not just a flag: the drop tap goes out on
+    the same frame as the planned shift, so the piece locks where the plan put it instead of
+    falling several more rows while nothing else happens — measured, "the plan arrives later
+    than the piece falls" was one of the two structural reasons for zero-line games
+    (captures/play/*/trace.jsonl). The cost, also measured, is that a tap the device misses
+    is no longer corrected on a later frame; that was already true of the one-shift rule.
+    """
+    from artemis.reflex.contract import Action
+
+    shipped = tetris.calibration
+    assert shipped["gestures"]["drop"]["enabled"] is True, (
+        "the operator's rule is cancelled: the drop button is part of the game again"
+    )
+
+    move = Action(
+        state={"placement": {"rotation": 0, "column": 6}, "phase": "move", "current_column": 4}
+    )
+    assert [g.description for g in control.to_gestures(move, shipped)] == [
+        "move right",
+        "move right",
+        "drop",
+    ], "the shift first, then the drop, in one frame"
+
+    turn = Action(
+        state={"placement": {"rotation": 1, "column": 6}, "phase": "rotate", "rotate_taps": 1}
+    )
+    assert [g.description for g in control.to_gestures(turn, shipped)] == ["rotate"], (
+        "a turn never drops: the piece must still be there to be shifted next frame"
+    )
+
+
+def test_a_disabled_drop_button_is_still_respected(tetris, control):
+    """The flag stays a calibrated choice, for a game whose pieces do not fall on their own."""
     from artemis.reflex.contract import Action
 
     calibration = {
@@ -667,29 +700,10 @@ def test_no_hard_drop_is_sent_while_playing(tetris, control):
         state={"placement": {"rotation": 0, "column": 6}, "phase": "move", "current_column": 4}
     )
 
-    gestures = control.to_gestures(action, calibration)
-
-    assert [g.description for g in gestures] == ["move right", "move right"]
-
-
-def test_an_enabled_drop_button_is_still_honoured(tetris, control):
-    """Kept as an explicit opt-in: a game whose pieces do not fall on their own needs it."""
-    from artemis.reflex.contract import Action
-
-    calibration = {
-        "screen": {"width": 720, "height": 1600},
-        "gestures": {
-            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
-            "drop": {"kind": "tap", "at_ratio": [0.33, 0.84], "enabled": True},
-        },
-    }
-    action = Action(
-        state={"placement": {"rotation": 0, "column": 6}, "phase": "move", "current_column": 4}
-    )
-
-    gestures = control.to_gestures(action, calibration)
-
-    assert [g.description for g in gestures] == ["move right", "move right", "drop"]
+    assert [g.description for g in control.to_gestures(action, calibration)] == [
+        "move right",
+        "move right",
+    ]
 
 
 def test_the_move_phase_corrects_an_overshoot_in_the_other_direction(tetris, control):

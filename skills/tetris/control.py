@@ -108,8 +108,11 @@ def to_gestures(action, calibration=None, *, state=None):
                 break
             gestures.append(Gesture.tap(*point, description=button.replace("_", " ")))
 
-    # The drop button is opt-in: this game's pieces fall on their own, and *not* ending the
-    # piece early is what leaves every later frame free to correct the column.
+    # The drop button is driven by calibration. It is enabled for this game since 2026-10-13
+    # (the operator cancelled the no-hard-drop rule): dropping on the same frame as the shift
+    # locks the piece where the plan put it, instead of letting it fall several more rows while
+    # no further decision is made. It goes out after the shift, never on a turn frame —
+    # turning is only useful if the piece is still falling on the next frame.
     drop = dialect.get("drop") or {}
     point = _tap_point(drop, cal or {})
     if drop.get("enabled") and point is not None:

@@ -98,8 +98,8 @@
         0.84
       ],
       "taps": 1,
-      "enabled": false,
-      "note": "disabled on purpose (operator's rule for this game): no hard drop while playing. The piece falls on its own, which leaves every frame free to re-measure the column and correct a stray tap. Set enabled=true only for a game whose pieces do not fall."
+      "enabled": true,
+      "note": "Enabled on 2026-10-13: the operator cancelled the no-hard-drop rule. What it changes, measured rather than assumed: the drop tap goes out in the same frame as the planned shift or turn, so the piece locks where the plan put it instead of falling several more rows while no further decision is made — 'the plan arrives later than the piece falls' was one of the two structural reasons our sessions cleared zero lines (captures/play/*/trace.jsonl: 0.5 fps against a piece that falls about a row every 1.5 s). The cost is that a tap the device misses is not corrected on a later frame; the one-shift-per-piece rule had already given that up. A turn never drops: the piece has to still be there to be shifted on the next frame. Set enabled=false for a game whose pieces do not fall on their own."
     }
   },
   "weights": {

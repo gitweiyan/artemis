@@ -111,10 +111,13 @@ def test_the_runtime_dispatches_the_gestures_the_skill_asks_for(offline_skill, m
         "to `to_gestures`, which receives the action alone"
     )
     assert result.actions == len(control.gestures)
-    # The injected decision turns nothing and moves two columns: every frame it is asked
-    # for two taps, on the right button, and nothing else.
-    assert set(g.description for g in control.gestures) == {"move right"}
-    assert len(control.gestures) % 2 == 0
+    # The injected decision turns nothing and moves two columns: two taps on the right
+    # button, then the drop tap — the operator cancelled the no-hard-drop rule on 2026-10-13,
+    # so the piece locks where the plan put it instead of falling on while nothing decides.
+    assert set(g.description for g in control.gestures) == {"move right", "drop"}
+    assert (
+        sum(1 for g in control.gestures if g.description == "drop") == len(control.gestures) // 3
+    ), "one drop per decision, after its two move taps"
     assert capture.closed, "the runtime must close the capture it was given"
 
 

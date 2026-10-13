@@ -51,7 +51,7 @@ question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, 
 
 要点与本地适配：
 
-1. **动作集合**：`rotate` / `left` / `right` / `hold`（"不动，让它落"）。**不含 hard drop**（操作者规则，`calibration.gestures.drop.enabled=false`）；`hold` 对应参考实现的 `none`。
+1. **动作集合**：`rotate` / `left` / `right` / `drop` / `hold`（"不动，让它落"）。**`drop` 已启用**（操作者 2026-10-13 取消硬降禁用规则，`calibration.gestures.drop.enabled=true`），与参考实现的 `hard_drop` 对应；`hold` 对应它的 `none`。
 2. **`then_lands` 由我们算**：对每个动作，模拟"执行该动作后让方块自然落到底"的结局（`simulator.drop` + `clear_lines`），给出落点列区间、落地行、消行、新洞、粗糙度。**这是"环境算后果、模型只比较"的分工**（G2）。
 3. **`plan`**：用 `bestPlan` 式单目标（旋转 + 双向滑动的可达枚举，含**原地转向**——参考实现的"零滑动落点"教训，`tetris.js:118-132`），成本函数改用 **`lands_on_row` 优先**、去掉 `tallest_column_after`（G7）。
 4. **`actions_left` / `rows_of_fall_left`**：`rows_of_fall_left` 由模拟器算；`actions_left = rows_of_fall_left × (落行间隔 / 单次决策耗时)`，其中耗时用**滚动实测**（抓帧 520 ms + Jev 实测，见 `captures/play/*/trace.jsonl` 的 `frame_ms` 与 `captures/jev-modes/calls-*.jsonl` 的 `seconds`）。**不要写死数字**。
@@ -120,7 +120,7 @@ question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, 
 | D1 | play 线是否允许 `plan` 字段（= 允许 search 先给计划） | 允许 / 不允许 | 允许则更像参考实现、更可能打得动；不允许则保持"纯 Jev"口径 |
 | D2 | 基准线预算 | 6 臂 × 30 / 60 / 100 状态 | 直接决定结论可信度与付费调用数（30 状态 ≈ 180 次） |
 | D3 | 是否把 `then_lands` 的 5 个数也认定为"泄漏" | 是（基准线不给）/ 否 | 若认定为泄漏，基准线只能用 C/D 的棋盘或裸 id，取样成本更高 |
-| D4 | 是否给 `hold` 之外的"软降"动作 | 给 / 不给 | 影响每块可用动作数与时间预算的匹配 |
+| ~~D4~~ | ~~是否给 `hold` 之外的"软降"动作~~ **已决策（2026-10-13）**：取消硬降禁用，`drop` 进入动作集合（`calibration.gestures.drop.enabled=true`，测试 `test_the_shipped_calibration_uses_the_drop_button`） | — | 每块可用动作数 +1；落地时机由策略决定 |
 
 ## 9. 任务拆解（TDD + 现有门禁）
 
