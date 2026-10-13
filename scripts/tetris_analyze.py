@@ -150,13 +150,58 @@ def session_summary(frames: list[dict]) -> dict:
     }
 
 
+def click_log(frames: list[dict]) -> int:
+    """Every gesture the loop sent: `时间 | 帧 | 按键 | 像素 | 耗时 | 决策`.
+
+    The gesture carries its own timestamp when the trace has one (added with the play script's
+    per-gesture clock); older traces only have the frame's stamp, which is earlier by the whole
+    decision — that column is then marked so a reader does not read it as the tap time.
+    """
+    rows = 0
+    for frame in frames:
+        action = frame.get("action") or {}
+        for gesture in frame.get("gestures") or []:
+            rows += 1
+            own = "t" in gesture
+            when = gesture["t"] if own else frame.get("t")
+            where = gesture.get("points") or []
+            where = where[0] if where else None
+            print(
+                f"{when:8.2f}s{' ' if own else '~'} 第{frame.get('frame'):>3}帧 "
+                f"{gesture.get('description') or gesture.get('kind'):<12} {where} "
+                f"{gesture.get('ms', 0):6.1f}ms  ← 决策 phase={action.get('phase')} "
+                f"落点={action.get('placement')} 来源={action.get('source')}"
+            )
+    if not rows:
+        print("这次运行的 trace 里没有任何点击")
+    else:
+        missing = sum(1 for f in frames for g in (f.get("gestures") or []) if "t" not in g)
+        print(
+            f"\n共 {rows} 次点击"
+            + (
+                f"；其中 {missing} 次没有自己的时间戳（该 trace 早于逐手势时钟），行首标 ~ 的是帧时间"
+                if missing
+                else "（每条都是点击发生时刻）"
+            )
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("trace", type=Path)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--clicks",
+        action="store_true",
+        help="print the control actions: when, which button, where, and the decision behind it",
+    )
     args = parser.parse_args(argv)
 
     frames = load(args.trace)
+    if args.clicks:
+        return click_log(frames)
+
     summary = session_summary(frames)
     # Written next to the trace so a run directory is self-describing: the session's own
     # numbers used to exist only on stdout (a /tmp log), which is not a place to keep

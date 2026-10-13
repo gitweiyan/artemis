@@ -87,9 +87,17 @@ class Trace:
     def update(self, **fields) -> None:
         self.record.update(fields)
 
-    def gesture(self, gesture, ms: float) -> None:
+    def gesture(self, gesture, ms: float, *, at: float | None = None) -> None:
+        """One dispatched gesture: what, where, **when**, and how long the device took.
+
+        `at` is the wall clock read just before the dispatch, which is the only honest answer
+        to "at 12.3 s it tapped the rotate button": the frame's own stamp is earlier by the
+        whole decision (7.63 s for a Jev call on this device), so a click log built from
+        frame stamps alone is off by seconds.
+        """
         self.record.setdefault("gestures", []).append(
             {
+                "t": round(self.t() if at is None else at, 3),
                 "kind": gesture.kind,
                 "points": [list(point) for point in gesture.points],
                 "description": gesture.description,
@@ -141,8 +149,9 @@ class LoggingControl:
 
     def dispatch(self, gesture) -> float:
         started = time.monotonic()
+        at = self.trace.t()
         ms = self.inner.dispatch(gesture)
-        self.trace.gesture(gesture, ms if ms else (time.monotonic() - started) * 1000)
+        self.trace.gesture(gesture, ms if ms else (time.monotonic() - started) * 1000, at=at)
         points = ", ".join(f"({int(x)},{int(y)})" for x, y in gesture.points)
         print(f"  {self.trace.t():7.2f}s → {gesture.kind} {points} ({ms:.0f} ms)", flush=True)
         return ms
