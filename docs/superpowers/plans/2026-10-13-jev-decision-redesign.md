@@ -300,3 +300,33 @@ question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, 
   每次运行都会落盘 trace/frames/jev.jsonl/summary.json/analysis.json 到 captures/play/<stamp>/。
 ```
 
+---
+
+## 11.7 下落块生命周期跟踪器已落地（2026-10-13 续）
+
+§11.2 的跟踪器**已实现并有离线回归**，先写失败测试再实现（TDD）。改动如下：
+
+| 文件 | 改动 |
+|---|---|
+| `skills/tetris/tracker.py` | 新增 `PieceTracker`：acquire（严格帧差一次，失败则用"整块新出现"的连通块）→ track（回到 acquire 时记下的地形，取"现在有、当时地形没有"的格子，按实测位移窗口就近匹配，快落由帧差回退接住同形状的块）→ release（找不到 / 与堆积合并 / 一帧不动 = 已落定） |
+| `skills/tetris/perception.py` | `_measured_state` 改用 `PieceTracker.push(matrix)`；`reset_history()` 与网格变化时一并 `reset()` |
+| `skills/tetris/calibration.json` | 新增 `tracker` 块（`max_piece_cells / max_idle_frames / max_row_delta / max_col_delta` + 每条 note 与实测来源） |
+| `tests/unit/reflex/test_tracker.py` | 新增 9 条：一块一身份（含 spawn 逐行显形与贴堆的落定帧）、报告帧数超过帧差、terrain 不含块、落定 release、下一块新身份、reset 清状态、真实语料回归 |
+
+**实测（离线，零设备成本）**
+
+| 语料 | 跟踪器报块帧 | 帧差报块帧 | 生命周期 | 释放 |
+|---|---|---|---|---|
+| `samples/session-play`（43 帧真实对局） | **38/43 = 88%** | 28/43 = 65% | **4**（时长 10 / 11 / 9 / 8 帧） | 全部 `locked` |
+| `captures/play/20261012T141809Z`（98 个棋盘帧） | 73/98 | 41/98 | 16 | 逐块 release |
+
+断言钉住：`tracked >= diffed + 5` 且 `tracked >= 0.8 * frames`；每个身份只出现一段（`test_each_identity_is_one_contiguous_lifecycle`）；真实 trace 喂完再喂一帧静止后必须 `piece_id is None`。
+
+**踩到并修掉的坑（都在 note 里）**：第一版没有位移窗口，把"上一块刚落、新块刚生成在顶部"误当成同一块继续跟（`20261012T141809Z` 的 f44，`motion=[-3,0]`）。加 `max_row_delta=2 / max_col_delta=4` 后，越窗的候选只允许**帧差回退且形状相同**才续跟（真实快落仍能续），否则 release。
+
+**旋转空转**：跟踪器去掉了**感知侧**的触发者——同一生命周期内掩码在（一帧的）逐行显形之后保持同一个形状，`_taps_to_reach` 不会再因为"位图不在形状集"而回退成目标值（回退只可能在 `_piece_key` 相同的复用帧发生，而 `_piece_key` 由掩码导出，掩码稳定则键稳定）。**设备侧**的触发者（点旋转但游戏没转）无法由感知消除，仍由 `max_rotate_frames` 护栏兜住——这一条要靠 T8 真机才分得清。
+
+**门禁**：`tests/unit/reflex` → **291 passed**（旧 282 + 新 9）；`ruff format --check` / `ruff check` 通过；`scripts/quality_ratchet.py` 通过（全量既有 14 failed / 2933 passed 基线不变，本次未改全量用例数）。
+
+**仍未做**：T8 真机验收（点击粒度 / 无 rotate→move→rotate / 落地率 / 消行）；T9 回填 `2026-10-12-...pipeline.md`；`captures/` 为未跟踪的现场证据，未纳入提交。
+

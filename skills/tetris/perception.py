@@ -35,9 +35,9 @@ from typing import Any
 from . import panel, stall
 from .cells import read_matrix
 from .grid_probe import declared_cells, identity_problem, measure_grid
-from .pieces import split_pieces
 from .roi import RATIO_KEY, board_crop, roi_pixels
 from .simulator import PIECE_NAMES, mask_cells, orientations
+from .tracker import PieceTracker
 
 EMPTY = "."
 
@@ -54,6 +54,17 @@ _history: deque[list[str]] = deque(maxlen=MAX_HISTORY)
 #: How still the playfield has been (``stall.py``). Built on the first parsed frame, from
 #: the calibration, and reset with the rest of the history.
 _stall: Any = None
+#: The falling piece tracked across frames (``tracker.py``). Also cross-frame state, and
+#: reset with the rest of the history: a new round must not inherit the last piece.
+_tracker: PieceTracker | None = None
+
+
+def _piece_tracker(calibration: dict[str, Any]) -> PieceTracker:
+    global _tracker
+
+    if _tracker is None:
+        _tracker = PieceTracker(calibration)
+    return _tracker
 
 
 def _stall_tracker(calibration: dict[str, Any]):
@@ -80,6 +91,8 @@ def reset_history(*_args, **_kwargs) -> None:
     _settled = None
     if _stall is not None:
         _stall.reset()
+    if _tracker is not None:
+        _tracker.reset()
 
 
 def _decode(frame: Any):
@@ -337,15 +350,18 @@ def _measured_state(image, calibration: dict[str, Any], reading=None):
         return None
     if _history and (len(_history[-1]), len(_history[-1][0])) != (rows, columns):
         # The grid changed between frames: mixing them would read motion across two
-        # different geometries (and `pieces.split_pieces` would refuse it anyway).
+        # different geometries (and the tracker's terrain belongs to the old one).
         _history.clear()
+        if _tracker is not None:
+            _tracker.reset()
 
     measured = {
         **calibration,
         "grid": {**(calibration.get("grid") or {}), "cols": columns, "rows": rows},
     }
-    _history.append(read_matrix(field, measured))
-    split = split_pieces(list(_history))
+    matrix = read_matrix(field, measured)
+    _history.append(matrix)
+    split = _piece_tracker(calibration).push(matrix)
     x0, y0, x1, y1 = roi_pixels(image.shape, calibration)
     counters = read_hud(image, calibration)
     return {

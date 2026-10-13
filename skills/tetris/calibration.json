@@ -355,6 +355,37 @@
   "systemone_timeout_note": "Corrected on 2026-10-13. The previous value (15.0) rested on a claim of mine that a piece takes about 20 s to fall and a 7.63 s decision therefore fits — wrong: measured, the fall is about 0.5 s per row (median 1.78-2.05 rows/s) and about 0.27 s per row in fast mode, so a piece crosses the board in 3.5-6.5 s. A timeout longer than the fall is a timeout that loses the piece. 2.5 s is bounded by that budget, and it is safe to be strict because the cost of expiring is small: both policies have an offline plan ready (search for placements, best_plan for actions) and play it immediately rather than waiting.",
   "max_rotate_frames": 3,
   "max_rotate_frames_note": "How many frames one piece may spend in the rotate phase before the loop gives up and ends the session with note 'the piece is not turning'. Measured 2026-10-12: eight consecutive frames each asked for two more rotations and the terrain never changed, so 5 s of a 45 s session went into a button that was getting nowhere. An ordinary turn takes one or two frames.",
+  "tracker": {
+    "note": "The falling piece is identified once and tracked for its whole life (skills/tetris/tracker.py; design in docs/superpowers/plans/2026-10-13-jev-decision-redesign.md §11.2). The frame-difference path re-derives 'what moved' every frame, so it loses the spawn frame, the row-by-row reveal, and the frame before a lock (where the piece touches the stack and its connected component swallows it) - on this game a piece is visible for only one or two frames at all. The tracker keeps the terrain measured at acquisition and calls the piece 'the cells filled now that were not in that terrain', which stays true while the piece touches the stack.",
+    "max_piece_cells": 4,
+    "max_piece_cells_note": "From mechanics.shapes: this game's pieces are 1-4 cells. A non-terrain region larger than this is not a piece (a stack shifted by a line clear, say) and releases the identity.",
+    "max_idle_frames": 1,
+    "max_idle_frames_note": "A falling piece always moves between captures. Measured 2026-10-13 over the committed traces: zero consecutive frames where a detected piece stayed in exactly the same cells, so one identical frame means it has locked. Kept at 1: it releases the identity the moment the piece stops, rather than handing the policy a piece it cannot move.",
+    "max_row_delta": 2,
+    "max_col_delta": 4,
+    "window_note": "How far from its last position the tracker will look for the piece, in cells. mechanics.fall_speed measures at most ~2 rows per capture (3.7 rows/s fastest at ~0.5 s/frame), and a shift is a few taps in one frame. A larger, legitimate jump (a fast drop) is caught by the frame-difference fallback, which only continues a *same-shaped* piece: a new piece that spawned elsewhere, or one that has already locked, is a different shape and releases instead of stealing the identity (measured: the first prototype without the window continued a just-spawned domino as the previous piece, id6 of captures/play/20261012T141809Z).",
+    "measured": {
+      "source": "skills/tetris/samples/session-play (43 real frames of a game being played) replayed through cells.read_matrix, 2026-10-13",
+      "tracker_piece_frames": 38,
+      "frame_difference_piece_frames": 28,
+      "tracker_ratio": 0.88,
+      "frame_difference_ratio": 0.65,
+      "lifecycles": 4,
+      "lifecycle_frames": [
+        10,
+        11,
+        9,
+        8
+      ],
+      "release_reasons": [
+        "locked",
+        "locked",
+        "locked",
+        "locked"
+      ],
+      "note": "tests/unit/reflex/test_tracker.py re-derives these and asserts the tracker beats the frame difference by at least five frames and reports at least 80% of the corpus. The trace replays (longer sessions) show the same direction: 20261012T141809Z 73/98 tracked vs 41 by the frame difference."
+    }
+  },
   "capture": {
     "note": "Measured 2026-10-13 on PEMM00, with the accessibility helper started (v1.3.1, protocol 3). The plan's open item was 'make the helper APK quicker so a frame costs under 250 ms'. Measured, it is not the lever.",
     "screencap_median_ms": 536,
