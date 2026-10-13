@@ -1,0 +1,151 @@
+# Jev 决策层重构方案（参考 Agent-JEV-Tetris 后的整体优化）
+
+**日期**：2026-10-13
+**对象**：`skills/tetris/`（Jev 报文 / 策略 / 控制）+ `scripts/`（离线基准与真机脚本）
+**参考实现**：`third_party/Agent-JEV-Tetris-main/`（`index.html`、`tetris.js`、`server.mjs`）
+**依据**：本仓库 2026-10-12 的真机与离线实测（下文每条都给出可复查来源）
+
+---
+
+## 1. 结论先行
+
+参考实现与我们做的是**两个不同的问题**，必须分开对待：
+
+| 产品线 | 目标 | 报文形态 | 是否可给"计划/评估特征" |
+|---|---|---|---|
+| **A. 打得动**（play） | 真机上把局面走好 | **动作空间 + 算好的后果 + 单一计划 + 时间预算** | 可以（它的 114 行 / 0 洞就是这么来的） |
+| **B. 测得准**（benchmark） | 量化 Jev 的决策质量 | **同一状态/同一候选集，只动一个变量** | **不可以**（给了计划就等于测"会不会照抄"） |
+
+参考实现的战绩（README：363 块 / 114 行 / 0 洞）证明的是 **"Jev + 算好的后果 + 单一计划"这套混合体**能打，
+**不是** Jev 的裸判断力好（`index.html:166-169`、`tetris.js:142-160` 里 `bestPlan` 是代码算的）。两条产品线共用一套报文是我们此前**结构性问题**的来源。
+
+## 2. 我们与它的差距（全部为本仓库实测）
+
+| # | 差距 | 我们的实测 | 它的做法 | 后果 |
+|---|---|---|---|---|
+| G1 | 选项单位是落点不是动作 | 34 个落点（`captures/jev-modes/four-arms.json`：候选 18/9/36/34） | ≤7 个动作（`index.html:143-168`） | 报文 3.4 KB（A/B）/**14.3 KB**（C/D 带棋盘）；执行要跨多帧 |
+| G2 | 模型自己做物理 | A/B 只给 id，C/D 给整张 20×10 棋盘 | `then_lands` 5 个数由游戏算（`tetris.js:88-103`），并在 `important` 里明说"别自己数格子"（`index.html:260-263`） | C/D 把它最不擅长的算术丢给它 |
+| G3 | 执行粒度 | 一次决策 = 旋转 + 横移，跨多帧；实测"每块约 2 个可控帧"（`captures/play/20261012T141809Z/trace.jsonl`） | 一次决策 = 一次动作 = 一次点击 | "方案来不及执行"是我们 0 消行的主因之一 |
+| G4 | 无时间预算 | 报文里没有任何"你还剩几次动作" | `actions_left` 由**实测延迟**推算（`index.html:285`、`374` 滚动 `thinkMs`） | 模型不知道自己在打时间仗 |
+| G5 | 无单一计划、无历史 | 无 `done_sofar`、无计划字段 | `done_sofar` + `best_placement_found`（含第一步）（`index.html:199-207`） | 我们靠代码（相位单调）兜抖，模型侧无信息 |
+| G6 | 不广告可达目标 | `well_sums` 在权重里，但从不展示 | `dips_you_can_fill`（**哪些块还塞得进**）+ `rows_near_completing`，且过滤被封死的行（`tetris.js:157-175`） | 容易追"不可能消的行" |
+| G7 | 权重里有它实测有害的项 | `aggregate_height: -0.35`（`calibration.json`） | 实测 `tallest_column_after` 有害 → 以 `lands_on_row` 为主（`tetris.js:134-137`） | 填谷不改善该指标，会压正确走法 |
+
+## 3. 设计：报文 v2（play 线）
+
+**结构分四块**，各管一件事（这是参考实现最值得抄的组织方式）：
+
+```
+{ task, goal, rules, encoding,
+  board_matrix,                     // 保留：我们自己要做感知一致性核对
+  piece   { mask, positions, orientations, in_columns,
+            lands_on_row_if_untouched, rows_of_fall_left, actions_left, done_so_far },
+  stack   { column_heights, tallest, holes, roughness,
+            dips_you_can_fill[], rows_near_completing[] },
+  plan    { found, columns, lands_on_row, clears_lines, new_holes, actions_needed, next_action },
+  candidate_actions[ { id, does, then_lands{in_columns,on_row,clears_lines,new_holes,roughness_after},
+                       warning?, starts_the_plan? } ],
+  instructions { task, priorities_in_order[], where_to_aim, tie_breakers[], important } }
+question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, right:{…}, rotate:{…}, hold:{…}} } }
+```
+
+要点与本地适配：
+
+1. **动作集合**：`rotate` / `left` / `right` / `hold`（"不动，让它落"）。**不含 hard drop**（操作者规则，`calibration.gestures.drop.enabled=false`）；`hold` 对应参考实现的 `none`。
+2. **`then_lands` 由我们算**：对每个动作，模拟"执行该动作后让方块自然落到底"的结局（`simulator.drop` + `clear_lines`），给出落点列区间、落地行、消行、新洞、粗糙度。**这是"环境算后果、模型只比较"的分工**（G2）。
+3. **`plan`**：用 `bestPlan` 式单目标（旋转 + 双向滑动的可达枚举，含**原地转向**——参考实现的"零滑动落点"教训，`tetris.js:118-132`），成本函数改用 **`lands_on_row` 优先**、去掉 `tallest_column_after`（G7）。
+4. **`actions_left` / `rows_of_fall_left`**：`rows_of_fall_left` 由模拟器算；`actions_left = rows_of_fall_left × (落行间隔 / 单次决策耗时)`，其中耗时用**滚动实测**（抓帧 520 ms + Jev 实测，见 `captures/play/*/trace.jsonl` 的 `frame_ms` 与 `captures/jev-modes/calls-*.jsonl` 的 `seconds`）。**不要写死数字**。
+5. **`warning` / tie_breakers**：反向动作标 `warning`；tie_breakers 明写"Commit：接着做，别来回改""影子到位就落，不奖励没用掉的回合""全都糟时先比 new_holes 再比 on_row，选定就做完"（G5）。与已有的代码级相位单调（`policy_jev` 的 `rotate→move→hold`）叠加，不替代。
+6. **`important`**："报文里每个数字都是游戏从棋盘量出来的；只判断这些数字，不要自己数格子。"
+
+## 4. 设计：基准四臂 → 六臂（benchmark 线）
+
+保留现有 A/B，替换 C/D，新增 E/F（每次只动一个变量）：
+
+| 臂 | 选项单位 | 每项内容 | 测什么 |
+|---|---|---|---|
+| A | 落点 | 只有 id | `noul` baseline（已有 ✓） |
+| B | 落点 | 只有 id | `choice`（已有 ✓） |
+| **C′** | 落点 | **紧凑后果 5 个数**（不含整张棋盘） | 可观测性（低体积版，替代原 C/D 的 14.3 KB ✗） |
+| **D′** | 落点 | 紧凑后果，`noul` | 可观测性 × 题型 的交叉项 |
+| **E** | **动作** | `does` + 紧凑后果 | 选项粒度（G1） |
+| **F** | 动作 | 只有 `does` | 选项粒度、无后果 |
+
+- 判据器不变：`scripts/tetris_jev_modes.py` 的 `judge`（模拟器 + search 权重，**只在给过 Jev 的候选集内**排名）；指标：regret / top-1 / top-3 / 延迟 / 报文字节。
+- **状态集必须先扩容**：现在是同一段 30 秒录像去重出的 4 个状态（4 个里 3 个四臂全同 ✗）。目标 **60–100 个状态**，来自 ≥3 段不同录像 + 用模拟器合成的局面；`--states` 已支持，取样函数需支持多来源。
+- **成本**：每臂每状态 1 次调用；6 臂 × 60 状态 = 360 次 ≈ 1.5–6 s/次 → 9–36 分钟、需付费。**待决策**（见 §8）。
+
+## 5. 代码改动清单
+
+| 文件 | 改动 | 性质 |
+|---|---|---|
+| `artemis/services/systemone.py` | `choice()` 的 `criteria` 从 `dict[str,str]` 放宽到 `dict[str, Any]`（参考实现的 criteria 是对象，`index.html:151-160`，线上可用） | 小、有测试 |
+| `skills/tetris/simulator.py` | 新增 `outcome(board, piece, action)`（动作后的结局）、`best_plan(board, piece)`（含原地转向与零滑动）、`row_gaps()`（过滤被封死的行，`tetris.js:157-175`）、`dips_you_can_fill()`（用模拟判断哪些块塞得进） | 中、纯函数、可 TDD |
+| `skills/tetris/jev_state.py` | 新增 `build_action_state(...)`（报文 v2，play 线）与 `build_placement_state(..., consequences=True/False)`（基准线）；`build_state` 保持不破坏旧调用 | 中、键集用测试钉死 |
+| `skills/tetris/policy_actions.py` | 新策略：一次决策 = 一个动作；复用现有 `_ask`/遥测/落盘；`hold` 时无手势 | 中 |
+| `skills/tetris/control.py` | 动作 → 手势：`rotate`/`left`/`right` 各**恰好一次点击**；`hold` 无手势；`to_gestures` 对动作型 action 走新分支 | 小、有测试 |
+| `skills/tetris/calibration.json` | `jev.option_space: "action"\|"placement"`、`play.backend`、`benchmark.arms`、滚动延迟的初值与来源注释 | 小 |
+| `scripts/tetris_jev_modes.py` | 加 C′/D′/E/F 臂、多来源状态取样、报文体积统计 | 中、`--self-check` 扩展 |
+| `scripts/tetris_play.py` | 支持动作型策略（一次决策一次点击），并把滚动实测延迟写进报文 | 小 |
+| `scripts/jev_probe.py` | 支持动作空间输入，便于手工试报文 | 小 |
+
+## 6. 验证与验收
+
+**离线（必做，零真机成本）**
+1. 单元测试：`outcome`/`best_plan` 的四个"坑"各一条用例——零滑动落点算数、单一计划（不给每方向各一条提示）、被封死的行不广告、`lands_on_row` 与"最高列"的区别（G1/G6/G7）；
+2. `--self-check` 覆盖全部六臂（假答案、不联网）；
+3. 六臂跑 60–100 状态，出 regret/top-3/延迟/字节表。
+
+**真机（play 线，≥2 局）**
+| 验收项 | 判据 | 现状基线 |
+|---|---|---|
+| 每次决策恰好一次点击 | trace 的 `gestures` 长度恒为 1 | 现在常为 2–3（旋转+横移） |
+| 无 `rotate→move→rotate` | `tetris_analyze.py --clicks` 相位序列 | 已修 ✓（代码级）需保持 |
+| 方案落地率 | "决策的目标列 == 方块最终落点列"的比例 | **未测** → 先测基线再定阈值，不预设数字 |
+| 消行 | 60 秒内 ≥1 行（低门槛） | **0 行**（多局实测） |
+| 延迟 | 单次决策耗时中位数、每块可控帧数 | 1.35–5.97 s / 约 2 帧 |
+
+## 7. 不可移植 / 需要单独确认
+
+- **重力墙钟**：设备上改不了游戏节奏（`index.html:178-179, 283-285`）。替代：把时间预算写进报文 + 每帧用当前最优计划行动。
+- **`next_piece`**：真机不显示（实测 `next_preview: null`），报文里留 `null` 并说明。
+- **`hard_drop`**：操作者规则禁用，不提供该动作。
+- **`rotate_ccw`**：设备上只有像素点击，旋转方向**未验证**（见 T1）。
+- **`bestPlan` 进入 play 线 = 混合策略**：会改变"纯 Jev 决策"的口径，需操作者确认（§8）。
+
+## 8. 待决策项（本报告只提方案）
+
+| # | 待决策 | 选项 | 影响 |
+|---|---|---|---|
+| D1 | play 线是否允许 `plan` 字段（= 允许 search 先给计划） | 允许 / 不允许 | 允许则更像参考实现、更可能打得动；不允许则保持"纯 Jev"口径 |
+| D2 | 基准线预算 | 6 臂 × 30 / 60 / 100 状态 | 直接决定结论可信度与付费调用数（30 状态 ≈ 180 次） |
+| D3 | 是否把 `then_lands` 的 5 个数也认定为"泄漏" | 是（基准线不给）/ 否 | 若认定为泄漏，基准线只能用 C/D 的棋盘或裸 id，取样成本更高 |
+| D4 | 是否给 `hold` 之外的"软降"动作 | 给 / 不给 | 影响每块可用动作数与时间预算的匹配 |
+
+## 9. 任务拆解（TDD + 现有门禁）
+
+| 任务 | 内容 | 产出/证据 |
+|---|---|---|
+| T1 | 量一次旋转方向：真机点 rotate 后读掩码，确认是否顺时针（操作者口径） | trace + 结论写进 `calibration.gestures.rotate.note` |
+| T2 | `systemone.choice` 支持富 criteria | 测试 + 客户端改动 |
+| T3 | `simulator.outcome/best_plan/row_gaps/dips_you_can_fill`（先写失败测试：四个坑各一条） | `tests/unit/reflex/test_simulator_outcomes.py` |
+| T4 | `jev_state.build_action_state` + 基准线 `consequences` 开关（键集钉死；"无泄漏"变体不含评估特征） | `tests/unit/reflex/test_jev_state.py` 扩展 |
+| T5 | `policy_actions` + `control` 动作→单手势 | `tests/unit/reflex/test_policy_actions.py`、`test_runtime_wiring.py` 加一条"一次决策恰一次点击" |
+| T6 | 六臂基准（多来源状态、字节/延迟统计、`--self-check`） | `scripts/tetris_jev_modes.py`、`captures/jev-modes/*.json` |
+| T7 | 离线跑六臂，出表并写回本方案（结果与结论） | 基准报告 |
+| T8 | 真机 2 局，按 §6 表测"落地率/延迟/点击粒度" | `captures/play/<stamp>/`（trace+frames+jev+summary+analysis） |
+| T9 | 提交 + 更新 `2026-10-12-...pipeline.md` 的断点节 | git |
+
+**每任务门禁**（沿用现有口径）：先写失败测试 → 绿；`ruff format --check`、`ruff check`、`scripts/quality_ratchet.py`、全量 `pytest` 保持基线（当前 14 failed / 2933 passed，为既有失败）。
+
+## 10. 风险与回退
+
+| 风险 | 缓解 |
+|---|---|
+| 动作空间使**每块调用变多**（一次决策一个动作 ≠ 一块一次） | 复用 `plan` + `done_so_far`：计划未变则不重复提问；`policy_actions` 记录 `calls/piece` 并在基准里报出 |
+| 紧凑后果仍可能被认定为"泄漏" | 基准线保留"裸 id"的 A/B 作对照；D3 由操作者裁定 |
+| 真机点击方向/精度不足导致动作型策略失效 | T1 先量；`control` 为动作型路径加"点击后复核列号"的可选校验 |
+| 报文变大反而更慢 | 基准里同时报**字节数**与**延迟**（现在 14.3 KB 对应 5.97 s，7 选项/1 KB 待测） |
+| 改用动作空间后原地打转 | 已有代码级相位单调 + 新增 `warning`/Commit 提示，双保险 |
+
+**回退**：`calibration.jev.option_space` 一行切回 `"placement"`，其余改动（`outcome`/`best_plan`/基准臂）不影响现有链路。
