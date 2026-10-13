@@ -793,30 +793,6 @@ def test_every_jev_call_can_be_recorded_when_asked_for(
     assert os.environ["ARTEMIS_JEV_DUMP"] == str(dump)
 
 
-def test_a_shift_is_verified_before_the_drop(jev_policy, simulator, calibration, monkeypatch):
-    """A missed tap must not be locked in: shift, re-measure, shift the rest, then drop."""
-    state = _three_bar([[1, 1, 1]], [(2, 2), (2, 3), (2, 4)])
-    candidates = candidates_for(simulator, state)
-    target = next(
-        index
-        for index, (placement, _) in enumerate(candidates)
-        if (placement.rotation, placement.column) == (0, 5)
-    )
-    probabilities = [0.01] * len(candidates)
-    probabilities[target] = 0.9
-    answering(monkeypatch, probabilities)
-    jev_policy.reset_decisions()
-
-    move = jev_policy.decide(state, calibration)
-    assert move.state["move_columns"] == 3
-    assert move.state["drop"] is False
-
-    # The tap was missed: the piece is still where it was. The verify frame shifts it again.
-    still = jev_policy.decide(state, calibration)
-    assert still.state["move_columns"] == 3
-    assert still.state["drop"] is True, "the second shift frame drops, bounded by align_attempts"
-
-
 def test_one_piece_turns_once_then_shifts_once(jev_policy, simulator, calibration, monkeypatch):
     """The operator's rule: a piece is turned once and shifted once, never turn-shift-turn-shift.
 
@@ -849,15 +825,10 @@ def test_one_piece_turns_once_then_shifts_once(jev_policy, simulator, calibratio
     # The device turned it: upright, still in the column it started in.
     turned = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])
     shift = jev_policy.decide(turned, calibration)
-    assert shift.state["phase"] == "move", "then the shift"
-    assert shift.state["drop"] is False, "the drop waits for the shift to be verified"
-    shift_placement = shift.state["placement"]
+    assert shift.state["phase"] == "move", "then the shift, once"
+    shift_gestures = jev_policy._last["placement"]
 
-    # One verification frame: the column is measured again and shifted the rest of the way.
-    verified = jev_policy.decide(turned, calibration)
-    assert verified.state["phase"] in ("move", "hold")
-
-    # After that, whatever the frames show — the same turned piece, or a mask read a column
+    # Whatever the frames after that show — the same turned piece, or a mask read a column
     # over — the same piece is never turned or moved again.
     for drifted in (
         turned,
@@ -868,8 +839,8 @@ def test_one_piece_turns_once_then_shifts_once(jev_policy, simulator, calibratio
         assert later.state.get("phase") == "hold", (
             f"the piece was already turned and shifted; got {later.state.get('phase')}"
         )
-        assert later.gestures == (), "nothing may be dispatched after the shift and its verify"
-        assert later.state["placement"] == shift_placement
+        assert later.gestures == (), "nothing may be dispatched after the one shift"
+        assert later.state["placement"] == shift_gestures.as_dict()
 
 
 def test_the_placement_frame_uses_the_column_measured_now(
@@ -913,17 +884,14 @@ def test_the_placement_shifts_once_and_then_leaves_the_piece_alone(
 
     first = jev_policy.decide(state, calibration)
     assert first.state["placement"] == {"rotation": 0, "column": 4}
-    assert first.state["phase"] == "move" and first.state["move_columns"] == 1
-    assert first.state["drop"] is False, "the shift is verified before the drop"
-
-    # One verification: the overshoot is corrected, and that frame drops (bounded).
-    corrected = jev_policy.decide(_three_bar([[1, 1, 1]], [(4, 6), (4, 7), (4, 8)]), calibration)
-    assert corrected.state["phase"] == "move"
-    assert corrected.state["drop"] is True
+    assert first.state["phase"] == "move" and first.state["move_columns"] == 1, (
+        "the shift is issued on the frame the decision is made (no turn needed here)"
+    )
 
     # Every frame after it: hold. Including the ones that show the piece somewhere else,
     # which is exactly the reading that used to trigger a correction.
     for drifted in (
+        _three_bar([[1, 1, 1]], [(4, 6), (4, 7), (4, 8)]),  # overshot
         _three_bar([[1, 1, 1]], [(6, 2), (6, 3), (6, 4)]),  # fell short
         _three_bar([[1, 1, 1]], [(8, 4), (8, 5), (8, 6)]),  # on target
     ):
@@ -1100,14 +1068,9 @@ def test_only_the_shift_frame_asks_for_the_drop(jev_policy, simulator, calibrati
 
     move = jev_policy.decide(state, calibration)
     assert move.state["phase"] == "move"
-    assert move.state["drop"] is False, "the drop waits for the shift to be verified"
+    assert move.state["drop"] is True, "the shift frame is the one that locks the piece"
 
-    # The verify frame corrects the overshoot and drops there (bounded).
-    corrected = jev_policy.decide(_three_bar([[1, 1, 1]], [(4, 6), (4, 7), (4, 8)]), calibration)
-    assert corrected.state["phase"] == "move"
-    assert corrected.state["drop"] is True
-
-    settled = jev_policy.decide(_three_bar([[1, 1, 1]], [(8, 4), (8, 5), (8, 6)]), calibration)
+    settled = jev_policy.decide(_three_bar([[1, 1, 1]], [(4, 6), (4, 7), (4, 8)]), calibration)
     assert settled.state["phase"] == "hold"
     assert settled.state["drop"] is False, "the piece already locked; do not drop it again"
 
@@ -1130,7 +1093,6 @@ def test_a_piece_is_turned_once_even_if_the_mask_keeps_saying_otherwise(
     jev_policy.decide(before, calibration)  # turn
     turned = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])
     jev_policy.decide(turned, calibration)  # shift
-    jev_policy.decide(turned, calibration)  # verify frame
 
     # The flat mask again, as if the split read the piece before the turn.
     again = jev_policy.decide(before, calibration)

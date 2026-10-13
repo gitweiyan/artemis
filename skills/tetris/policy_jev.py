@@ -89,8 +89,6 @@ _last: dict[str, Any] = {
     #: The tracker's lifecycle id, so the flags above can be per *piece* rather than per
     #: decision (a reveal changes the mask and the key, but not the piece).
     "piece_id": None,
-    #: Shift frames used on the piece so far (the verify-before-drop bound).
-    "align_attempts": 0,
 }
 
 
@@ -118,7 +116,6 @@ def forget_decision() -> None:
             "turn_mask": None,
             "dropped": False,
             "piece_id": None,
-            "align_attempts": 0,
         }
     )
 
@@ -344,18 +341,12 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
         )
     counters["phase"] = "move"
     counters["move_columns"] = delta
-    # Shift, then *verify before dropping*. A tap the game misses leaves the piece a column or
-    # two short, and dropping on the same frame locks it there (the measured undershoot that
-    # built the middle towers). The next frame re-measures and shifts the remainder once; only
-    # then does it drop. Bounded, so it cannot walk the piece back and forth - the thrash the
-    # one-shift rule was written for.
-    attempts = int(_last.get("align_attempts") or 0) + 1
-    _last["align_attempts"] = attempts
-    settle = attempts >= DEFAULT_MAX_ALIGN_ATTEMPTS
-    _last["phase"] = "hold" if settle else "verify"
-    drop = settle
-    if drop:
-        _last["dropped"] = True
+    # The phase is recorded as done before the taps go out: this frame issues them, and the
+    # frames after it hold. That is what makes it one shift per piece.
+    _last["phase"] = "hold"
+    # ... and one drop per piece: this frame shifts and locks. The hold frames must not drop
+    # again (`control` reads this flag).
+    _last["dropped"] = True
     return Action(
         gestures=(),
         done=False,
@@ -363,19 +354,12 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
             "placement": placement.as_dict(),
             "phase": "move",
             "move_columns": delta,
-            "drop": drop,
+            "drop": True,
             "counters": counters,
             "current_column": current,
             "note": f"jev {mode} (move {delta:+d} to column {placement.column})",
         },
     )
-
-
-#: How many shift frames one piece gets before it is dropped where it is: the initial shift
-#: plus one verification. A tap the game misses is corrected on the next frame, but the
-#: correction is bounded so the piece cannot be walked left-right-left (the thrash that made
-#: the one-shift rule).
-DEFAULT_MAX_ALIGN_ATTEMPTS = 2
 
 
 #: How many frames one piece may spend turning before the loop gives up on it. Measured on
@@ -507,7 +491,6 @@ def _remember(key, placement, source, *, shapes=(), phase=None, piece_id=None) -
             "turn_mask": None,
             "dropped": _last.get("dropped", False) if same_piece else False,
             "piece_id": piece_id,
-            "align_attempts": 0,
         }
     )
 
