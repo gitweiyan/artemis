@@ -901,6 +901,52 @@ def test_the_placement_shifts_once_and_then_leaves_the_piece_alone(
         assert later.gestures == ()
 
 
+def test_a_same_piece_is_not_replanned_when_the_board_key_changes(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """Device 2026-10-13 run13 (search-only): the same piece was re-shifted on a new key.
+
+    Plan c9 with start column 4 came out as "right 5, drop, left 7, drop, left 7, drop" ->
+    column 0: the mask/board changed, so ``_piece_key`` changed, so the piece was planned
+    again and shifted again. One plan per piece: the tracker's id decides that, not the key.
+    """
+    state = state_for(mask=[[1, 1]], current_piece_positions=[[0, 3], [0, 4]], motion=None)
+    state["piece_id"] = 7
+    candidates = candidates_for(simulator, state)
+    target = next(
+        index
+        for index, (placement, _) in enumerate(candidates)
+        if (placement.rotation, placement.column) == (0, 3)
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    first = jev_policy.decide(state, calibration)
+    assert first.state["placement"] == {"rotation": 0, "column": 3}
+
+    # The same piece on a changed board: the key differs, the piece does not.
+    monkeypatch.setattr(
+        systemone,
+        "ask",
+        lambda *args, **kwargs: pytest.fail("the same piece must not be replanned"),
+    )
+    changed = state_for(
+        board_matrix=["0" * 10] * 19 + ["1" * 10],
+        mask=[[1, 1]],
+        current_piece_positions=[[0, 3], [0, 4]],
+        motion=None,
+    )
+    changed["piece_id"] = 7
+
+    second = jev_policy.decide(changed, calibration)
+
+    assert second.state["placement"] == first.state["placement"], (
+        "a new board key must not give the same piece a second plan"
+    )
+
+
 def test_a_piece_that_changed_shape_is_not_dropped_twice(
     jev_policy, simulator, calibration, monkeypatch
 ):

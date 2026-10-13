@@ -168,7 +168,15 @@ def decide(state, calibration):
         return Action(done=True, state={"counters": counters, "placement": None})
 
     key = _piece_key(state, gravity)
-    if key is not None and key == _last["key"] and _last["placement"] is not None:
+    # One plan per *piece*. The key was the proxy for "same piece", but a mask reveal or a
+    # board change moves it, and the piece was then planned (and shifted) again - device
+    # 2026-10-13 run13 (search-only): plan c9 became right-5, drop, left-7, drop, left-7,
+    # drop, landing at column 0. The tracker's id is the real identity; the key is the
+    # fallback for a state without one.
+    same_piece = state.get("piece_id") is not None and state.get("piece_id") == _last.get(
+        "piece_id"
+    )
+    if _last["placement"] is not None and (same_piece or (key is not None and key == _last["key"])):
         _telemetry["reuses"] += 1
         counters["reused"] = 1
         counters["source"] = _last["source"]
