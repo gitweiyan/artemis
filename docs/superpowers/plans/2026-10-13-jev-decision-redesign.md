@@ -330,3 +330,34 @@ question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, 
 
 **仍未做**：T8 真机验收（点击粒度 / 无 rotate→move→rotate / 落地率 / 消行）；T9 回填 `2026-10-12-...pipeline.md`；`captures/` 为未跟踪的现场证据，未纳入提交。
 
+---
+
+## 11.8 T8 真机验收（2026-10-13，三局，设备 EUWSOBXCZLPFNJF6）
+
+用 `scripts/tetris_play.py`（自己开新局 + 卡死重启 App），逐局落盘 `captures/play/<stamp>/`。三局依次是：① `20261013T080118Z`（暴露两个 bug），② `20261013T080848Z`，③ `20261013T081320Z`（两项修复后）。
+
+| 量 | 局①（修前） | 局②（修前） | 局③（修后） |
+|---|---|---|---|
+| 存活 / 帧 / fps | 60.2 s / 22 / 0.37 | 63.8 s / 24 / 0.38 | 85.7 s / 68 / **0.79** |
+| 抓帧中位 | 505.7 ms | 532.2 ms | 529.3 ms |
+| 动作 / 盲帧 / skill_error | 30 / 0 / 无 | 26 / 0 / 无 | 83 / 0 / 无 |
+| Jev calls / fallbacks / reuses | 6 / 3 / **0** | 6 / 3 / **0** | 13 / 9 / **8** |
+| Jev 耗时中位 / max | 5.51 s / 9.04 s | 5.06 s / 9.03 s | **1.76 s / 2.56 s** |
+| 消行（矩阵估算） | 0 | 0 | 0 |
+| 方案落地率（决策目标列 == 落定列） | —（受 bug 污染） | 1/6 | **14/16 = 88%** |
+| 最大 \|move\| / rotate taps | 11（bug） | 4 / 2 | **5 / 2** |
+
+**本轮真机暴露并修掉的三个 bug（都有离线回归，见 git）**
+
+1. **旋转被当成横向重力**：frame 34 采到一个刚旋转的块，`split_pieces` 用质心位移报 `motion=[0,1]` → gravity `right` → `legal_placements` 沿棋盘高度枚举，候选到 column 16 → 策略选择 column 15 → **在 10 列宽棋盘上向右点 11 次**。修法：只有位图不变（平移）才把位移当重力读数（`pieces.py` + `tracker.py`）。
+2. **自己的横移被当成横向重力**：局② `20261013T080848Z` frame 24 的本方 −4 位移变成 `motion=[0,-4]` → gravity `left` → 候选到 column 19 → search 在 10 列棋盘选 column 10。修法：`jev_state._direction_from_motion` 只在**行**发生变化时才改重力；横向重力只能由标定声明（本方移动键与重力开关一帧内不可区分）。
+3. **超时被重试三次**：`systemone.ask` 默认 `max_attempts=3`，`systemone_timeout_s=2.5` 于是 2.5+0.5+2.5+1.0+2.5 ≈ **9 s**；而块只可见 1–2 帧、全程 3.5–6.5 s。修法：play 线 `max_attempts=1`（`jev.max_attempts`），单次决策由 `systemone_timeout_s` 兜住，超时就让 search 立刻打。效果：fps 0.38 → 0.79，reuses 0 → 8，Jev max 9.03 s → 2.56 s。
+
+**验收结论**
+
+- **执行层通过**：局③方案落地率 88%（16 个生命周期）、最大横移 5 列、rotate 1–2 tap、fps 0.79、盲帧 0、无 skill_error；相位串 `mmmrmmmh…` 无 `rotate→move→rotate`；`reuses=8` 说明"旋转一帧、横移一帧"的两阶段复用成立。
+- **消行未通过**：三局都是 0 行，60 s 内 ≥1 行的低门槛没达到。离线用 search 权重在**真实录下的 30 个状态**上复核：mean regret **2.8**、**missed_a_clear = 0**、chosen_clears_total = 0——即"当时根本不存在能消行的落点，策略也几乎没有更好的选择"。根因是**决策启发式本身不凑整行**（`lines` 权重 1.6 远小于 `holes` −6.0，`aggregate_height` 又太弱，最终局面积成左侧一个带洞的高垛）。这是 §4 早已声明的限制：T7 的 judge 是 search 权重，不是 ground truth。
+- **下一步建议**（未做）：把 `lines` / `lands_on_row` 权重调高并做一次离线 sweep，或在 play 线直接采用 `simulator.best_plan`（其 cost 已是 lands_on_row 优先、去掉 aggregate_height），再跑 T8。
+
+**门禁**：三次修复后 `tests/unit/reflex` → **298 passed**；`ruff` 通过；`quality_ratchet` 通过。
+

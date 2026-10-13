@@ -242,6 +242,7 @@
       "left",
       "right"
     ],
+    "gravity_detection_note": "Only a vertical displacement in the piece's motion changes the gravity the policy plays with; a sideways one falls back to the declared direction. Measured on the device 2026-10-13 (captures/play/20261013T080848Z, frame 24): the policy's own -4 shift was read as gravity 'left', so legal_placements enumerated columns along the board's height, candidates reached column 19, and the search picked column 10 on a 10-wide board. A sideways move and a sideways gravity switch are indistinguishable in one frame, and the move buttons are ours; the honest answer is to keep the declared direction. To play a sideways-gravity mode, set mechanics.gravity_direction in the calibration.",
     "shapes": {
       "mono": [
         [
