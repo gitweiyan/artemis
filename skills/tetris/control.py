@@ -108,11 +108,11 @@ def to_gestures(action, calibration=None, *, state=None):
                 break
             gestures.append(Gesture.tap(*point, description=button.replace("_", " ")))
 
-    # The drop button is driven by calibration. It is enabled for this game since 2026-10-13
-    # (the operator cancelled the no-hard-drop rule): dropping on the same frame as the shift
-    # locks the piece where the plan put it, instead of letting it fall several more rows while
-    # no further decision is made. It goes out after the shift, never on a turn frame —
-    # turning is only useful if the piece is still falling on the next frame.
+    # The drop button is driven by calibration. Enabled for this game since 2026-10-13 (the
+    # operator cancelled the no-hard-drop rule): it is a ~0.1 s descent to the floor, so the
+    # shift and the landing happen in the same frame instead of being spread over the ~20 s
+    # that gravity would take. It goes out after the shift, never on a turn frame — turning is
+    # only useful if the piece is still there to be shifted on the next frame.
     drop = dialect.get("drop") or {}
     point = _tap_point(drop, cal or {})
     if drop.get("enabled") and point is not None:
