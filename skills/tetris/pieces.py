@@ -85,7 +85,11 @@ def split_pieces(matrices: Sequence[Sequence[str]]) -> dict[str, Any]:
         return _result(latest, [], None)
 
     settled = _minus(latest, piece)
-    motion = _displacement(before, piece) if before else None
+    # A displacement is a gravity reading only when the bitmap did not change: a rotation
+    # moves the centroid sideways without gravity having changed, and the policy would read
+    # that as a direction it is not falling in (device 2026-10-13: a turn gave [0, 1], the
+    # policy switched to gravity "right" and tapped right 11 times at a 10-column board).
+    motion = _displacement(before, piece) if before and _mask(before) == _mask(piece) else None
     return _result(settled, piece, motion)
 
 

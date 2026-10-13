@@ -306,7 +306,13 @@ class PieceTracker:
             motion = [0, 0]
         else:
             self._idle = 0
-            motion = _displacement(self._piece, component)
+            # Same guard as `pieces`: only a translated bitmap is a direction of fall. A turn
+            # moves the centroid sideways and used to switch the policy's gravity to "right".
+            motion = (
+                _displacement(self._piece, component)
+                if _mask(self._piece) == _mask(component)
+                else None
+            )
         self._piece = set(component)
         self._frames += 1
         self._previous_raw = raw

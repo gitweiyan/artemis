@@ -93,6 +93,31 @@ def test_a_sideways_move_is_reported_sideways(pieces):
     assert result["motion_vector"] == [0, 2]
 
 
+#: The same J shape in two orientations (measured on the device: this is what the two
+#: frames either side of a rotate tap look like). Its centroid moves one column and not a
+#: row, so a centroid displacement calls it a sideways fall.
+TURNED_A = [(4, 3), (5, 3), (5, 4), (5, 5)]
+TURNED_B = [(4, 4), (4, 5), (5, 4), (6, 4)]
+
+
+def test_a_turned_piece_is_not_reported_as_a_sideways_fall(pieces):
+    """A rotation moves the centroid; that is not the direction gravity pulls.
+
+    Device evidence (2026-10-13): this exact pair gave ``motion_vector == [0, 1]``, which
+    the policy read as gravity "right", so it enumerated columns along the board's height
+    and then tapped right **11 times** at a 10-column board (`captures/play/
+    20261013T080118Z`). A displacement is only a gravity reading when the bitmap is
+    unchanged - i.e. the piece translated rather than turned.
+    """
+    result = pieces.split_pieces([matrix(STACK + TURNED_A), matrix(STACK + TURNED_B)])
+
+    assert result["current_piece_positions"], "the same shape, so it is still the piece"
+    assert result["motion_vector"] is None, (
+        "a turn moved the centroid sideways; reporting it as translation makes the policy "
+        "believe gravity changed direction"
+    )
+
+
 def test_any_shape_is_read_from_its_own_geometry(pieces):
     """Review Focus 4: a 2x3 rectangle is not in the standard seven, and needs no letter."""
     block = [(14, 6), (14, 7), (15, 6), (15, 7), (16, 6), (16, 7)]

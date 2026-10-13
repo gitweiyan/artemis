@@ -206,6 +206,31 @@ def test_the_board_handed_over_is_the_stack_without_the_piece(tracker_module, ca
     assert state["current_piece_mask"] == [[1, 1, 0], [0, 1, 1]]
 
 
+#: The same piece in two orientations, as the frames either side of a rotate tap show it.
+TURNED_A = [(4, 3), (5, 3), (5, 4), (5, 5)]
+TURNED_B = [(4, 4), (4, 5), (5, 4), (6, 4)]
+
+
+def test_a_turn_while_tracked_does_not_report_sideways_motion(tracker_module, calibration):
+    """The tracker must not hand the policy a gravity signal for a rotation.
+
+    Device evidence (2026-10-13): an acquired, rotated piece reported ``motion_vector ==
+    [0, 1]``; the policy read gravity "right", built candidates up to column 16 on a
+    10-column board, and tapped right 11 times (``captures/play/20261013T080118Z``).
+    """
+    tracker = tracker_module.PieceTracker(calibration)
+    tracker.push(matrix(STACK))
+    tracker.push(matrix(STACK + TURNED_A))
+
+    state = tracker.push(matrix(STACK + TURNED_B))
+
+    assert state["piece_id"] is not None, "a turn does not end the lifecycle"
+    assert state["current_piece_positions"]
+    assert state["motion_vector"] is None, (
+        "the bitmap changed, so the centroid move is a rotation, not a direction of fall"
+    )
+
+
 def test_a_new_piece_gets_a_new_identity(tracker_module, calibration):
     """After a lock, the next piece must not inherit the last piece's id."""
     tracker = tracker_module.PieceTracker(calibration)
