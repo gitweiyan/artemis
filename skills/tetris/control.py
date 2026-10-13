@@ -64,6 +64,11 @@ def to_gestures(action, calibration=None, *, state=None):
         calibration if calibration is not None else ((action.state or {}).get("calibration") or {})
     )
     dialect = (cal or {}).get("gestures") or {}
+    # An action-shaped decision (the action space) is exactly one tap: the game's four buttons
+    # *are* the action space, so no measurement between two halves of one decision is needed.
+    chosen_action = (action.state or {}).get("action")
+    if chosen_action:
+        return _action_gestures(str(chosen_action), dialect, cal or {})
     placement = (action.state or {}).get("placement") or {}
     current_column = (action.state or {}).get("current_column")
     if not dialect or not placement:
@@ -122,3 +127,21 @@ def to_gestures(action, calibration=None, *, state=None):
 
 
 __all__ = ["to_gestures"]
+
+
+#: Which button each action in the action space presses.
+ACTION_BUTTONS = {"left": "move_left", "right": "move_right", "rotate": "rotate", "drop": "drop"}
+
+
+def _action_gestures(name: str, dialect: dict, calibration: dict) -> list[Gesture]:
+    """One action, one tap — or none at all when the action is to leave the piece alone."""
+    button = ACTION_BUTTONS.get(name)
+    if button is None:
+        return []
+    entry = dialect.get(button) or {}
+    if button == "drop" and not entry.get("enabled"):
+        return []
+    point = _tap_point(entry, calibration)
+    if point is None:
+        return []
+    return [Gesture.tap(*point, description=button.replace("_", " "))]

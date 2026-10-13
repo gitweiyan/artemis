@@ -450,7 +450,12 @@ def test_a_hold_action_sends_no_gestures(tetris):
     assert control.to_gestures(hold) == [], "a held piece is not turned again"
 
     move = Action(
-        state={"phase": "move", "placement": placement, "move_columns": 1, "calibration": calibration}
+        state={
+            "phase": "move",
+            "placement": placement,
+            "move_columns": 1,
+            "calibration": calibration,
+        }
     )
     gestures = control.to_gestures(move)
     assert [g.description for g in gestures] == ["move right"], "a move frame only moves"
@@ -724,3 +729,48 @@ def test_the_move_phase_corrects_an_overshoot_in_the_other_direction(tetris, con
     gestures = control.to_gestures(action, calibration)
 
     assert [g.description for g in gestures] == ["move left", "move left"]
+
+
+def test_an_action_shaped_decision_becomes_exactly_one_tap(tetris, control):
+    """The action space's whole point on the device: one decision, one tap.
+
+    The placement messages need a turn and a shift spread over frames, which is what made the
+    execution window the binding constraint (measured: about two usable frames per piece). An
+    action message needs one tap — the four buttons are the action space, so nothing has to be
+    measured between two halves of one decision.
+    """
+    from artemis.reflex.contract import Action
+
+    calibration = {
+        "screen": {"width": 720, "height": 1600},
+        "gestures": {
+            "rotate": {"kind": "tap", "at_ratio": [0.81, 0.84]},
+            "move_left": {"kind": "tap", "at_ratio": [0.13, 0.84]},
+            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+            "drop": {"kind": "tap", "at_ratio": [0.33, 0.84], "enabled": True},
+        },
+    }
+    expected = {
+        "left": "move left",
+        "right": "move right",
+        "rotate": "rotate",
+        "drop": "drop",
+    }
+    for name, description in expected.items():
+        gestures = control.to_gestures(Action(state={"action": name, "calibration": calibration}))
+        assert [g.description for g in gestures] == [description], f"{name} must be one tap"
+        assert len(gestures[0].points) == 1
+
+    assert (
+        control.to_gestures(Action(state={"action": "hold", "calibration": calibration})) == []
+    ), "leaving the piece alone is a real decision, and it is not a tap"
+
+
+def test_an_action_shaped_drop_respects_the_calibrated_switch(tetris, control):
+    from artemis.reflex.contract import Action
+
+    calibration = {
+        "screen": {"width": 720, "height": 1600},
+        "gestures": {"drop": {"kind": "tap", "at_ratio": [0.33, 0.84], "enabled": False}},
+    }
+    assert control.to_gestures(Action(state={"action": "drop", "calibration": calibration})) == []
