@@ -79,14 +79,21 @@ def gravity_direction(motion_vector: Sequence[int] | None, declared: str | None 
 
 
 def _direction_from_motion(motion_vector: Sequence[int] | None) -> str | None:
+    """The gravity the piece's own displacement shows, or None when it cannot know.
+
+    Only a vertical displacement is conclusive. Sideways movement has two explanations -
+    a gravity switch and the policy's own shift buttons - and they are indistinguishable
+    from one frame; device 2026-10-13 showed the cost of guessing: our -4 shift was read
+    as gravity "left", candidates were enumerated along the board's height, and the search
+    picked column 10 on a 10-wide board. A declared direction is the honest answer there;
+    only the game can say its gravity changed sideways.
+    """
     if not motion_vector or len(motion_vector) != 2:
         return None
-    row, column = int(motion_vector[0]), int(motion_vector[1])
-    if row == 0 and column == 0:
+    row, _column = int(motion_vector[0]), int(motion_vector[1])
+    if row == 0:
         return None
-    if abs(row) >= abs(column):
-        return _DIRECTIONS[(1 if row > 0 else -1, 0)]
-    return _DIRECTIONS[(0, 1 if column > 0 else -1)]
+    return _DIRECTIONS[(1 if row > 0 else -1, 0)]
 
 
 def build_state(

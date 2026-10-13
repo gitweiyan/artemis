@@ -182,6 +182,31 @@ def test_an_unavailable_model_falls_back_and_says_so(jev_policy, calibration, mo
     assert action.state["counters"]["source"] == "search"
 
 
+def test_a_timed_out_call_is_not_retried_into_the_fall(jev_policy, calibration, monkeypatch):
+    """Device 2026-10-13: ``max_attempts=3`` made a 2.5 s timeout cost **9 s**.
+
+    The fall is 3.5-6.5 s (``mechanics.fall_speed``) and a piece is visible for one or two
+    captures, so retrying after a timeout spends the only budget the decision had. One
+    attempt, then the offline search plays - that is the design, and the retry made it not
+    happen.
+    """
+    seen: dict = {}
+
+    def fake_ask(payload, questions, **kwargs):
+        seen.update(kwargs)
+        return {f"cand_{index}": {"type": "noul", "noul": 0.9} for index in range(len(questions))}
+
+    monkeypatch.setattr(systemone, "ask", fake_ask)
+    jev_policy.reset_decisions()
+
+    jev_policy.decide(state_for(), calibration)
+
+    assert seen.get("max_attempts") == 1, (
+        "a timeout is not retried inside the fall: each attempt costs the whole decision "
+        "budget, and the search fallback is what the design counts on"
+    )
+
+
 def test_an_answer_naming_nothing_is_an_abstention_not_an_action(
     jev_policy, simulator, calibration, monkeypatch
 ):

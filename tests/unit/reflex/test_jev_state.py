@@ -177,18 +177,39 @@ def test_the_mechanics_block_carries_the_gravity_and_the_piece_source(jev_state)
 
 @pytest.mark.parametrize(
     ("motion", "expected"),
-    [([1, 0], "down"), ([-1, 0], "up"), ([0, -1], "left"), ([0, 1], "right")],
+    [([1, 0], "down"), ([-1, 0], "up"), ([1, 2], "down"), ([-2, -1], "up")],
 )
 def test_the_observed_motion_sets_the_gravity_direction(jev_state, motion, expected):
     """Review Focus 3: when the game switches gravity, the measurement says so.
 
     A declared direction is an assumption; the piece's own displacement is evidence.
+    Only a *vertical* displacement is evidence, though: our own shift buttons move the
+    piece sideways too, and a sideways move must not be read as sideways gravity (see the
+    next test).
     """
     pieces = dict(PIECES, motion_vector=motion)
 
     message = build(jev_state, pieces=pieces)
 
     assert message["mechanics"]["gravity_direction"] == expected
+    assert message["motion_vector"] == motion
+
+
+@pytest.mark.parametrize("motion", [[0, -1], [0, 1], [0, -4], [0, 4]])
+def test_a_sideways_shift_does_not_switch_the_gravity(jev_state, motion):
+    """Device 2026-10-13: the policy's own -4 shift read as gravity "left".
+
+    Movement along the row cannot tell a gravity switch from the move buttons the
+    policy itself pressed. On the device that made ``legal_placements`` enumerate columns
+    along the board's height - candidates up to column 19 - and the search picked column
+    10 on a 10-wide board, tapping right into a wall. A declared direction is the honest
+    answer when the motion is horizontal; only the game can say its gravity changed.
+    """
+    pieces = dict(PIECES, motion_vector=motion)
+
+    message = build(jev_state, pieces=pieces)
+
+    assert message["mechanics"]["gravity_direction"] == "down"
     assert message["motion_vector"] == motion
 
 

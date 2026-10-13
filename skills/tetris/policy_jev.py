@@ -48,6 +48,11 @@ DEFAULT_MODE = "noul"
 DEFAULT_CONSEQUENCES = True
 DEFAULT_MIN_CONFIDENCE = 0.05
 DEFAULT_OPTIONS_CAP = 40
+#: One attempt, not the service's default of three. A timeout is not a transient failure
+#: here: the piece keeps falling while the retry runs, so the retry spends the decision
+#: budget and the search fallback (which is designed to play) never gets its turn. Measured
+#: on the device 2026-10-13: a 2.5 s timeout with three attempts cost ~9 s.
+DEFAULT_MAX_ATTEMPTS = 1
 MODES = ("noul", "choice")
 
 #: One question per candidate, and it *names* the candidate: the first version asked
@@ -428,6 +433,7 @@ def _ask(mode, message, candidates, cal, counters):
     wrong.
     """
     timeout = cal.get("systemone_timeout_s")
+    attempts = int(_jev_options(cal).get("max_attempts") or DEFAULT_MAX_ATTEMPTS)
     started = time.monotonic()
     raw: Any = None
     # The questions are a separate argument to the service, so the record has to collect them
@@ -435,9 +441,9 @@ def _ask(mode, message, candidates, cal, counters):
     record: dict[str, Any] = {}
     try:
         placement, confidence, raw = (
-            _choice(message, candidates, timeout, record)
+            _choice(message, candidates, timeout, record, attempts)
             if mode == "choice"
-            else _noul(message, candidates, timeout, record)
+            else _noul(message, candidates, timeout, record, attempts)
         )
     except systemone.SystemOneUnavailable as exc:
         # Counted where the search then plays (in `decide`), so `source` and `fallbacks`
@@ -526,7 +532,7 @@ def _dump_jev(
         pass
 
 
-def _noul(message, candidates, timeout, record=None):
+def _noul(message, candidates, timeout, record=None, max_attempts=1):
     questions = {
         f"cand_{index}": {
             "type": "noul",
@@ -540,7 +546,7 @@ def _noul(message, candidates, timeout, record=None):
     }
     if record is not None:
         record["questions"] = questions
-    answers = systemone.ask(message, questions, timeout=timeout)
+    answers = systemone.ask(message, questions, timeout=timeout, max_attempts=max_attempts)
     scored: list[tuple[float, int]] = []
     for index in range(len(candidates)):
         answer = answers.get(f"cand_{index}")
@@ -557,7 +563,7 @@ def _noul(message, candidates, timeout, record=None):
     return candidates[index][0], best, answers
 
 
-def _choice(message, candidates, timeout, record=None):
+def _choice(message, candidates, timeout, record=None, max_attempts=1):
     identifiers = [_identifier(placement) for placement, _ in candidates]
     criteria = {
         name: f"rotation {placement.rotation}, column {placement.column}"
@@ -569,6 +575,7 @@ def _choice(message, candidates, timeout, record=None):
         criteria,
         question_id="placement",
         timeout=timeout,
+        max_attempts=max_attempts,
     )
     if winner is None or winner not in identifiers:
         return None, None, distribution
