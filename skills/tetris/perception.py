@@ -371,6 +371,11 @@ def _measured_state(image, calibration: dict[str, Any], reading=None):
         "board": [[EMPTY if cell == "0" else "#" for cell in row] for row in split["board_matrix"]],
         "current_piece_mask": split["current_piece_mask"],
         "current_piece_positions": split["current_piece_positions"],
+        # How many frames this piece's identity has been tracked. 1 means it was just
+        # acquired - and the game draws a piece over two frames, so a decision on frame 1
+        # is a decision about half a piece (measured: 48% of those land where planned,
+        # against 88% for decisions on a settled shape; `capture` note in calibration.json).
+        "piece_frames": split.get("piece_frames"),
         "motion_vector": split["motion_vector"],
         "current": _name_of(split["current_piece_mask"]),
         "grid": {

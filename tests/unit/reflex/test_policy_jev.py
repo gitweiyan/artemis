@@ -404,6 +404,46 @@ def test_the_dispatcher_routes_the_jev_backend(jev_policy, calibration, monkeypa
     assert action.state["counters"]["source"] == "jev"
 
 
+def test_a_piece_that_is_still_appearing_is_not_played_yet(calibration, monkeypatch):
+    """Device 2026-10-13: the game draws a piece over two frames; frame 1 is half a piece.
+
+    Measured across three T8 runs: a first decision taken while the shape was still growing
+    landed where planned only 48% of the time (15/31), against 88% (14/16) once it had
+    settled. The board hands over ``piece_frames``; 1 means "just acquired", so the loop
+    must wait one frame rather than commit a placement for a shape that is not finished.
+    """
+    dispatcher = importlib.import_module("artemis_skills_tetris.policy_dispatch")
+    monkeypatch.setattr(
+        systemone, "ask", lambda *args, **kwargs: pytest.fail("no call while appearing")
+    )
+    state = dict(state_for(), piece_frames=1)
+
+    action = dispatcher.decide(state, dict(calibration, policy_backend="jev"))
+
+    assert action.done is False
+    assert action.gestures == ()
+    assert action.state["counters"].get("waiting_for_piece") == 1
+    assert action.state.get("phase") == "appear"
+
+
+def test_a_settled_piece_is_played(calibration, monkeypatch):
+    """With the shape settled (``piece_frames >= 2``) the decision is made as before."""
+    dispatcher = importlib.import_module("artemis_skills_tetris.policy_dispatch")
+    monkeypatch.setattr(
+        systemone,
+        "ask",
+        lambda payload, questions, **kwargs: {
+            f"cand_{index}": {"type": "noul", "noul": 0.9} for index in range(len(questions))
+        },
+    )
+    state = dict(state_for(), piece_frames=2)
+
+    action = dispatcher.decide(state, dict(calibration, policy_backend="jev"))
+
+    assert action.state["counters"].get("waiting_for_piece") is None
+    assert action.state["counters"]["source"] == "jev"
+
+
 # --------------------------------------------------------------------------- #
 # Counting, and asking once per piece (fixed after review)
 # --------------------------------------------------------------------------- #

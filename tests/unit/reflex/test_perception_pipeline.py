@@ -100,7 +100,13 @@ def test_a_screen_becomes_the_state_the_jev_policy_reads(perception, calibration
     state = perception.parse(Frame(screen_with(STACK + PIECE_LOW)), calibration)
 
     assert state is not None
-    for key in ("board_matrix", "current_piece_mask", "current_piece_positions", "motion_vector"):
+    for key in (
+        "board_matrix",
+        "current_piece_mask",
+        "current_piece_positions",
+        "motion_vector",
+        "piece_frames",
+    ):
         assert key in state, key
     assert len(state["board_matrix"]) == 20
     assert all(len(row) == 10 for row in state["board_matrix"])

@@ -31,6 +31,26 @@ def decide(state, calibration):
         from . import policy_actions
 
         return _with_calibration(policy_actions.decide(state, calibration), calibration)
+    if _still_appearing(state):
+        # The game draws a piece over two frames and the tracker acquires it on the first,
+        # so a placement decided now is a placement for a shape that is still growing.
+        # Measured on the device 2026-10-13 (three T8 runs): those land where planned only
+        # 48% of the time (15/31), against 88% (14/16) once the shape has settled. Wait one
+        # frame - the piece is at the top and has the whole board to fall.
+        counters = dict((state or {}).get("counters") or {})
+        counters["waiting_for_piece"] = 1
+        return _with_calibration(
+            Action(
+                gestures=(),
+                done=False,
+                state={
+                    "counters": counters,
+                    "phase": "appear",
+                    "note": "waiting for the piece to finish appearing",
+                },
+            ),
+            calibration,
+        )
     backend = str((calibration or {}).get("policy_backend") or "search").lower()
     if backend == "jev":
         from . import policy_jev
@@ -43,6 +63,23 @@ def decide(state, calibration):
     else:
         action = search.decide(state, calibration)
     return _with_calibration(action, calibration)
+
+
+def _still_appearing(state) -> bool:
+    """Whether the piece was just acquired and its shape may still be growing.
+
+    ``piece_frames`` comes from :mod:`tracker` through ``perception``. A state without it
+    (an older pipeline, the letter path) is decided as before rather than frozen.
+    """
+    if not isinstance(state, dict):
+        return False
+    frames = state.get("piece_frames")
+    if frames is None:
+        return False
+    try:
+        return int(frames) == 1
+    except (TypeError, ValueError):
+        return False
 
 
 def _with_calibration(action, calibration):
