@@ -255,6 +255,9 @@ class PieceTracker:
         self._next_id = 1
         self._frames = 0
         self._idle = 0
+        #: Whether the piece's bitmap is unchanged from the previous tracked frame. False on
+        #: the acquire frame and while the game is still revealing or turning it.
+        self._settled = False
         self._previous_raw: list[str] | None = None
         self._events: list[dict[str, Any]] = []
 
@@ -286,6 +289,7 @@ class PieceTracker:
         self._next_id += 1
         self._frames = 1
         self._idle = 0
+        self._settled = False
         return self._result(raw, cells, motion)
 
     # -- internals ---------------------------------------------------------- #
@@ -315,6 +319,9 @@ class PieceTracker:
                 if _mask(self._piece) == _mask(component)
                 else None
             )
+        # Settled means the bitmap did not change from the previous frame: the game is done
+        # revealing/turning it, so a plan made now has the shapes that are actually on screen.
+        self._settled = _mask(component) == _mask(self._piece)
         self._piece = set(component)
         self._frames += 1
         self._previous_raw = raw
@@ -403,6 +410,7 @@ class PieceTracker:
             "motion_vector": motion,
             "piece_id": self._id,
             "piece_frames": self._frames,
+            "piece_settled": self._settled,
             "piece_shape": self._shape_name(ordered),
         }
 
@@ -414,6 +422,7 @@ class PieceTracker:
             "motion_vector": None,
             "piece_id": None,
             "piece_frames": 0,
+            "piece_settled": False,
             "piece_shape": None,
             "released": released,
         }

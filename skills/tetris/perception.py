@@ -376,6 +376,11 @@ def _measured_state(image, calibration: dict[str, Any], reading=None):
         # is a decision about half a piece (measured: 48% of those land where planned,
         # against 88% for decisions on a settled shape; `capture` note in calibration.json).
         "piece_frames": split.get("piece_frames"),
+        # The piece's bitmap unchanged from the previous frame. The policy waits for it before
+        # planning: a plan for a half-revealed shape carries shapes the revealed piece never
+        # matches (device 2026-10-13 run14: a 2-cell domino planned r1c5, then a 3-cell bar,
+        # and the rotate guard ended the session).
+        "piece_settled": split.get("piece_settled"),
         # The tracker's lifecycle id. The policy uses it to keep "one rotation, one shift,
         # one drop" per *piece*, not per decision: a reveal changes the mask, which changes
         # the decision key, but it is still the same piece.

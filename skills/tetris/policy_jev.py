@@ -158,6 +158,24 @@ def decide(state, calibration):
     if not mask:
         return _without_a_piece(state, cal, counters)
 
+    # The game draws a piece over several frames and the tracker acquires it on the first, so
+    # a plan made while the bitmap is still changing carries `shapes` the revealed piece never
+    # matches: device 2026-10-13 run14 planned a 2-cell domino as r1c5, the piece revealed to
+    # a 3-cell bar, `_taps_to_reach` never matched, and the rotate guard ended the session.
+    # Wait until the shape stops changing - but only before this piece has a plan, because
+    # after that the bitmap changes are the turns we asked for.
+    if not _planned_for_piece(state) and state.get("piece_settled") is False:
+        counters["waiting_for_piece"] = 1
+        return Action(
+            gestures=(),
+            done=False,
+            state={
+                "counters": counters,
+                "phase": "appear",
+                "note": "waiting for the piece to finish appearing",
+            },
+        )
+
     gravity = jev_state.gravity_direction(
         state.get("motion_vector"), _mechanics(cal).get("gravity_direction")
     )
@@ -706,6 +724,20 @@ def _search(board, mask, gravity, cal):
 # --------------------------------------------------------------------------- #
 # Reading the state
 # --------------------------------------------------------------------------- #
+
+
+def _planned_for_piece(state) -> bool:
+    """Whether a plan is already in force for this exact physical piece.
+
+    ``piece_id`` comes through perception from the tracker. A state without one (an older
+    pipeline, the letter path) is planned as before, so the settle gate never applies to it.
+    """
+    piece_id = state.get("piece_id")
+    return (
+        piece_id is not None
+        and piece_id == _last.get("piece_id")
+        and _last.get("placement") is not None
+    )
 
 
 def _board(state) -> sim.Board:

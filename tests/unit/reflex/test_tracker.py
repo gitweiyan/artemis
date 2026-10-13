@@ -237,6 +237,24 @@ def test_a_piece_that_falls_fast_after_a_turn_is_still_the_same_piece(tracker_mo
     )
 
 
+def test_the_shape_is_reported_as_settled_only_after_it_stops_changing(tracker_module, calibration):
+    """``piece_settled`` is True only once the bitmap has held still for a frame.
+
+    The policy waits on it so a plan is made for the shape that is really on screen (device
+    2026-10-13 run14: a 2-cell domino was planned while the piece was still revealing into a
+    3-cell bar, and the rotate guard ended the session).
+    """
+    tracker = tracker_module.PieceTracker(calibration)
+    tracker.push(matrix(STACK))
+
+    assert tracker.push(matrix(STACK + SPAWN_TOP))["piece_settled"] is False, "just acquired"
+    assert tracker.push(matrix(STACK + PIECE_1))["piece_settled"] is False, "the bitmap grew"
+    # The same bitmap, one row lower: the shape has settled (the piece is only moving).
+    settled = tracker.push(matrix(STACK + PIECE_2))
+    assert settled["current_piece_positions"]
+    assert settled["piece_settled"] is True, "the bitmap held still"
+
+
 def test_a_turn_while_tracked_does_not_report_sideways_motion(tracker_module, calibration):
     """The tracker must not hand the policy a gravity signal for a rotation.
 

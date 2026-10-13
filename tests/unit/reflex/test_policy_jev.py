@@ -947,6 +947,27 @@ def test_a_same_piece_is_not_replanned_when_the_board_key_changes(
     )
 
 
+def test_a_piece_whose_shape_is_still_changing_is_not_planned(jev_policy, calibration, monkeypatch):
+    """Device 2026-10-13 run14: a plan for a half-revealed shape broke the rotate phase.
+
+    The decision was made on a 2-cell domino, the piece revealed to a 3-cell bar, and the
+    stored `shapes` could never match, so ``_taps_to_reach`` kept asking for a turn until the
+    guard ended the session. Wait for ``piece_settled`` before the first plan.
+    """
+    monkeypatch.setattr(
+        systemone, "ask", lambda *args, **kwargs: pytest.fail("no call while the shape changes")
+    )
+    jev_policy.reset_decisions()
+    state = state_for(mask=[[1, 1]], current_piece_positions=[[0, 3], [0, 4]], motion=None)
+    state["piece_id"] = 7
+    state["piece_settled"] = False
+
+    action = jev_policy.decide(state, calibration)
+
+    assert action.state["phase"] == "appear"
+    assert action.state["counters"].get("waiting_for_piece") == 1
+
+
 def test_a_piece_that_changed_shape_is_not_dropped_twice(
     jev_policy, simulator, calibration, monkeypatch
 ):
