@@ -646,6 +646,52 @@ def test_the_rotate_frame_only_asks_for_the_taps_still_missing(
     assert not already_turned.state.get("rotate_taps"), "already upright: nothing left to turn"
 
 
+def test_a_turn_is_allowed_to_finish_animating_before_more_taps(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """Device 2026-10-13: the game animates one turn over more than one capture.
+
+    A two-tap turn showed one step 0.55 s later; re-measuring then and adding the "missing"
+    tap walked the piece 0->1->3, the loop asked for three more, and the rotate guard ended
+    the session. A frame whose mask changed since the taps were issued must add none.
+    """
+    mask = [[0, 0, 1], [1, 1, 1]]
+    before = state_for(
+        mask=mask, motion=[1, 0], current_piece_positions=[[0, 4], [1, 2], [1, 3], [1, 4]]
+    )
+    candidates = candidates_for(simulator, before)
+    target = next(
+        index for index, (placement, _) in enumerate(candidates) if placement.rotation == 2
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    first = jev_policy.decide(before, calibration)
+    assert first.state["phase"] == "rotate"
+    assert first.state["rotate_taps"] == 2, "this J needs two clockwise taps to reach rotation 2"
+
+    one_step = state_for(
+        mask=[[1, 0], [1, 0], [1, 1]],
+        motion=[1, 0],
+        current_piece_positions=[[0, 4], [1, 4], [2, 4], [2, 5]],
+    )
+    settle = jev_policy.decide(one_step, calibration)
+
+    assert settle.state["phase"] == "rotate"
+    assert settle.state["rotate_taps"] == 0, "the turn is still animating; adding taps overshoots"
+    assert settle.gestures == ()
+
+    target_mask = state_for(
+        mask=[[1, 1, 1], [1, 0, 0]],
+        motion=[1, 0],
+        current_piece_positions=[[0, 4], [0, 5], [0, 6], [1, 4]],
+    )
+    placed = jev_policy.decide(target_mask, calibration)
+    assert placed.state["phase"] in ("move", "hold")
+
+
 def test_a_piece_whose_orientations_repeat_needs_no_taps_to_reach_them(jev_policy, simulator):
     """An O piece is one shape however it is turned; an S/Z has two, and rotation 2 is the first.
 

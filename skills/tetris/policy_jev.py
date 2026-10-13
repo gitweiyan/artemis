@@ -80,6 +80,9 @@ _last: dict[str, Any] = {
     "shapes": (),
     "phase": None,
     "rotate_frames": 0,
+    #: The bitmap the last batch of rotate taps was issued from. A frame whose mask differs
+    #: is the turn still animating; one that matches is the turn stopped (or a missed tap).
+    "turn_mask": None,
 }
 
 
@@ -104,6 +107,7 @@ def forget_decision() -> None:
             "shapes": (),
             "phase": None,
             "rotate_frames": 0,
+            "turn_mask": None,
         }
     )
 
@@ -170,9 +174,16 @@ def decide(state, calibration):
         if _last.get("phase") == "rotate":
             taps = _taps_to_reach(mask, _last["shapes"], placement.rotation)
             if taps:
-                # The turn is not finished (the device may need a frame to catch up): keep
-                # turning — but not forever (see `_turning_action`).
-                return _turning_action(placement, state, counters, mode, "jev", taps, cal)
+                if sim.mask_bitmap(mask) == _last.get("turn_mask"):
+                    # The turn has stopped changing and the orientation is still wrong: a tap
+                    # really was missed. Issue the taps still missing and start the wait over.
+                    return _turning_action(placement, state, counters, mode, "jev", taps, cal)
+                # The game animates a turn over more than one capture (measured 2026-10-13,
+                # captures/play/20261013T084956Z: a two-tap turn showed one step 0.55 s later),
+                # so re-measuring now and adding taps overshoots - it walked 0->1->3, asked for
+                # three more, and the rotate guard ended the session. Observe, add nothing.
+                _last["turn_mask"] = sim.mask_bitmap(mask)
+                return _settling_action(placement, state, counters, mode)
             _last["phase"] = "move"
         # Second half: drive it to the chosen column, using the column this frame shows -
         # the device turns the piece about its second cell, so the column after the turn is
@@ -308,6 +319,9 @@ def _turning_action(placement, state, counters: dict, mode: str, source: str, ta
     """
     frames = int(_last.get("rotate_frames") or 0) + 1
     _last["rotate_frames"] = frames
+    #: Remember the bitmap these taps were issued from: the next frame compares against it
+    #: to tell "still animating" from "stopped (or the tap was missed)".
+    _last["turn_mask"] = sim.mask_bitmap(state.get("current_piece_mask") or [])
     limit = int(cal.get("max_rotate_frames") or DEFAULT_MAX_ROTATE_FRAMES)
     if frames > limit:
         counters["rotate_frames"] = frames
@@ -334,6 +348,32 @@ def _turning_action(placement, state, counters: dict, mode: str, source: str, ta
             "counters": counters,
             "current_column": search_policy.piece_column(state),
             "note": f"{source} {mode} (still turning the same piece)",
+        },
+    )
+
+
+def _settling_action(placement, state, counters: dict, mode: str):
+    """A frame that observes a turn without adding taps to it.
+
+    The game animates one turn over more than one capture, so the remaining-taps count read
+    on the very next frame is not final. Tapping again here is what walked a J piece
+    0->1->3 and tripped the rotate guard; this frame lets the batch that was already sent
+    land, and the next frame decides from the settled orientation.
+    """
+    counters["phase"] = "rotate"
+    counters["rotate_taps"] = 0
+    return Action(
+        gestures=(),
+        done=False,
+        state={
+            "placement": placement.as_dict(),
+            "phase": "rotate",
+            # Zero, or `control` would re-derive taps from `placement.rotation` on a rotate
+            # frame and send them again.
+            "rotate_taps": 0,
+            "counters": counters,
+            "current_column": search_policy.piece_column(state),
+            "note": f"jev {mode} (letting the turn settle)",
         },
     )
 
@@ -382,6 +422,7 @@ def _remember(key, placement, source, *, shapes=(), phase=None) -> None:
             "shapes": shapes,
             "phase": phase,
             "rotate_frames": 0,
+            "turn_mask": None,
         }
     )
 
