@@ -100,7 +100,7 @@
       ],
       "taps": 1,
       "enabled": true,
-      "note": "Enabled on 2026-10-13: the operator cancelled the no-hard-drop rule. Hard drop is a fast descent — about 0.1 s from wherever the piece is to the floor (operator's figure), not an instant lock. Why that matters here, measured: gravity moves the piece about one row per 1.5 s, so a piece takes roughly 20 s to reach the floor on its own, and our decision loop runs at 0.5 fps with 1-6 s per decision (captures/play/*/trace.jsonl). Without the drop, the plan had to be executed over the many frames of that 20 s fall and kept arriving late; with it, the whole execution — shift, then descent — takes ~0.1 s once the decision is made. The model still thinks while the piece falls, which is why the ~20 s of gravity is the budget to fit a decision into, not a race to lose. Cost, also measured: a tap the device misses is not corrected on a later frame, which the one-shift-per-piece rule had already given up. A turn never drops: the piece has to be there to be shifted next frame. Set enabled=false for a game whose pieces do not fall on their own."
+      "note": "Enabled on 2026-10-13: the operator cancelled the no-hard-drop rule. Hard drop is a fast descent — about 0.1 s from wherever the piece is to the floor (operator's figure), not an instant lock. Why that matters here, measured: measured 2026-10-13, the fall is about 0.5 s per row (median 1.78-2.05 rows/s) and about 0.27 s per row in fast mode, so a piece reaches the floor in 3.5-6.5 s while our decisions take 1-6 s. Without the drop, the plan had to be executed over the many frames of that 20 s fall and kept arriving late; with it, the whole execution — shift, then descent — takes ~0.1 s once the decision is made, which is the whole margin this game gives us: the decision has to be made before the piece reaches the floor on its own. Cost, also measured: a tap the device misses is not corrected on a later frame, which the one-shift-per-piece rule had already given up. A turn never drops: the piece has to be there to be shifted next frame. Set enabled=false for a game whose pieces do not fall on their own."
     }
   },
   "weights": {
@@ -221,7 +221,7 @@
       "note": "the first point sits inside a 92 px wide, 28 px tall run of near-white pixels - the size of a four-glyph label - so it lands on the button's label and not on the panel's background. The second point sits in the dialog's un-dimmed body. Both words are the operator's reading; nothing here does OCR. Every number above is re-derived from the committed frames in tests/unit/reflex/test_panel.py."
     }
   },
-  "systemone_timeout_s": 15.0,
+  "systemone_timeout_s": 2.5,
   "package": "cn.flytalk.tetris.nearme.gamecenter",
   "brightness_threshold": 90,
   "measured": {
@@ -327,6 +327,13 @@
           0
         ]
       ]
+    },
+    "fall_speed": {
+      "note": "The operator's ruling, 2026-10-13: the falling speed is NOT constant — the game interleaves a fast mode — so the policy's job is to finish deciding and finish acting as quickly as possible.",
+      "measured_median_rows_per_second": 1.78,
+      "measured_fastest_rows_per_second": 3.75,
+      "measured_from": "captures/play/{20261012T143441Z,20261012T141809Z,20261013T064359Z}/trace.jsonl — the piece's own row between consecutive frames, over 55 samples; median 1.78-2.05 rows/s and a fastest of 3.25-3.75 rows/s (about 0.5 s per row, 0.27 s in fast mode)",
+      "consequence": "a piece crosses ~13 rows in about 6.5 s at the median and about 3.5 s in fast mode. A decision that takes 1-6 s (measured Jev latency, 18 candidates) is therefore comparable to the whole fall, and one that takes 15 s can outlive it. It also explains why a piece shows up in only 1-2 of our frames (0.5-0.6 s each): that is the pace, not lost detections."
     }
   },
   "jev": {
@@ -335,14 +342,14 @@
     "options_cap": 40,
     "mode_note": "choice, not noul: noul asks N independent questions ('would r0c3 be the best?') and the policy takes the argmax, which is not a ranking — measured answers spread 0.18-0.54 and do not sum to one, and the winner once landed at position 10 of 18 by the search policy's own ordering. choice asks one question that picks among all candidates and returns a normalised distribution, so the ranking and the margin come out of the same call. The switch is pending the offline comparison in scripts/tetris_jev_modes.py; if it scores worse, revert this line.",
     "option_space": "placement",
-    "option_space_note": "placement (default, unchanged) or action. `placement` asks Jev for a rotation and a column and the device needs a turn on one frame and a shift on the next; `action` asks which of the four buttons to press, over a message where the game has already computed what each action would lead to (skills/tetris/policy_actions.py, message v2 in jev_state.build_action_state). The action space is the reference implementation's shape and removes the frame-count constraint, but it needs more calls per piece: it stays opt-in until the offline benchmark (docs/superpowers/plans/2026-10-13-jev-decision-redesign.md, T6/T7) has compared them."
+    "option_space_note": "placement (default, unchanged) or action. `placement` asks Jev for a rotation and a column and the device needs a turn on one frame and a shift on the next; `action` asks which of the four buttons to press, over a message where the game has already computed what each action would lead to (skills/tetris/policy_actions.py, message v2 in jev_state.build_action_state). The action space is the reference implementation's shape and removes the frame-count constraint, but it needs more calls per piece: it stays opt-in until the offline benchmark (docs/superpowers/plans/2026-10-13-jev-decision-redesign.md, T6/T7) has compared them. Addition from 2026-10-13: the operator's ruling that the fall speed varies (fast mode interleaved) and that the policy must decide and act as quickly as possible makes the action space the *wrong* default for this game — it asks one question per action, and at 1-6 s per call that cannot keep up with a piece crossing the board in 3.5-6.5 s. It stays available for experiments; the placement space (one call per piece, executed with a shift and a drop in ~0.1 s) is the shape that fits this pace."
   },
   "screen": {
     "width": 720,
     "height": 1600,
     "note": "the screenshot size the button fractions below were measured on; the fractions are what matter, this is only what to multiply them by"
   },
-  "systemone_timeout_note": "Measured on 2026-10-12, PEMM00: one real decision (a 40-question noul message) takes 7.63 s. At the previous 1.0 s every call died in the TLS handshake and the policy fell back to the search silently - counters said source=search and nothing said why. 15.0 s is the measurement with margin; the piece falls about one row per 1.5 s (a full board takes ~30 s), so a decision of this length still fits inside one piece's fall.",
+  "systemone_timeout_note": "Corrected on 2026-10-13. The previous value (15.0) rested on a claim of mine that a piece takes about 20 s to fall and a 7.63 s decision therefore fits — wrong: measured, the fall is about 0.5 s per row (median 1.78-2.05 rows/s) and about 0.27 s per row in fast mode, so a piece crosses the board in 3.5-6.5 s. A timeout longer than the fall is a timeout that loses the piece. 2.5 s is bounded by that budget, and it is safe to be strict because the cost of expiring is small: both policies have an offline plan ready (search for placements, best_plan for actions) and play it immediately rather than waiting.",
   "max_rotate_frames": 3,
   "max_rotate_frames_note": "How many frames one piece may spend in the rotate phase before the loop gives up and ends the session with note 'the piece is not turning'. Measured 2026-10-12: eight consecutive frames each asked for two more rotations and the terrain never changed, so 5 s of a 45 s session went into a button that was getting nowhere. An ordinary turn takes one or two frames."
 }
