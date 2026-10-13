@@ -89,6 +89,10 @@ _last: dict[str, Any] = {
     #: The tracker's lifecycle id, so the flags above can be per *piece* rather than per
     #: decision (a reveal changes the mask and the key, but not the piece).
     "piece_id": None,
+    #: The column read on the previous align-wait frame. The shift is issued only once this
+    #: reading holds still for a frame (the turn pivots the piece a column over).
+    "align_column": None,
+    "align_frames": 0,
 }
 
 
@@ -116,6 +120,8 @@ def forget_decision() -> None:
             "turn_mask": None,
             "dropped": False,
             "piece_id": None,
+            "align_column": None,
+            "align_frames": 0,
         }
     )
 
@@ -218,7 +224,32 @@ def decide(state, calibration):
                 # three more, and the rotate guard ended the session. Observe, add nothing.
                 _last["turn_mask"] = sim.mask_bitmap(mask)
                 return _settling_action(placement, state, counters, mode)
-            _last["phase"] = "move"
+            # The orientation is right. Wait for the column to hold still for a frame before
+            # the shift: the device pivots the piece a column over as it turns, and a reading
+            # taken mid-pivot is one column off (the same family as the turn settle above).
+            current = search_policy.piece_column(state)
+            if current is None:
+                _last["align_column"] = None
+                _last["align_frames"] = 0
+                _last["phase"] = "move"
+            elif _last.get("align_column") is None:
+                # First reading after the turn: remember it and wait for it to hold still.
+                _last["align_column"] = current
+                _last["align_frames"] = 0
+                return _aligning_action(placement, state, counters, mode)
+            elif current == _last["align_column"]:
+                _last["align_column"] = None
+                _last["align_frames"] = 0
+                _last["phase"] = "move"
+            else:
+                _last["align_frames"] = int(_last.get("align_frames") or 0) + 1
+                if _last["align_frames"] >= DEFAULT_MAX_ALIGN_FRAMES:
+                    _last["align_column"] = None
+                    _last["align_frames"] = 0
+                    _last["phase"] = "move"
+                else:
+                    _last["align_column"] = current
+                    return _aligning_action(placement, state, counters, mode)
         # Second half: drive it to the chosen column, using the column this frame shows -
         # the device turns the piece about its second cell, so the column after the turn is
         # not the column before. Re-measured every frame, so a tap that repeated or missed
@@ -367,6 +398,11 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
 #: changed once, which is 5 s of a 45 s session spent tapping a button that was getting
 #: nowhere. The count is per decision, so an ordinary turn (one or two frames) never sees it.
 DEFAULT_MAX_ROTATE_FRAMES = 3
+#: How many frames the loop will wait for the column reading to hold still before it shifts
+#: after a turn. The turn pivots the piece a column over, so a reading taken mid-pivot is one
+#: column off; waiting for two identical reads (one frame) fixes that without a second Jev
+#: request.
+DEFAULT_MAX_ALIGN_FRAMES = 2
 
 
 def _turning_action(placement, state, counters: dict, mode: str, source: str, taps: int, cal: dict):
@@ -438,6 +474,31 @@ def _settling_action(placement, state, counters: dict, mode: str):
     )
 
 
+def _aligning_action(placement, state, counters: dict, mode: str):
+    """A frame that waits for the column reading to hold still after a turn, before the shift.
+
+    The turn pivots the piece a column over, so the first reading after the orientation
+    settles can be one column off. This frame adds no taps and the next frame compares the
+    column again; the shift is issued only once two consecutive reads agree.
+    """
+    counters["phase"] = "align"
+    counters["rotate_taps"] = 0
+    return Action(
+        gestures=(),
+        done=False,
+        state={
+            "placement": placement.as_dict(),
+            "phase": "align",
+            "rotate_taps": 0,
+            "move_columns": 0,
+            "drop": False,
+            "counters": counters,
+            "current_column": search_policy.piece_column(state),
+            "note": f"jev {mode} (waiting for the column to settle)",
+        },
+    )
+
+
 def _taps_to_reach(mask, shapes, target: int) -> int:
     """How many clockwise taps take the shape now on screen to ``shapes[target]``.
 
@@ -491,6 +552,8 @@ def _remember(key, placement, source, *, shapes=(), phase=None, piece_id=None) -
             "turn_mask": None,
             "dropped": _last.get("dropped", False) if same_piece else False,
             "piece_id": piece_id,
+            "align_column": None,
+            "align_frames": 0,
         }
     )
 

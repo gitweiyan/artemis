@@ -615,11 +615,13 @@ def test_a_turn_does_not_buy_a_second_decision(jev_policy, simulator, calibratio
     jev_policy.reset_decisions()
 
     first = jev_policy.decide(before, calibration)
+    aligned = jev_policy.decide(after, calibration)
     second = jev_policy.decide(after, calibration)
 
     assert len(asked) == 1, "a rotated piece is the same piece"
     assert first.state["phase"] == "rotate"
-    assert second.state["phase"] == "move", "the second frame places what the first one turned"
+    assert aligned.state["phase"] == "align", "the column is verified after the turn"
+    assert second.state["phase"] == "move", "then the shift"
     assert second.state["placement"] == first.state["placement"]
 
 
@@ -688,6 +690,8 @@ def test_a_turn_is_allowed_to_finish_animating_before_more_taps(
         motion=[1, 0],
         current_piece_positions=[[0, 4], [0, 5], [0, 6], [1, 4]],
     )
+    aligned = jev_policy.decide(target_mask, calibration)
+    assert aligned.state["phase"] == "align", "the column is verified after the turn"
     placed = jev_policy.decide(target_mask, calibration)
     assert placed.state["phase"] in ("move", "hold")
 
@@ -824,8 +828,10 @@ def test_one_piece_turns_once_then_shifts_once(jev_policy, simulator, calibratio
 
     # The device turned it: upright, still in the column it started in.
     turned = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])
+    aligned = jev_policy.decide(turned, calibration)
+    assert aligned.state["phase"] == "align", "the column is verified after the turn"
     shift = jev_policy.decide(turned, calibration)
-    assert shift.state["phase"] == "move", "then the shift, once"
+    assert shift.state["phase"] == "move", "then the shift"
     shift_gestures = jev_policy._last["placement"]
 
     # Whatever the frames after that show — the same turned piece, or a mask read a column
@@ -841,6 +847,32 @@ def test_one_piece_turns_once_then_shifts_once(jev_policy, simulator, calibratio
         )
         assert later.gestures == (), "nothing may be dispatched after the one shift"
         assert later.state["placement"] == shift_gestures.as_dict()
+
+
+def test_the_shift_waits_for_the_column_to_hold_still(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """The turn pivots the piece a column over, so the shift waits for two identical reads."""
+    mask = [[1, 1, 1]]
+    before = _three_bar(mask, [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, before)
+    target = next(
+        index for index, (placement, _) in enumerate(candidates) if placement.rotation == 1
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    jev_policy.decide(before, calibration)  # turn
+    first = jev_policy.decide(_three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)]), calibration)
+    assert first.state["phase"] == "align"
+    # a different reading one frame later (still settling): keep waiting
+    second = jev_policy.decide(_three_bar([[1], [1], [1]], [(2, 4), (3, 4), (4, 4)]), calibration)
+    assert second.state["phase"] == "align"
+    # the same reading again: now the column has held still
+    third = jev_policy.decide(_three_bar([[1], [1], [1]], [(2, 4), (3, 4), (4, 4)]), calibration)
+    assert third.state["phase"] in ("move", "hold")
 
 
 def test_the_placement_frame_uses_the_column_measured_now(
@@ -1040,9 +1072,12 @@ def test_an_on_target_piece_is_dropped_once_not_every_frame(
 
     jev_policy.decide(before, calibration)  # turn frame
     turned = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])
+    aligned = jev_policy.decide(turned, calibration)
     first = jev_policy.decide(turned, calibration)
     second = jev_policy.decide(turned, calibration)
 
+    assert aligned.state["phase"] == "align", "the column is verified after the turn"
+    assert aligned.state["drop"] is False
     assert first.state["phase"] == "hold"
     assert first.state["drop"] is True, "the frame that lands on target drops the piece"
     assert second.state["drop"] is False, "the piece was already dropped; it must not drop again"
@@ -1092,6 +1127,7 @@ def test_a_piece_is_turned_once_even_if_the_mask_keeps_saying_otherwise(
 
     jev_policy.decide(before, calibration)  # turn
     turned = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])
+    jev_policy.decide(turned, calibration)  # align: verify the column
     jev_policy.decide(turned, calibration)  # shift
 
     # The flat mask again, as if the split read the piece before the turn.
