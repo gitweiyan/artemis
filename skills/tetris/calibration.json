@@ -73,7 +73,8 @@
       "at_ratio": [
         0.81,
         0.84
-      ]
+      ],
+      "note": "T1 settled 2026-10-13: the rotation is clockwise (operator's ruling), so one tap advances the piece to the next orientation in clockwise order and `policy_jev` counts taps the same way. Nothing on the device measures the direction, which is why it is written down here: every tap count in the rotate phase depends on it."
     },
     "move_left": {
       "kind": "tap",

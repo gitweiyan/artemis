@@ -399,6 +399,217 @@ def legal_placements(
     return out
 
 
+# --------------------------------------------------------------------------- #
+# What the environment answers: outcomes, one plan, reachable aims
+#
+# The reference implementation (third_party/Agent-JEV-Tetris-main) keeps this half in the
+# game and hands the model only judgements: "the game measures every consequence in code and
+# jev only ever judges pre-computed outcomes" (README), because the model is unreliable at
+# counting, grids and arithmetic, and accuracy drops as irrelevant state grows. These are our
+# half of that split, with the four mistakes that reference documents (zero-slide landings,
+# one hint per direction, sealed gaps, board height instead of piece depth) designed out.
+# --------------------------------------------------------------------------- #
+
+#: How the plan's cost ranks a landing, in the reference's spirit (``tetris.js:134-137``):
+#: holes dominate, then cleared lines, then depth, then roughness. Its ``tallest_column``
+#: term is deliberately absent — measured there as harmful, because filling a valley does not
+#: move it, so it cannot tell the right play from stacking on the surface.
+PLAN_HOLE_COST = 1000
+PLAN_LINE_REWARD = 200
+PLAN_DEPTH_REWARD = 15
+
+
+def _fill(board) -> Board:
+    """The board as EMPTY/MASK_FILL, which ``drop``/``clear_lines``/the metrics expect."""
+    return [
+        [EMPTY if cell in {EMPTY, "0", "", None} else MASK_FILL for cell in row] for row in board
+    ]
+
+
+def outcome(board, cells, column: int, *, gravity: str = "down") -> dict | None:
+    """What happens if this shape is played in ``column``: the numbers the message needs.
+
+    ``cells`` are one shape's cells (``mask_cells`` of whatever orientation is being judged)
+    and ``column`` is where its left edge goes. ``None`` when it does not fit — an action that
+    cannot be taken is not advertised, and not guessed at either.
+
+    ``lands_on_row`` is the deepest row the piece settles on (bigger = lower = better): the
+    reference's replacement for a board-wide "tallest column".
+    """
+    if not cells:
+        return None
+    filled = _fill(board)
+    dropped = drop(filled, cells, column, gravity=gravity)
+    if dropped is None:
+        return None
+    settled, cleared = clear_lines(dropped)
+    landed = [
+        (row, col)
+        for row, line in enumerate(dropped)
+        for col, cell in enumerate(line)
+        if filled[row][col] == EMPTY and cell != EMPTY
+    ]
+    if not landed:
+        return None
+    # The simulator's cells are (x, y): the first coordinate is the column. `drop` already
+    # placed the shape, so the landed cells come from the board diff above and the columns are
+    # simply the width it spans at `column`.
+    x_offsets = [x for x, _ in cells]
+    in_columns = (column + min(x_offsets), column + max(x_offsets))
+    return {
+        "in_columns": in_columns,
+        "on_row": max(row for row, _ in landed),
+        "lands_on_row": max(row for row, _ in landed),
+        "clears_lines": cleared,
+        "new_holes": count_holes(_fill(settled)) - count_holes(filled),
+        "roughness_after": bumpiness(_fill(settled)),
+    }
+
+
+def plan_cost(result: dict) -> float:
+    """Lower is better: fewer new holes, more cleared lines, deeper, flatter."""
+    return (
+        result["new_holes"] * PLAN_HOLE_COST
+        - result["clears_lines"] * PLAN_LINE_REWARD
+        - result["lands_on_row"] * PLAN_DEPTH_REWARD
+        + result["roughness_after"]
+    )
+
+
+def best_plan(
+    board,
+    mask,
+    *,
+    rotation: int = 0,
+    column: int | None = None,
+    gravity: str = "down",
+) -> dict | None:
+    """The one landing this piece should aim for, and the single action that starts it.
+
+    One plan, not one hint per direction: the reference attached "head this way" to both left
+    and right, they pointed opposite ways, and the piece ping-ponged until it landed.
+
+    Landings are enumerated directly over every orientation and column, which is what makes a
+    **rotation-only** landing (no sideways step) an ordinary candidate — the case the
+    reference's first lookahead could not see, and the one that matters when a well is one
+    column wide. Reachability beyond that (a mid-air pivot the shape cannot fit) is left to
+    the device, which re-measures the column every frame.
+    """
+    shapes = orientations_from_mask(mask) if not isinstance(mask, str) else orientations(mask)
+    best: dict | None = None
+    for index, shape in enumerate(shapes):
+        cells = mask_cells(shape)
+        width = shape_width(cells)
+        for column_candidate in range(len(board[0]) - width + 1):
+            result = outcome(board, cells, column_candidate, gravity=gravity)
+            if result is None:
+                continue
+            candidate = {**result, "rotation": index}
+            if best is None or plan_cost(candidate) < plan_cost(best):
+                best = candidate
+    if best is None:
+        return None
+
+    turns = (best["rotation"] - int(rotation)) % max(1, len(shapes))
+    delta = 0 if column is None else best["in_columns"][0] - int(column)
+    if turns:
+        next_action = "rotate"
+    elif delta < 0:
+        next_action = "left"
+    elif delta > 0:
+        next_action = "right"
+    else:
+        next_action = "drop"
+    best["next_action"] = next_action
+    best["actions_needed"] = turns + abs(delta) + 1
+    best["columns"] = best["in_columns"]
+    return best
+
+
+def row_gaps(board) -> list[dict]:
+    """Rows that are partly filled and **still reachable**, nearest-to-complete first.
+
+    A gap with any block above it is sealed: nothing can ever drop into it, so advertising it
+    as "one square away" sends the decider chasing lines that cannot be made (the reference's
+    ``rowGaps``, ``tetris.js:157-175``).
+    """
+    filled = _fill(board)
+    gaps: list[dict] = []
+    for row, line in enumerate(filled):
+        empty = [column for column, cell in enumerate(line) if cell == EMPTY]
+        if not empty or len(empty) == len(line):
+            continue
+        open_columns = [
+            column
+            for column in empty
+            if not any(filled[above][column] != EMPTY for above in range(row))
+        ]
+        if open_columns:
+            gaps.append({"row": row, "empty_columns": open_columns})
+    return sorted(gaps, key=lambda gap: len(gap["empty_columns"]))
+
+
+def dips_you_can_fill(board, *, pieces: tuple[str, ...] = PIECE_NAMES) -> list[dict]:
+    """Surface dips, and which pieces still fit each one — decided by simulation.
+
+    The reference reports the same thing (``dips_you_can_fill``) rather than a width-and-depth
+    rule of thumb: "fits cleanly" is a question about actual shapes, so it is answered by
+    trying them.
+    """
+    filled = _fill(board)
+    heights = column_heights(filled)
+    floor = len(filled) - 1
+    dips: list[dict] = []
+    column = 0
+    while column < len(heights):
+        run_end = column
+        while run_end + 1 < len(heights) and heights[run_end + 1] == heights[column]:
+            run_end += 1
+        neighbours = [heights[c] for c in (column - 1, run_end + 1) if 0 <= c < len(heights)]
+        depth = (max(neighbours) - heights[column]) if neighbours else 0
+        if depth > 0:
+            run = list(range(column, run_end + 1))
+            floor_row = floor if heights[column] == 0 else floor - (heights[column] - 1)
+            # The dip's own floor cells: the empty cell of each column in the run, at its top.
+            dip_cells = {(floor - heights[c], c) for c in run}
+            fits = [
+                name
+                for name in pieces
+                if any(
+                    dip_cells & set(_landed_cells_of(filled, name, candidate))
+                    for candidate in _placements_of(filled, name)
+                )
+            ]
+            dips.append(
+                {
+                    "column": column,
+                    "columns": run,
+                    "depth": depth,
+                    "floor_row": floor_row,
+                    "fits": fits,
+                }
+            )
+        column = run_end + 1
+    return sorted(dips, key=lambda dip: -dip["depth"])
+
+
+def _placements_of(board, name: str):
+    return [(cells, placement.column) for placement, cells in legal_placements(board, name)]
+
+
+def _landed_cells_of(board, name: str, entry) -> tuple[tuple[int, int], ...]:
+    cells, column = entry
+    dropped = drop(board, cells, column)
+    if dropped is None:
+        return ()
+    return tuple(
+        (row, col)
+        for row, line in enumerate(dropped)
+        for col, cell in enumerate(line)
+        if board[row][col] == EMPTY and cell != EMPTY
+    )
+
+
 __all__ = [
     "BOARD_HEIGHT",
     "BOARD_WIDTH",
@@ -420,7 +631,12 @@ __all__ = [
     "drop",
     "empty_board",
     "landing_height",
+    "best_plan",
+    "dips_you_can_fill",
     "legal_placements",
+    "outcome",
+    "plan_cost",
+    "row_gaps",
     "mask_bitmap",
     "mask_cells",
     "normalise",
