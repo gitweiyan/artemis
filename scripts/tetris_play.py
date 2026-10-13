@@ -117,14 +117,29 @@ class Trace:
 
 
 class RecordingCapture:
-    """A capture that keeps what the loop saw — every ``every``-th frame on disk."""
+    """A capture that keeps **every** frame the CV read, not a sample of them.
 
-    def __init__(self, inner, trace: Trace, directory: Path, every: int):
+    The trace says what was recognised frame by frame; without the frames themselves a
+    reader has to take that on trust (measured: the first runs saved one in ten to fourteen,
+    so most trace lines had no picture to check against). The file name carries the trace's
+    own frame number, so `frame-0007.jpg` is the frame whose line says `"frame": 7`.
+
+    PNG is what the device sends, but a 720x1600 PNG is ~580 KB against ~150 KB for a JPEG
+    at q90 (measured on this game's frames, where the difference is anti-aliasing around
+    blocks), and a session produces a hundred of them.
+    """
+
+    def __init__(
+        self, inner, trace: Trace, directory: Path, every: int, image_format: str = "jpeg"
+    ):
         self.inner = inner
         self.trace = trace
         self.directory = directory
         self.every = max(1, int(every))
+        self.image_format = image_format
         self.index = 0
+        self.saved = 0
+        self.bytes = 0
         if self.every:
             self.directory.mkdir(parents=True, exist_ok=True)
 
@@ -133,8 +148,29 @@ class RecordingCapture:
         self.index += 1
         self.trace.begin(frame)
         if self.every and self.index % self.every == 0:
-            (self.directory / f"frame-{self.index:04d}.png").write_bytes(frame.image)
+            self._save(frame)
         return frame
+
+    def _save(self, frame) -> None:
+        name = f"frame-{self.index:04d}"
+        try:
+            if self.image_format == "png":
+                path, data = self.directory / f"{name}.png", frame.image
+            else:
+                import io
+
+                from PIL import Image
+
+                with Image.open(io.BytesIO(frame.image)) as handle:
+                    buffer = io.BytesIO()
+                    handle.convert("RGB").save(buffer, "JPEG", quality=90)
+                path, data = self.directory / f"{name}.jpg", buffer.getvalue()
+            path.write_bytes(data)
+            self.saved += 1
+            self.bytes += len(data)
+        except (OSError, ValueError) as exc:
+            # Losing a frame must not lose the session; the gap is reported in the summary.
+            print(f"  (frame {self.index} not saved: {exc})", flush=True)
 
     def close(self) -> None:
         self.inner.close()
@@ -343,8 +379,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rounds", type=int, default=1, help="how many sessions to run")
     parser.add_argument("--fresh", action="store_true", help="restart even if a round is on")
     parser.add_argument("--fps-cap", type=float, default=3.0)
-    parser.add_argument("--frames-every", type=int, default=5, help="0 disables frame saving")
+    parser.add_argument(
+        "--frames-every",
+        type=int,
+        default=1,
+        help="save one frame in N (default 1: every frame the CV read)",
+    )
     parser.add_argument("--no-frames", action="store_true")
+    parser.add_argument(
+        "--frames-format",
+        choices=("jpeg", "png"),
+        default="jpeg",
+        help="jpeg q90 (~150 KB/frame) or the device's own png (~580 KB/frame)",
+    )
     parser.add_argument("--out", help="where the trace and frames go")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -387,6 +434,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         perception: dict = {}
         handle = traced_skill(load_skill(SKILL, directory=SKILLS), trace, perception)
+        # One recorder for the whole run, built before the round is started: the frames the
+        # restart flow and the progression check read are CV reads too, and they are exactly
+        # the ones a reader wants when a round will not start.
+        frames_dir = out / "frames"
+        recorder = RecordingCapture(
+            device,
+            trace,
+            frames_dir,
+            0 if args.no_frames else args.frames_every,
+            args.frames_format,
+        )
         rounds: list[dict] = []
         spent = 0.0
         for index in range(max(1, args.rounds)):
@@ -400,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
                 panel,
                 perception_mod,
                 calibration,
-                _Starter(device, actuator),
+                _Starter(recorder, actuator),
                 args.serial,
                 fresh=args.fresh,
             )
@@ -410,12 +468,9 @@ def main(argv: list[str] | None = None) -> int:
                 break
             budget = max(5.0, min(args.session_seconds, args.seconds - spent))
             print(f"== 内环运行中（本局最多 {budget:.0f}s）==", flush=True)
-            capture = RecordingCapture(
-                device, trace, out / "frames", 0 if args.no_frames else args.frames_every
-            )
             result = run_reflex(
                 handle,
-                capture=capture,
+                capture=recorder,
                 control=LoggingControl(actuator, trace),
                 seconds=budget,
                 fps_cap=args.fps_cap,
@@ -476,6 +531,9 @@ def main(argv: list[str] | None = None) -> int:
     }
     report = {
         **totals,
+        "frames_saved": recorder.saved,
+        "frames_bytes": recorder.bytes,
+        "frames_dir": str(recorder.directory),
         "jev": totals["jev"],
         "jev_last_session": telemetry,
         "per_round": rounds,
@@ -502,10 +560,18 @@ def main(argv: list[str] | None = None) -> int:
         ):
             print(f"  {key}: {report[key]}")
         for entry in rounds:
+            if entry.get("skipped"):
+                # A round that never started has no metrics: printing "None Nones" hides that
+                # the run did nothing (measured on a screen showing neither panel nor board).
+                print(f"  第{entry['round']}局: 未开始 — {entry['skipped'].get('reason')}")
+                continue
             print(
                 f"  第{entry['round']}局: {entry.get('stop_reason')} {entry.get('seconds')}s "
-                f"动作 {entry.get('actions')} note={entry.get('final_note')} route={(entry.get('route') or {}).get('route')}"
+                f"动作 {entry.get('actions')} note={entry.get('final_note')} "
+                f"route={(entry.get('route') or {}).get('route')}"
             )
+        if not rounds or all(entry.get("skipped") for entry in rounds):
+            print("  （没有一局真正开始；看 trace.jsonl 与 frames/ 里那几帧就知道屏幕当时是什么）")
         print(f"  trace: {report['trace']}")
     lost = any(entry.get("stop_reason") == "lost" or entry.get("skill_error") for entry in rounds)
     return 3 if lost else 0
