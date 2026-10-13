@@ -832,3 +832,59 @@ def test_the_piece_is_placed_once_per_piece_even_while_correcting(
         )
 
     assert len(asked) == 1, "correcting the same piece is not a new decision"
+
+
+def test_the_play_message_carries_the_computed_consequences(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """The default the benchmark chose: the game says what each candidate would lead to.
+
+    Measured in T7 (plan §4): the same question scored 25.39 mean regret with no top-1 hits
+    against the search policy's own ranking when the candidates were bare ids, and 0.22 with
+    four of five when each carried the five numbers below. 1.8 KB, no latency penalty.
+    """
+    seen = {}
+
+    def fake_choice(payload, instructions, criteria, **kwargs):
+        seen["payload"] = payload
+        name = next(iter(criteria))
+        return name, {n: 1.0 if n == name else 0.0 for n in criteria}
+
+    monkeypatch.setattr(systemone, "choice", fake_choice)
+    jev_policy.reset_decisions()
+    state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+
+    jev_policy.decide(state, {**calibration, "jev": {**calibration["jev"], "mode": "choice"}})
+
+    moves = seen["payload"]["candidate_moves"]
+    assert moves, "the message offered nothing"
+    for move in moves:
+        assert move.get("then_lands"), "every option says what it would lead to by default"
+        assert set(move["then_lands"]) == {
+            "in_columns",
+            "on_row",
+            "clears_lines",
+            "new_holes",
+            "roughness_after",
+        }, "the five advertised numbers, and nothing that ranks them"
+
+
+def test_the_consequences_can_still_be_turned_off(jev_policy, simulator, calibration, monkeypatch):
+    """The benchmark line needs the bare variant, so the switch has to work both ways."""
+    seen = {}
+
+    def fake_choice(payload, instructions, criteria, **kwargs):
+        seen["payload"] = payload
+        name = next(iter(criteria))
+        return name, {n: 1.0 if n == name else 0.0 for n in criteria}
+
+    monkeypatch.setattr(systemone, "choice", fake_choice)
+    jev_policy.reset_decisions()
+    state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+
+    jev_policy.decide(
+        state,
+        {**calibration, "jev": {**calibration["jev"], "mode": "choice", "consequences": False}},
+    )
+
+    assert all("then_lands" not in move for move in seen["payload"]["candidate_moves"])

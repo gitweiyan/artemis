@@ -42,6 +42,10 @@ from . import simulator as sim
 
 #: Defaults for a calibration file that does not describe the Jev backend yet.
 DEFAULT_MODE = "noul"
+#: Whether the play message carries the five computed numbers per candidate. On by default
+#: since the T7 benchmark: with them the same question went from 25.39 mean regret and no
+#: top-1 hits to 0.22 with four of five (plan §4).
+DEFAULT_CONSEQUENCES = True
 DEFAULT_MIN_CONFIDENCE = 0.05
 DEFAULT_OPTIONS_CAP = 40
 MODES = ("noul", "choice")
@@ -179,6 +183,7 @@ def decide(state, calibration):
         mechanics=_mechanics(cal),
         next_preview=state.get("next_preview"),
         candidates=candidates,
+        consequences=bool(_jev_options(cal).get("consequences", DEFAULT_CONSEQUENCES)),
     )
     chosen, confidence = _ask(mode, message, candidates, cal, counters)
     if chosen is not None and confidence is not None:
