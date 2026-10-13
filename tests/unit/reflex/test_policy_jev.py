@@ -901,6 +901,55 @@ def test_the_placement_shifts_once_and_then_leaves_the_piece_alone(
         assert later.gestures == ()
 
 
+def test_a_piece_that_changed_shape_is_not_dropped_twice(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """Device 2026-10-13 run12 id3: a reveal changed the mask, the policy decided again, dropped again.
+
+    f13 shifted to column 3 and dropped; f14 showed the revealed shape (a new key, so a new
+    decision, ``reused=None``) and — being on target — dropped a second time 2.8 s later.
+    `dropped` is per decision; gating it on the tracker's piece id makes it per piece.
+    """
+    first_state = state_for(mask=[[1, 1]], current_piece_positions=[[0, 3], [0, 4]], motion=None)
+    first_state["piece_id"] = 7
+    candidates = candidates_for(simulator, first_state)
+    target = next(
+        index
+        for index, (placement, _) in enumerate(candidates)
+        if (placement.rotation, placement.column) == (0, 3)
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    first = jev_policy.decide(first_state, calibration)
+    assert first.state["drop"] is True
+
+    # The reveal: the same piece, a different mask (so a new key and a new decision).
+    revealed = state_for(
+        mask=[[1, 1], [1, 1]],
+        current_piece_positions=[[0, 3], [0, 4], [1, 3], [1, 4]],
+        motion=None,
+    )
+    revealed["piece_id"] = 7
+    candidates = candidates_for(simulator, revealed)
+    target = next(
+        index
+        for index, (placement, _) in enumerate(candidates)
+        if (placement.rotation, placement.column) == (0, 3)
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+
+    second = jev_policy.decide(revealed, calibration)
+
+    assert second.state["drop"] is False, (
+        "the same piece already dropped; a reveal must not drop it a second time"
+    )
+
+
 def test_an_on_target_piece_is_dropped_once_not_every_frame(
     jev_policy, simulator, calibration, monkeypatch
 ):

@@ -86,6 +86,9 @@ _last: dict[str, Any] = {
     #: Whether this piece has already had its one drop. A hold frame after the shift must not
     #: drop again (the piece locked ~0.1 s after the shift; a second drop is a no-op at best).
     "dropped": False,
+    #: The tracker's lifecycle id, so the flags above can be per *piece* rather than per
+    #: decision (a reveal changes the mask and the key, but not the piece).
+    "piece_id": None,
 }
 
 
@@ -112,6 +115,7 @@ def forget_decision() -> None:
             "rotate_frames": 0,
             "turn_mask": None,
             "dropped": False,
+            "piece_id": None,
         }
     )
 
@@ -237,7 +241,14 @@ def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state, c
     """
     shapes = tuple(sim.orientations_from_mask(mask))
     taps = _taps_to_reach(mask, shapes, chosen.rotation)
-    _remember(key, chosen, source, shapes=shapes, phase="rotate" if taps else "hold")
+    _remember(
+        key,
+        chosen,
+        source,
+        shapes=shapes,
+        phase="rotate" if taps else "hold",
+        piece_id=state.get("piece_id"),
+    )
     if not taps:
         return _placement_action(chosen, state, counters, mode)
     action = _turning_action(chosen, state, counters, mode, source, taps, cal)
@@ -435,8 +446,14 @@ def _piece_key(state, gravity: str):
     )
 
 
-def _remember(key, placement, source, *, shapes=(), phase=None) -> None:
-    """Remember the decision in force — and start its turn count from zero."""
+def _remember(key, placement, source, *, shapes=(), phase=None, piece_id=None) -> None:
+    """Remember the decision in force — and start its turn count from zero.
+
+    ``dropped`` rides on the piece, not the decision: a reveal changes the mask (and so the
+    key) without changing the piece, and a second decision on the same piece must not drop
+    it again (device 2026-10-13 run12 id3). A new piece resets it.
+    """
+    same_piece = piece_id is not None and piece_id == _last.get("piece_id")
     _last.update(
         {
             "key": key,
@@ -446,7 +463,8 @@ def _remember(key, placement, source, *, shapes=(), phase=None) -> None:
             "phase": phase,
             "rotate_frames": 0,
             "turn_mask": None,
-            "dropped": False,
+            "dropped": _last.get("dropped", False) if same_piece else False,
+            "piece_id": piece_id,
         }
     )
 

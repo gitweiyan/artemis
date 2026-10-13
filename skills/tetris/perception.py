@@ -376,6 +376,10 @@ def _measured_state(image, calibration: dict[str, Any], reading=None):
         # is a decision about half a piece (measured: 48% of those land where planned,
         # against 88% for decisions on a settled shape; `capture` note in calibration.json).
         "piece_frames": split.get("piece_frames"),
+        # The tracker's lifecycle id. The policy uses it to keep "one rotation, one shift,
+        # one drop" per *piece*, not per decision: a reveal changes the mask, which changes
+        # the decision key, but it is still the same piece.
+        "piece_id": split.get("piece_id"),
         "motion_vector": split["motion_vector"],
         "current": _name_of(split["current_piece_mask"]),
         "grid": {
