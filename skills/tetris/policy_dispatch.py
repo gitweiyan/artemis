@@ -23,6 +23,14 @@ from . import policy as search
 
 
 def decide(state, calibration):
+    options = (calibration or {}).get("jev") or {}
+    # Two option spaces share the Jev backend: `placement` (a rotation + a column, executed
+    # over two frames) and `action` (one of the four buttons, executed as one tap). The
+    # calibration picks, so the switch is one line and the fallback path is untouched.
+    if str(options.get("option_space") or "placement").lower() == "action":
+        from . import policy_actions
+
+        return _with_calibration(policy_actions.decide(state, calibration), calibration)
     backend = str((calibration or {}).get("policy_backend") or "search").lower()
     if backend == "jev":
         from . import policy_jev

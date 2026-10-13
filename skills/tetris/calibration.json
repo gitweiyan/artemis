@@ -248,7 +248,9 @@
     "mode": "choice",
     "min_confidence": 0.05,
     "options_cap": 40,
-    "mode_note": "choice, not noul: noul asks N independent questions ('would r0c3 be the best?') and the policy takes the argmax, which is not a ranking — measured answers spread 0.18-0.54 and do not sum to one, and the winner once landed at position 10 of 18 by the search policy's own ordering. choice asks one question that picks among all candidates and returns a normalised distribution, so the ranking and the margin come out of the same call. The switch is pending the offline comparison in scripts/tetris_jev_modes.py; if it scores worse, revert this line."
+    "mode_note": "choice, not noul: noul asks N independent questions ('would r0c3 be the best?') and the policy takes the argmax, which is not a ranking — measured answers spread 0.18-0.54 and do not sum to one, and the winner once landed at position 10 of 18 by the search policy's own ordering. choice asks one question that picks among all candidates and returns a normalised distribution, so the ranking and the margin come out of the same call. The switch is pending the offline comparison in scripts/tetris_jev_modes.py; if it scores worse, revert this line.",
+    "option_space": "placement",
+    "option_space_note": "placement (default, unchanged) or action. `placement` asks Jev for a rotation and a column and the device needs a turn on one frame and a shift on the next; `action` asks which of the four buttons to press, over a message where the game has already computed what each action would lead to (skills/tetris/policy_actions.py, message v2 in jev_state.build_action_state). The action space is the reference implementation's shape and removes the frame-count constraint, but it needs more calls per piece: it stays opt-in until the offline benchmark (docs/superpowers/plans/2026-10-13-jev-decision-redesign.md, T6/T7) has compared them."
   },
   "screen": {
     "width": 720,
