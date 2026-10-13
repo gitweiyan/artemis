@@ -47,7 +47,16 @@ SKILL = "tetris"
 PLAY = SKILLS / SKILL / "samples" / "session-play"
 #: The committed playfield samples are the playfield itself, so the ROI is the whole image.
 WHOLE = {"board_roi_ratios": [0.0, 0.0, 1.0, 1.0]}
-MODES = ("noul", "choice")
+#: The four arms: question type x whether the environment hands over the resulting board.
+#: A and B are the "formulation" comparison, C and D the "observability" one, and A vs C
+#: isolates observability under `noul` while B vs C isolates it under `choice` — which is
+#: what makes the 2x2 readable instead of two things changing at once.
+ARMS = (
+    ("A", "noul", False),
+    ("B", "choice", False),
+    ("C", "choice", True),
+    ("D", "noul", True),
+)
 
 
 def wrong_interpreter() -> str | None:
@@ -167,26 +176,28 @@ def compare_state(mods, calibration: dict, sample: dict) -> dict:
     ordered, ranks, score_of = judge(mods, calibration, board, candidates)
     best_score = ordered[0][1] if ordered else None
 
-    message = jev_state.build_state(
-        board_matrix=board,
-        pieces=state,
-        mechanics=policy_jev._mechanics(calibration),
-        next_preview=state.get("next_preview"),
-        candidates=candidates,
-    )
-
     arms = {}
-    for mode in MODES:
+    for name, mode, with_results in ARMS:
+        message = jev_state.build_state(
+            board_matrix=board,
+            pieces=state,
+            mechanics=policy_jev._mechanics(calibration),
+            next_preview=state.get("next_preview"),
+            candidates=candidates,
+            resulting_boards=with_results,
+        )
         arm_cal = {**calibration, "jev": {**calibration["jev"], "mode": mode}}
         started = time.monotonic()
         placement, confidence = policy_jev._ask(mode, message, candidates, arm_cal, {})
         seconds = time.monotonic() - started
         if placement is None:
-            arms[mode] = {"chosen": None, "seconds": round(seconds, 2), "reason": "no answer"}
+            arms[name] = {"chosen": None, "seconds": round(seconds, 2), "reason": "no answer"}
             continue
         key = (int(placement.rotation), int(placement.column))
         chosen_score = score_of(placement)
-        arms[mode] = {
+        arms[name] = {
+            "mode": mode,
+            "resulting_boards": with_results,
             "chosen": {"rotation": key[0], "column": key[1]},
             "confidence": None if confidence is None else round(float(confidence), 4),
             "seconds": round(seconds, 2),
@@ -212,11 +223,11 @@ def compare_state(mods, calibration: dict, sample: dict) -> dict:
 
 def summarise(rows: list[dict]) -> dict:
     out: dict = {"states": len(rows), "modes": {}}
-    for mode in MODES:
-        arms = [row["arms"][mode] for row in rows if row["arms"].get(mode, {}).get("chosen")]
+    for name, _mode, _results in ARMS:
+        arms = [row["arms"][name] for row in rows if row["arms"].get(name, {}).get("chosen")]
         regrets = [arm["regret"] for arm in arms if arm.get("regret") is not None]
         ranks = [arm["judge_rank"] for arm in arms if arm.get("judge_rank")]
-        out["modes"][mode] = {
+        out["modes"][name] = {
             "answered": len(arms),
             "answered_rate": round(len(arms) / max(1, len(rows)), 3),
             "mean_regret": round(statistics.mean(regrets), 3) if regrets else None,
@@ -236,16 +247,16 @@ def summarise(rows: list[dict]) -> dict:
             if any(a["confidence"] is not None for a in arms)
             else None,
         }
-    agreed = [
-        row
-        for row in rows
-        if row["arms"].get("noul", {}).get("chosen")
-        and row["arms"]["noul"]["chosen"] == row["arms"].get("choice", {}).get("chosen")
-    ]
-    out["agreement"] = {
-        "same_choice": len(agreed),
-        "rate": round(len(agreed) / max(1, len(rows)), 3),
-    }
+    pairs = {"A_vs_B": ("A", "B"), "A_vs_D": ("A", "D"), "B_vs_C": ("B", "C"), "C_vs_D": ("C", "D")}
+    out["agreement"] = {}
+    for label, (left, right) in pairs.items():
+        same = sum(
+            1
+            for row in rows
+            if row["arms"].get(left, {}).get("chosen")
+            and row["arms"][left]["chosen"] == row["arms"].get(right, {}).get("chosen")
+        )
+        out["agreement"][label] = {"same_choice": same, "rate": round(same / max(1, len(rows)), 3)}
     return out
 
 
@@ -272,14 +283,14 @@ def self_check(mods, calibration: dict) -> int:
             failures.append("the committed corpus produced no state with a piece")
         else:
             row = compare_state(mods, calibration, samples[0])
-            for mode in MODES:
-                arm = row["arms"].get(mode) or {}
+            for name, _mode, _results in ARMS:
+                arm = row["arms"].get(name) or {}
                 if "chosen" not in arm:
-                    failures.append(f"{mode}: no arm produced a choice")
+                    failures.append(f"{name}: no arm produced a choice")
                 elif arm.get("judge_rank") is None:
-                    failures.append(f"{mode}: the judge could not rank the choice")
+                    failures.append(f"{name}: the judge could not rank the choice")
             summary = summarise([row])
-            if not summary["modes"]["noul"]["answered"]:
+            if not summary["modes"]["A"]["answered"]:
                 failures.append("the summary lost the noul arm")
     finally:
         systemone.ask = real_ask
@@ -318,15 +329,15 @@ def main(argv: list[str] | None = None) -> int:
             f"  {index}/{len(samples)} {sample['file']} 候选 {row['candidates']} | "
             f"启发式最优 r{row['judge_best']['rotation']}c{row['judge_best']['column']} | "
             + " | ".join(
-                f"{mode}: "
+                f"{name}: "
                 + (
                     "无答案"
-                    if not arms[mode].get("chosen")
-                    else f"r{arms[mode]['chosen']['rotation']}c{arms[mode]['chosen']['column']} "
-                    f"rank{arms[mode]['judge_rank']} regret{arms[mode]['regret']} "
-                    f"{arms[mode]['seconds']}s"
+                    if not arms[name].get("chosen")
+                    else f"r{arms[name]['chosen']['rotation']}c{arms[name]['chosen']['column']} "
+                    f"rank{arms[name]['judge_rank']} regret{arms[name]['regret']} "
+                    f"{arms[name]['seconds']}s"
                 )
-                for mode in MODES
+                for name, _mode, _results in ARMS
             ),
             flush=True,
         )
@@ -347,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"中位 {stats['median_regret']} 命中启发式最优 {stats['judge_top1_rate']} "
                 f"进前三 {stats['judge_top3_rate']} 平均耗时 {stats['mean_seconds']}s"
             )
-        print(f"  两模式选择相同的比例: {report['summary']['agreement']['rate']}")
+
     return 0
 
 

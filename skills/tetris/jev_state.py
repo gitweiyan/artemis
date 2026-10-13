@@ -42,6 +42,11 @@ EXECUTION = (
     " horizontally so that its leftmost cell is in `column`; then it falls straight down"
     " until it lands."
 )
+#: Added to ``encoding`` only when the resulting boards are sent (the C/D arms): the model
+#: has to know what the extra field is, and that it is a board, not a score.
+RESULT_ENCODING = {
+    "resulting_board": "the board as it would look after this candidate is played and the lines it completes are cleared; no score or evaluation is provided, compare the boards yourself",
+}
 ENCODING = {
     "board_matrix": "20 rows top to bottom, 10 columns left to right; '1' is a settled block, '0' is empty",
     "current_piece_mask": "the falling piece's own footprint as it looks now, rows top to bottom",
@@ -90,6 +95,8 @@ def build_state(
     mechanics: dict[str, Any] | None,
     next_preview,
     candidates: Iterable[Any] | None,
+    *,
+    resulting_boards: bool = False,
 ) -> dict[str, Any]:
     """The state a Jev question is asked about — exactly these keys, nothing else.
 
@@ -98,12 +105,13 @@ def build_state(
     ``candidates`` are legal placements, or ``(placement, mask)`` pairs as
     :func:`simulator.legal_placements` returns them.
     """
-    from .simulator import orientations_from_mask
+    from .simulator import EMPTY, MASK_FILL, clear_lines, drop, orientations_from_mask
 
     pieces = pieces or {}
     declared = mechanics or {}
     mask = _mask(pieces.get("current_piece_mask") or [], "current_piece_mask")
     motion = _motion(pieces.get("motion_vector"))
+    gravity = gravity_direction(motion, declared.get("gravity_direction"))
     board = ["".join(row) for row in board_matrix]
     return {
         "task": TASK.format(columns=len(board[0]) if board else 0, rows=len(board)),
@@ -120,22 +128,53 @@ def build_state(
         ],
         "motion_vector": motion,
         "mechanics": {
-            "gravity_direction": gravity_direction(motion, declared.get("gravity_direction")),
+            "gravity_direction": gravity,
             "piece_source": str(declared.get("piece_source") or DEFAULT_PIECE_SOURCE),
         },
         "next_preview": _preview(next_preview),
-        "candidate_moves": [_candidate(entry) for entry in candidates or []],
+        "candidate_moves": [
+            _candidate(entry, board=board, mask=mask, gravity=gravity, results=resulting_boards)
+            for entry in candidates or []
+        ],
+        **({"encoding": {**ENCODING, **RESULT_ENCODING}} if resulting_boards else {}),
     }
 
 
-def _candidate(entry: Any) -> dict[str, Any]:
-    """One candidate move, with the id an answer has to name to be understood."""
+def _candidate(
+    entry: Any, *, board=None, mask=None, gravity: str = "down", results: bool = False
+) -> dict[str, Any]:
+    """One candidate move, with the id an answer has to name to be understood.
+
+    With ``results`` the move also carries the board it would produce — the environment
+    answering "what would happen", and nothing about whether that is good: no score, no
+    holes, no height, no bumpiness, no best_candidate. That is the whole point of the arm:
+    the model compares two states instead of reading a number someone else computed.
+    """
     placement = entry[0] if isinstance(entry, (tuple, list)) else entry
     if isinstance(placement, dict):
         rotation, column = int(placement["rotation"]), int(placement["column"])
     else:
         rotation, column = int(placement.rotation), int(placement.column)
-    return {"id": f"r{rotation}c{column}", "rotation": rotation, "column": column}
+    move = {"id": f"r{rotation}c{column}", "rotation": rotation, "column": column}
+    if results and board and mask:
+        from .simulator import EMPTY, MASK_FILL, clear_lines, drop
+
+        cells = entry[1] if isinstance(entry, (tuple, list)) and len(entry) > 1 else None
+        playable = [
+            [EMPTY if cell in {"0", ".", ""} else MASK_FILL for cell in row] for row in board
+        ]
+        shape = cells if cells is not None else mask
+        dropped = (
+            drop(playable, shape, column, gravity=gravity)
+            if cells is not None
+            else drop(playable, mask, column, gravity=gravity)
+        )
+        after = clear_lines(dropped)[0] if dropped is not None else None
+        if after is not None:
+            move["resulting_board"] = [
+                "".join("0" if cell == EMPTY else "1" for cell in row) for row in after
+            ]
+    return move
 
 
 def _motion(motion_vector) -> list[int] | None:

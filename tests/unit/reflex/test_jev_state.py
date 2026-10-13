@@ -218,3 +218,36 @@ def test_a_message_with_no_piece_says_so_instead_of_inventing_one(jev_state):
     assert message["motion_vector"] is None
     assert message["candidate_moves"] == []
     assert message["next_preview"] is None
+
+
+def test_a_candidate_can_carry_the_board_it_would_produce(jev_state, simulator):
+    """C/D arms: the environment may do the physics, the model only judges the result.
+
+    The point of the arm is that the *only* new thing is the resulting board: no score, no
+    holes, no height, no bumpiness, no best_candidate. Handing over a computed evaluation
+    would measure "can Jev read a number", not "can Jev compare two states".
+    """
+    board = ["0" * 10] * 19 + ["1110000000"]
+    mask = [[1, 1], [1, 1]]
+    candidates = simulator.legal_placements(
+        [[c if c == "1" else "." for c in row] for row in board], mask, gravity="down"
+    )[:3]
+
+    plain = jev_state.build_state(board, {"current_piece_mask": mask}, {}, None, candidates)
+    with_results = jev_state.build_state(
+        board, {"current_piece_mask": mask}, {}, None, candidates, resulting_boards=True
+    )
+
+    assert all("resulting_board" not in move for move in plain["candidate_moves"])
+    results = [move.get("resulting_board") for move in with_results["candidate_moves"]]
+    assert all(isinstance(result, list) and result for result in results)
+    assert all(len(result) == 20 and len(result[0]) == 10 for result in results)
+    # The piece is in the board it would produce, and the original board is untouched.
+    assert sum(row.count("1") for result in results for row in result) > sum(
+        row.count("1") for row in board
+    )
+    assert with_results["board_matrix"] == board
+    # Nothing that smells like a score may ride along.
+    for move in with_results["candidate_moves"]:
+        assert set(move) == {"id", "rotation", "column", "resulting_board"}, move
+    assert "resulting_board" in with_results["encoding"]
