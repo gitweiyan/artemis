@@ -83,6 +83,9 @@ _last: dict[str, Any] = {
     #: The bitmap the last batch of rotate taps was issued from. A frame whose mask differs
     #: is the turn still animating; one that matches is the turn stopped (or a missed tap).
     "turn_mask": None,
+    #: Whether this piece has already had its one drop. A hold frame after the shift must not
+    #: drop again (the piece locked ~0.1 s after the shift; a second drop is a no-op at best).
+    "dropped": False,
 }
 
 
@@ -108,6 +111,7 @@ def forget_decision() -> None:
             "phase": None,
             "rotate_frames": 0,
             "turn_mask": None,
+            "dropped": False,
         }
     )
 
@@ -258,12 +262,18 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
     if settle_only:
         counters["phase"] = "hold"
         counters["on_target"] = 1
+        # The shift already went out, and so did its drop. Only an on-target frame that
+        # somehow got here without one gets another.
+        drop = not _last.get("dropped")
+        if drop:
+            _last["dropped"] = True
         return Action(
             gestures=(),
             done=False,
             state={
                 "placement": placement.as_dict(),
                 "phase": "hold",
+                "drop": drop,
                 "counters": counters,
                 "current_column": current,
                 "note": f"jev {mode} (turned and shifted; letting it fall)",
@@ -272,12 +282,15 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
     if not delta:
         counters["phase"] = "hold"
         counters["on_target"] = 1
+        # On target on the decision frame: this is the frame that locks it.
+        _last["dropped"] = True
         return Action(
             gestures=(),
             done=False,
             state={
                 "placement": placement.as_dict(),
                 "phase": "hold",
+                "drop": True,
                 "counters": counters,
                 "current_column": current,
                 "note": f"jev {mode} (on target; letting it fall)",
@@ -288,6 +301,9 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
     # The phase is recorded as done before the taps go out: this frame issues them, and the
     # frames after it hold. That is what makes it one shift per piece.
     _last["phase"] = "hold"
+    # ... and one drop per piece: this frame shifts and locks. The hold frames must not drop
+    # again (`control` reads this flag).
+    _last["dropped"] = True
     return Action(
         gestures=(),
         done=False,
@@ -295,6 +311,7 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
             "placement": placement.as_dict(),
             "phase": "move",
             "move_columns": delta,
+            "drop": True,
             "counters": counters,
             "current_column": current,
             "note": f"jev {mode} (move {delta:+d} to column {placement.column})",
@@ -423,6 +440,7 @@ def _remember(key, placement, source, *, shapes=(), phase=None) -> None:
             "phase": phase,
             "rotate_frames": 0,
             "turn_mask": None,
+            "dropped": False,
         }
     )
 

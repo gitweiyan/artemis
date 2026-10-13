@@ -63,6 +63,12 @@ def to_gestures(action, calibration=None, *, state=None):
     cal = (
         calibration if calibration is not None else ((action.state or {}).get("calibration") or {})
     )
+    # A session-ending action dispatches nothing. Before this, a `done` turn action still fell
+    # through to the drop at the bottom and hard-dropped the piece it had just failed to turn
+    # (device 2026-10-13, captures/play/20261013T084956Z id6: 7 rotates then "not turning",
+    # then a drop at t=45.779).
+    if action.done:
+        return []
     dialect = (cal or {}).get("gestures") or {}
     # An action-shaped decision (the action space) is exactly one tap: the game's four buttons
     # *are* the action space, so no measurement between two halves of one decision is needed.
@@ -99,7 +105,12 @@ def to_gestures(action, calibration=None, *, state=None):
         return gestures
 
     delta = (action.state or {}).get("move_columns")
-    if delta is None:
+    if phase == "hold":
+        # The one shift is already behind us. Re-deriving it from the current column made a
+        # drift after the shift look like a new correction and sent more taps (device
+        # 2026-10-13, captures/play/20261013T085336Z id13: the hold frame re-sent 4 move left).
+        delta = 0
+    elif delta is None:
         target_column = int(placement.get("column") or 0)
         delta = target_column - int(current_column) if current_column is not None else 0
     if delta:
@@ -118,9 +129,18 @@ def to_gestures(action, calibration=None, *, state=None):
     # shift and the landing happen in the same frame instead of being spread over the ~20 s
     # that gravity would take. It goes out after the shift, never on a turn frame — turning is
     # only useful if the piece is still there to be shifted on the next frame.
+    #
+    # The policy says whether *this* frame is the one that drops: once per piece. A hold frame
+    # used to drop again, half a second after the piece had already locked (measured across
+    # run6/run7: every second drop was 0.49-0.71 s after a ~0.1 s lock, a pure no-op; and a
+    # mis-timed one can reach the next piece). No flag means the old behaviour: drop unless
+    # this is a hold frame.
     drop = dialect.get("drop") or {}
     point = _tap_point(drop, cal or {})
-    if drop.get("enabled") and point is not None:
+    wanted = (action.state or {}).get("drop")
+    if wanted is None:
+        wanted = phase != "hold"
+    if wanted and drop.get("enabled") and point is not None:
         for _ in range(int(drop.get("taps") or 1)):
             gestures.append(Gesture.tap(*point, description="drop"))
     return gestures

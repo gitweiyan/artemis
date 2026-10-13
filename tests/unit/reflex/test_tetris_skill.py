@@ -688,6 +688,71 @@ def test_the_shipped_calibration_uses_the_drop_button(tetris, control):
     )
 
 
+def test_a_hold_frame_does_not_drop_the_piece_again(tetris, control):
+    """One drop per piece. The shift frame locks it; a hold frame must not tap again.
+
+    Device 2026-10-13 (run6/run7): every piece got a second drop 0.49-0.71 s after the
+    ~0.1 s lock - a no-op at best, and a mis-timed one can reach the next piece. The policy
+    now marks the one frame that drops.
+    """
+    from artemis.reflex.contract import Action
+
+    shipped = tetris.calibration
+    shift = Action(
+        state={
+            "placement": {"rotation": 0, "column": 6},
+            "phase": "move",
+            "current_column": 4,
+            "drop": True,
+        }
+    )
+    assert [g.description for g in control.to_gestures(shift, shipped)] == [
+        "move right",
+        "move right",
+        "drop",
+    ]
+
+    settled = Action(
+        state={
+            "placement": {"rotation": 0, "column": 6},
+            "phase": "hold",
+            "current_column": 6,
+            "drop": False,
+        }
+    )
+    assert control.to_gestures(settled, shipped) == [], "already locked; a second drop is a no-op"
+
+    # An on-target frame that has not dropped yet is the one that locks.
+    on_target = Action(
+        state={
+            "placement": {"rotation": 0, "column": 6},
+            "phase": "hold",
+            "current_column": 6,
+            "drop": True,
+        }
+    )
+    assert [g.description for g in control.to_gestures(on_target, shipped)] == ["drop"]
+
+
+def test_a_done_action_dispatches_nothing(tetris, control):
+    """Ending the session must not tap: a done turn action used to fall through to the drop.
+
+    Device 2026-10-13, run6 id6: seven rotates, then "the piece is not turning", then a
+    drop tap from the same action - which hard-dropped the piece the turn had failed on.
+    """
+    from artemis.reflex.contract import Action
+
+    done = Action(
+        done=True,
+        state={
+            "placement": {"rotation": 0, "column": 6},
+            "phase": "rotate",
+            "rotate_taps": 1,
+        },
+    )
+    assert control.to_gestures(done, tetris.calibration) == []
+
+
 def test_a_disabled_drop_button_is_still_respected(tetris, control):
     """The flag stays a calibrated choice, for a game whose pieces do not fall on their own."""
     from artemis.reflex.contract import Action

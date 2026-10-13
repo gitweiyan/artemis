@@ -901,6 +901,33 @@ def test_the_placement_shifts_once_and_then_leaves_the_piece_alone(
         assert later.gestures == ()
 
 
+def test_only_the_shift_frame_asks_for_the_drop(jev_policy, simulator, calibration, monkeypatch):
+    """Device 2026-10-13: every piece got a second drop on the hold frame, after it had locked.
+
+    One drop per piece: the shift frame marks it, and the frames after it carry ``drop: False``
+    so ``control`` does not tap the drop button again half a second later.
+    """
+    state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, state)
+    target_index = next(
+        index
+        for index, (placement, _) in enumerate(candidates)
+        if (placement.rotation, placement.column) == (0, 4)
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target_index] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    move = jev_policy.decide(state, calibration)
+    assert move.state["phase"] == "move"
+    assert move.state["drop"] is True, "the shift frame is the one that locks the piece"
+
+    settled = jev_policy.decide(_three_bar([[1, 1, 1]], [(4, 6), (4, 7), (4, 8)]), calibration)
+    assert settled.state["phase"] == "hold"
+    assert settled.state["drop"] is False, "the piece already locked; do not drop it again"
+
+
 def test_a_piece_is_turned_once_even_if_the_mask_keeps_saying_otherwise(
     jev_policy, simulator, calibration, monkeypatch
 ):
