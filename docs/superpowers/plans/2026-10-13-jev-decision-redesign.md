@@ -386,3 +386,28 @@ question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, 
 
 **结论**：执行与感知已具备；下一步（未做）就是 §11.8 的建议——把回退改成 `simulator.best_plan` 的 `plan_cost`（或调高 `lines`/`lands_on_row`），做离线 sweep 后重跑 T8 的消行判据。
 
+### 11.8.2 deepseek-v4-pro 复盘：drop 被重复/盲发（2026-10-13 续）
+
+按操作者要求，复盘用 **deepseek-v4-pro**、计划/执行用 **deepseek-flash**。复盘方式：把 run6/run7 的逐块生命周期数据（drop 时刻、phase、mask、落点）导出为 `/tmp/t8_review_run6_run7.txt`，交给 `pi --provider deepseek --model deepseek-v4-pro --print --tools read` 审阅。
+
+**v4-pro 找到的机制问题**（均已核对数据）：
+
+1. **每块 drop 两次**：move 帧补一次 drop，紧接着每个 hold 帧又补一次。实测第二次 drop 发生在块锁定后 **0.49–0.71 s**（硬降 ~0.1 s 即锁），是空 tap；时序不巧还会打到下一块（run6 id4 landed 8 格=两块）。涉及 run6 id3/id4/id5、run7 id2/id5/id6/id13。
+2. **done 动作仍补 drop**：run6 id6 连续 7 次 rotate 后 `the piece is not turning`，同一动作又发了 drop（45.779），把没转到位的块硬降。
+3. **hold 帧重发 move**：run7 id13 的 hold 帧又发了 4 次 move left。
+
+**修复**（`877c0b2`，TDD）：`policy_jev` 用 `state["drop"]` 只标记**那一个该落地的帧**（shift 帧或 on-target 帧）；`control.to_gestures` 遇到 `done` 直接返回空、hold 帧不再重算 move、只在动作要求时补 drop（无 `drop` 字段则保持旧行为，search 路径不变）。
+
+**修复后真机验证**（`captures/play/20261013T091013Z`，92.7 s / 87 帧 / fps 0.94 / calls 12 / fallbacks 7 / reuses 13，time_budget 存活到底）：
+
+| 量 | run7（修前） | run8（修后） |
+|---|---|---|
+| 每块 drop 次数 | 2–3 | **1（无一超过 1）** |
+| 方案落地率 | 5/6（只算完整形状） | 13/17 |
+| 单步可消行的决策态 | 4 | **11/51** |
+| 终局列高 | `[1,1,8,20,20,20,5,2,0,0]` | `[4,4,4,4,4,4,3,1,1,2]`（低而平） |
+| 消行 | 0 | **1**（t=128.0 s，满行 1→0，首次真机消行） |
+| 结束原因 | game over | time_budget（再到 92.7 s） |
+
+**剩下的事**：32 个决策里有 2 次“存在可消行落点但没选”（都来自 search 回退），且 19 块中有 3 块因决策/手势延迟在 drop 前自然落地。所以下一步仍是把回退改成 `best_plan` 的 `plan_cost` 或调高 `lines`/`lands_on_row`，并考虑“手势前复核列号”。
+
