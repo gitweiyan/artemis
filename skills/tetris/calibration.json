@@ -369,5 +369,42 @@
     ],
     "verdict": "the helper is 1.10x faster at the median (489 vs 536 ms) and much worse at the tail (2538 ms against 600 ms), so the fast path is not worth its extra machinery on this device, let alone an APK change. Earlier in the same session screencap measured 309 ms median on its own; the spread between runs is the point — the capture path is not where the cadence is lost.",
     "cadence": "the loop's own frames measured 510-530 ms, which is capture (309-536 ms) + the decision on that frame + the sleep that respects fps_cap (3.0 -> 333 ms). The levers are the decision and the cap, not the screenshot."
+  },
+  "operator_rulings": {
+    "note": "The operator's standing rules for this game, registered 2026-10-13 so a new session does not have to re-ask. Two of them were only ever said out loud in a session and are written down here for the first time.",
+    "rules": [
+      {
+        "rule": "rotation is clockwise",
+        "recorded": "gestures.rotate.note"
+      },
+      {
+        "rule": "hard drop is allowed (the earlier ban was cancelled on 2026-10-13)",
+        "recorded": "gestures.drop.note"
+      },
+      {
+        "rule": "the falling speed is not constant — a fast mode is interleaved — so the policy must finish deciding and acting as quickly as possible",
+        "recorded": "mechanics.fall_speed"
+      },
+      {
+        "rule": "a falling piece is not always four cells: 1, 2, 3 or 4 all occur",
+        "recorded": "mechanics.shapes (+ mechanics.note)"
+      },
+      {
+        "rule": "one tap on a move button moves the piece one column",
+        "recorded": "gestures.move_*.note"
+      },
+      {
+        "rule": "at most one rotation and one shift per piece",
+        "recorded": "policy_jev phase order"
+      },
+      {
+        "rule": "colour recognition is not needed (occupancy is enough)",
+        "recorded": "here, first time"
+      },
+      {
+        "rule": "correctness verification is the operator's to judge, by hand — do not build automated verification for it",
+        "recorded": "here, first time"
+      }
+    ]
   }
 }

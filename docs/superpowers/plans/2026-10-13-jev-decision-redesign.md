@@ -240,3 +240,63 @@ question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, 
 
 > 读 `docs/superpowers/plans/2026-10-13-jev-decision-redesign.md` 的 §11 交接一节与 §4 的 T7 结果，以及 `skills/tetris/calibration.json` 的全部 note；先跑 `tests/unit/reflex` + `ruff` + `scripts/quality_ratchet.py` 确认基线（282 passed / 14 failed 为既有）；然后按 §11.2 做下落块生命周期跟踪器（TDD，先写失败测试）。
 
+### 11.5 未落盘事项登记（2026-10-13 登记）
+
+**A. 已在本轮补落盘的**（此前只存在于会话里）
+
+| 事项 | 现在落在哪 |
+|---|---|
+| 操作者长期裁定 8 条（含"不需要颜色识别""正确性验证由人工、不做自动化"） | `calibration.json#operator_rulings`（逐条给 rule + recorded 指向） |
+| 下落块生命周期跟踪器设计（acquire/track/release、三个陷阱、位移窗口、验证方法） | 本文件 §11.2 |
+| 本轮实测：helper 489 ms vs screencap 536 ms；下落速度 1.78–2.05 行/秒（最快 3.75）；形状集 8 个 | `calibration.json#capture` / `#mechanics.fall_speed` / `#mechanics.shapes` |
+
+**B. 已撤回的错误结论**（新窗口**不要**重新推导，也**不要**沿用）
+
+| 曾说过 | 状态 | 纠正落在哪 |
+|---|---|---|
+| "硬降把感知打瞎了，读到的是残块" | ✗ 撤回：1–2 格是**真实方块** | `mechanics.shapes` note + 提交 `642c404` |
+| "T 形/S 形系统性检不出（0/9、1/9）" | ✗ 撤回：**合成测试被底图污染**；清理后 72/72 全检出 | `scripts/tetris_piece_detect_rate.py` docstring + 提交 `71b4f55` |
+| "抓帧 0.51 s/帧 是最大瓶颈" | ✗ 撤回：screencap 单独 309 ms；循环的 510 ms = 抓帧 + 该帧决策 + fps_cap 等待 | `capture` note + 提交 `03d2224` |
+| "helper 在本设备不可用" | ✗ 撤回（操作者启动后可用）；但**更快也不成立**：489 vs 536 ms、尾部 2538 ms | `capture` note + 提交 `03d2224` |
+| "7.63 s 的 Jev 决策装得下（因为一块约 20 s 落地）" | ✗ 撤回：实测 0.5 s/行、快速模式 0.27 s/行；超时已改 2.5 s | `systemone_timeout_note` + 提交 `1a1c45c` |
+
+**C. 仍未解决/未测量（下一轮要做的）**
+
+| 项 | 状态 |
+|---|---|
+| 旋转空转（`the piece is not turning`） | 机制收窄到"观测位图不在形状集 → `_taps_to_reach` 回退成目标值" ✗；触发者（设备没转 / 掩码被吞并 / 部分掩码）**未分因**；§11.2 的跟踪器预期一并解决 |
+| T8 验收表 | 只拿到 6.4 s / 17.6 s / 60.5 s 三次短跑；**消行 0**；"决策延迟中位"与"方案落地率"**未测** |
+| T7 样本量 | N=5，方向清楚、幅度不是定论；扩到 60–100 用 `--states 60 --source both` |
+| D1/D2/D3 | 见 §8：play 线是否允许 `plan`；基准预算；`then_lands` 是否算泄漏（现有实测幅度 25.4 → 0.22） |
+| T9 | 未做：把本轮结果回填 `2026-10-12-...pipeline.md` 的断点节 |
+
+**D. 只存在于会话、无法登记的部分** ⚠️
+
+我的推理过程、被放弃的中间方案、以及未被写进任何文件的权衡 ✗ —— 这些随会话消失 ✓。**这正是"每做一个决定就写进 note/提交信息/方案"这条纪律存在的理由** ✓。
+
+### 11.6 新窗口开场（复制即用）
+
+```
+请先读这三处，再动手：
+1. docs/superpowers/plans/2026-10-13-jev-decision-redesign.md（§4 T7 结果、§8 待决策、
+   §11.1 状态、§11.2 跟踪器设计、§11.5 登记表）
+2. docs/superpowers/plans/2026-10-12-perception-to-jev-pipeline.md（T2–T9 落地与行为边界）
+3. skills/tetris/calibration.json 的全部 note（尤其 operator_rulings、mechanics.shapes、
+   mechanics.fall_speed、capture、panel、stall、jev、gestures.drop）
+
+先确认基线再改东西：
+  .venv/bin/python -m pytest tests/unit/reflex -q      # 期望 282 passed
+  .venv/bin/ruff check skills/ scripts/ tests/unit/reflex
+  .venv/bin/python scripts/quality_ratchet.py          # 全量 pytest 的既有基线是 14 failed / 2933 passed
+
+然后做本轮的既定第一件事（TDD，先写失败测试）：
+  按 §11.2 实现下落块生命周期跟踪器（acquire 用帧差一次 → track 整个生命周期 → 落定 release），
+  用 skills/tetris/samples/session-play/（43 帧）+ captures/play/*/trace.jsonl 的矩阵序列做离线回归，
+  断言：每块一个身份、报告帧数显著高于帧差路径、落定时被 release；并观察旋转空转是否一并消失。
+
+真机纪律（§11.3 的裁定）：一台设备 serial EUWSOBXCZLPFNJF6；不要硬降以外的臆断；
+  真机跑用 scripts/tetris_play.py（会自己开新局并在卡死时重启 App），
+  分析用 scripts/tetris_analyze.py <trace> 与 --clicks；
+  每次运行都会落盘 trace/frames/jev.jsonl/summary.json/analysis.json 到 captures/play/<stamp>/。
+```
+
