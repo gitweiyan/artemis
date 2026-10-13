@@ -172,3 +172,71 @@ question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, 
 | 改用动作空间后原地打转 | 已有代码级相位单调 + 新增 `warning`/Commit 提示，双保险 |
 
 **回退**：`calibration.jev.option_space` 一行切回 `"placement"`，其余改动（`outcome`/`best_plan`/基准臂）不影响现有链路。
+
+---
+
+## 11. 交接（2026-10-13 会话末，给新窗口）
+
+### 11.1 现在处于什么状态
+
+| 项 | 状态 |
+|---|---|
+| T1–T5 | ✅ 完成（旋转顺时针入标定；`outcome`/`best_plan`/`row_gaps`/`dips_you_can_fill`；`systemone.choice` 支持富 criteria；报文 v2 `build_action_state`；动作型决策 → 恰好一次点击；`policy_actions` + `option_space` 开关） |
+| T6/T7 | ✅ 完成：六臂基准 + 合成状态集，结果见 §4（5 状态 × 6 臂） |
+| play 线默认 | ✅ 已按实测改成 **C′ 形态**（落点 + `choice` + 紧凑后果）：`jev.consequences: true`、`jev.play_message: "placement+consequences"`，`policy_jev` 已接线，两条测试双向钉住 |
+| T8 真机验收 | ❌ 未完成：只拿到 6.4 s / 17.6 s / 60.5 s 三次短跑；**消行仍为 0**；"决策延迟中位"未提取 |
+| 旋转空转 | ❌ **当前最频繁的结束原因**（`the piece is not turning` ×2、`game over` ×2、`time_budget`） |
+| 抓帧路径 | ✅ 已量并否掉："改 helper APK 压到 250 ms"不成立（helper 489 ms vs screencap 536 ms，尾部反而 2538 ms） |
+
+### 11.2 下一轮的第一件事：下落块生命周期跟踪器（**尚未动代码**）
+
+现状：帧差检测**每帧都要重新推导**"什么在动" ✗，而实测每块只有 1–2 帧可见 → **永远慢一帧** ✗；且每帧重读的掩码可能差一格/被堆积吞并 → 形状身份不稳定 → `_taps_to_reach` 回退成"还差 N 拍" → **旋转空转** ✗。
+
+设计（操作者提出，见会话末）：**一次识别，整个生命周期跟踪**。
+
+| 阶段 | 做什么 | 关键细节（都来自实测） |
+|---|---|---|
+| acquire | 用现有帧差确认"这是新的一块"，记下形状 + 格子 + 生命周期 id | 形状与 `mechanics.shapes`（**8 个实测形状，1–4 格**）比对一次 |
+| track | 后续每帧只在上一帧位置附近找匹配，更新位置/朝向 | **不要比对固定位图**（旋转会换形）✓；位移窗口按实测：最快 3.7 行/秒 × 0.5 s/帧 ≈ **每帧 ≤2 行** |
+| release | 连通块与堆积合并、或找不到 → 结束生命周期 | **硬降 0.1 s** 可能让方块两帧之间直接落地 → 允许"从未 track 到就 release" |
+
+三个必须注意：①不用固定位图跟踪；②必须能 release（否则身份黏住堆积）；③跟踪器是跨帧状态，`reset_history()`（会话 `on_start`）必须一并清。
+
+验证（零设备成本）：用 `skills/tetris/samples/session-play/`（43 帧有图有时间戳）+ 各次运行 trace 的矩阵序列离线回放，断言 (a) 每块只产生一个身份 ✓、(b) 报告帧数显著高于帧差路径（现状见块帧占比 19–41%）✓、(c) 落定时正确 release ✓；修好后旋转空转应一并消失 ✓。
+
+### 11.3 操作者的长期裁定（规则，改之前先看这里）
+
+| 规则 | 落在哪 |
+|---|---|
+| 旋转是**顺时针** | `calibration.gestures.rotate.note` |
+| **硬降已启用**（约 0.1 s 落到最底） | `calibration.gestures.drop`（`enabled: true` + note） |
+| 下落速度**不固定、会穿插快速模式**；策略要**尽快决策、尽快执行** | `calibration.mechanics.fall_speed`（含实测：中位 1.78–2.05 行/秒、最快 3.75） |
+| 方块**不固定 4 格**，1/2/3/4 格都会有 | `calibration.mechanics.shapes`（8 个具名形状）+ note |
+| 点击键位：⬅️13% ⬇️33% ➡️53% 🔄81%（y=84%） | `calibration.gestures` |
+| **一次点击 = 移一列**；**一块最多一次翻转、一次移位** | `calibration.gestures.move_*.note` + `policy_jev` 相位单调（`max_rotate_frames` 护栏） |
+| 不需要颜色识别 | `calibration.note` / 判定用 HSV 阈值 |
+| 正确性验证由人工判断，不做自动化验证 | **仅在本会话里说过，未落盘** ⚠️（见 §11.4） |
+
+### 11.4 新窗口怎么拿到背景（以及拿不到什么）
+
+**能拿到（仓库内，可复查）**
+
+1. 本文件（决策层重构：差距 G1–G7、报文 v2、六臂、T7 结果、T1–T9 拆解、本轮交接）；
+2. `docs/superpowers/plans/2026-10-12-perception-to-jev-pipeline.md`（T2–T9 的落地与断点、真机行为边界）；
+3. `skills/tetris/calibration.json`：所有设备/游戏常数与**每条 note 里的实测来源**（几何、HSV、面板、静止阈值、形状集、下落速度、抓帧、超时、开关）；
+4. `git log`：每个提交的信息都写了"为什么"（含两次我承认的错误论断如何被纠正）；
+5. `captures/play/*/`：trace（逐帧矩阵/掩码/决策/每次点击/静止读数）+ frames + jev.jsonl（Jev 原始输入输出）+ summary.json + analysis.json；
+6. `reports/复盘-20261012-tetris内环真机联调.html`（六节复盘：时间线 27 条、问题 8 个、根因 4 类、改进 6 条）；
+7. `scripts/` 各脚本的 docstring（`tetris_play/analyze/probe/restart/jev_modes/jev_probe/piece_detect_rate`）——**里面写的是方法与坑**（例如"底图必须先清空，否则会误判 T/S 检不出"）。
+
+**拿不到（只在本会话里，必须重新问或重新推）** ⚠️
+
+- 上面 §11.2 的跟踪器设计细节（**已在本文件补齐** ✓）；
+- 若干口头裁定："正确性验证由人工、不做自动化验证"、"不需要颜色识别"、"一次点击=一列"等——后两条落盘了 ✓，第一条**没有** ✗；
+- 会话中途被我撤回的错误结论（"识别残缺"✗、"T/S 检不出"✗、"抓帧 0.51 s 是瓶颈"✗"helper 不可用"✗）——**纠正结果在标定/提交信息里** ✓，但"曾经错过什么"只有复盘报告的时间线里有 ✓；
+- 我的推理过程与权衡（未落盘的部分）✗。
+
+**新窗口的开场建议**（照抄即可）：
+
+> 读 `docs/superpowers/plans/2026-10-13-jev-decision-redesign.md` 的 §11 交接一节与 §4 的 T7 结果，以及 `skills/tetris/calibration.json` 的全部 note；先跑 `tests/unit/reflex` + `ruff` + `scripts/quality_ratchet.py` 确认基线（282 passed / 14 failed 为既有）；然后按 §11.2 做下落块生命周期跟踪器（TDD，先写失败测试）。
+
