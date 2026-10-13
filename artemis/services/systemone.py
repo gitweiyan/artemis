@@ -184,13 +184,19 @@ def noul(state: Any, instructions: str, *, question_id: str = "noul", **kwargs: 
 
 def choice(
     state: Any,
-    instructions: str,
-    criteria: dict[str, str],
+    instructions: str | dict[str, Any],
+    criteria: dict[str, Any],
     *,
     question_id: str = "choice",
     **kwargs: Any,
 ) -> tuple[str | None, dict[str, float]]:
-    """Pick one of ``criteria``; returns ``(winner, per-option probabilities)``."""
+    """Pick one of ``criteria``; returns ``(winner, per-option probabilities)``.
+
+    ``criteria`` values may be objects, not just strings: a rich option can carry what the
+    action does and what it would lead to (the reference implementation sends
+    ``{does, then_lands, ...}`` per action, ``index.html:151-160``). The client only
+    serialises them, so the annotation was the only thing standing in the way.
+    """
     answers = ask(
         state,
         {question_id: {"type": "choice", "instructions": instructions, "criteria": criteria}},

@@ -251,3 +251,150 @@ def test_a_candidate_can_carry_the_board_it_would_produce(jev_state, simulator):
     for move in with_results["candidate_moves"]:
         assert set(move) == {"id", "rotation", "column", "resulting_board"}, move
     assert "resulting_board" in with_results["encoding"]
+
+
+# --------------------------------------------------------------------------- #
+# T4: the action-space message (message v2)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_action_message_has_exactly_the_agreed_keys(jev_state, simulator):
+    """The key set is the interface: whatever is missing is invisible, whatever is extra is
+    something nobody agreed on. Pinned exactly, as the placement message is."""
+    board = ["0" * 10] * 18 + ["0111111111", "0111111111"]
+    message = jev_state.build_action_state(
+        board,
+        {
+            "current_piece_mask": [[1, 1, 1, 1]],
+            "current_piece_positions": [[0, 3], [0, 4], [0, 5], [0, 6]],
+            "motion_vector": [1, 0],
+        },
+        {},
+        None,
+        rotation=0,
+        column=3,
+    )
+
+    assert set(message) == {
+        "task",
+        "goal",
+        "rules",
+        "encoding",
+        "board_matrix",
+        "piece",
+        "stack",
+        "plan",
+        "candidate_actions",
+        "instructions",
+    }
+    assert set(message["piece"]) == {
+        "mask",
+        "positions",
+        "orientations",
+        "in_columns",
+        "lands_on_row_if_untouched",
+        "rows_of_fall_left",
+        "actions_left",
+        "done_so_far",
+    }
+    assert set(message["instructions"]) == {
+        "task",
+        "priorities_in_order",
+        "where_to_aim",
+        "tie_breakers",
+        "important",
+    }
+    assert set(message["stack"]) >= {
+        "column_heights",
+        "tallest",
+        "holes",
+        "roughness",
+        "dips_you_can_fill",
+        "rows_near_completing",
+    }
+
+
+def test_every_candidate_action_says_what_it_does_and_what_it_leads_to(jev_state):
+    board = ["0" * 10] * 19 + ["1111110000"]
+    message = jev_state.build_action_state(
+        board,
+        {
+            "current_piece_mask": [[1, 1, 1, 1]],
+            "current_piece_positions": [[0, 0], [0, 1], [0, 2], [0, 3]],
+            "motion_vector": [1, 0],
+        },
+        {},
+        None,
+        rotation=0,
+        column=0,
+    )
+
+    actions = {action["id"]: action for action in message["candidate_actions"]}
+    assert set(actions) <= {"left", "right", "rotate", "drop", "hold"}
+    assert "right" in actions
+    assert actions["right"]["does"], "every option explains itself in words"
+    assert set(actions["right"]["then_lands"]) == {
+        "in_columns",
+        "on_row",
+        "clears_lines",
+        "new_holes",
+        "roughness_after",
+    }, "the consequence, computed here — the model does not do the physics"
+
+
+def test_the_benchmark_variant_carries_no_computed_consequences(jev_state):
+    """A benchmark that hands over our evaluation measures reading, not deciding."""
+    board = ["0" * 10] * 19 + ["1111110000"]
+    pieces = {
+        "current_piece_mask": [[1, 1, 1, 1]],
+        "current_piece_positions": [[0, 0], [0, 1], [0, 2], [0, 3]],
+        "motion_vector": [1, 0],
+    }
+
+    leaky = jev_state.build_action_state(board, pieces, {}, None, consequences=True)
+    clean = jev_state.build_action_state(board, pieces, {}, None, consequences=False, plan=False)
+
+    assert "then_lands" not in clean["candidate_actions"][0]
+    assert "then_lands" in leaky["candidate_actions"][0]
+    assert clean["plan"] is None, "no plan either: a plan is a hint, and a hint is not a decision"
+    assert leaky["plan"], "the play line gets the plan"
+
+
+def test_the_message_says_how_much_time_is_left(jev_state):
+    """The budget is the measured kind: rows to fall and the actions that fit in them."""
+    board = ["0" * 10] * 19 + ["1111110000"]
+    pieces = {
+        "current_piece_mask": [[1, 1, 1, 1]],
+        "current_piece_positions": [[3, 0], [3, 1], [3, 2], [3, 3]],
+        "motion_vector": [1, 0],
+    }
+
+    without = jev_state.build_action_state(board, pieces, {}, None)
+    with_budget = jev_state.build_action_state(
+        board, pieces, {}, None, seconds_per_action=2.0, seconds_per_row=1.5
+    )
+
+    # How far the piece still has to fall is a fact about the board, so it is always there;
+    # how many actions fit in that fall needs the timing, so it appears only with the budget.
+    assert without["piece"]["rows_of_fall_left"] > 0
+    assert without["piece"]["actions_left"] is None
+    assert with_budget["piece"]["rows_of_fall_left"] == without["piece"]["rows_of_fall_left"]
+    assert with_budget["piece"]["actions_left"] >= 1
+    assert "actions_left" in with_budget["rules"]
+    assert "actions_left" not in without["rules"]
+
+
+def test_a_warning_marks_the_action_that_undoes_the_last_one(jev_state):
+    """The reference's anti-ping-pong guard, at the option level (``index.html:163-165``)."""
+    board = ["0" * 10] * 19 + ["1111110000"]
+    pieces = {
+        "current_piece_mask": [[1, 1, 1, 1]],
+        "current_piece_positions": [[0, 4], [0, 5], [0, 6], [0, 7]],
+        "motion_vector": [1, 0],
+    }
+
+    message = jev_state.build_action_state(board, pieces, {}, None, last_action="left")
+    actions = {action["id"]: action for action in message["candidate_actions"]}
+
+    assert actions["right"].get("warning"), "right undoes a left"
+    assert not actions["left"].get("warning"), "and left does not undo itself"
