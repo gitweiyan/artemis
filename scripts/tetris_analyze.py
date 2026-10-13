@@ -89,6 +89,17 @@ def cleared_rows(frames: list[dict]) -> dict:
 def session_summary(frames: list[dict]) -> dict:
     if not frames:
         return {}
+    marked = any(f.get("round") for f in frames)
+    per_round: dict = {}
+    for frame in frames:
+        key = frame.get("round") or 1
+        entry = per_round.setdefault(key, {"frames": 0, "from": frame["t"], "to": frame["t"]})
+        entry["frames"] += 1
+        entry["to"] = frame["t"]
+    for entry in per_round.values():
+        entry["seconds"] = round(entry["to"] - entry["from"], 1)
+        entry["to"] = round(entry["to"], 1)
+        entry["from"] = round(entry["from"], 1)
     mats = [f["matrix"] for f in frames if f.get("matrix")]
     decisions = [f.get("action") or {} for f in frames if f.get("action")]
     phases = {}
@@ -107,7 +118,11 @@ def session_summary(frames: list[dict]) -> dict:
     new_decisions = [d for d in decisions if not d.get("reused")] if knows_reuse else None
     cleared = cleared_rows(frames)
     return {
+        # The span of the whole trace, which includes the waits between rounds; the play
+        # time itself is per round (see `rounds`).
         "seconds": round(frames[-1]["t"] - frames[0]["t"], 1),
+        "rounds": per_round,
+        "rounds_marked": marked,
         "frames": len(frames),
         "fps": round(len(frames) / max(1e-6, frames[-1]["t"] - frames[0]["t"]), 2),
         "capture_ms_p50": sorted(f.get("frame_ms") or 0 for f in frames)[len(frames) // 2],
@@ -117,6 +132,14 @@ def session_summary(frames: list[dict]) -> dict:
         "height_peak": max((height(m) for m in mats), default=0),
         "height_end": height(mats[-1]) if mats else 0,
         "cleared_rows_estimate": cleared["estimate"],
+        # Without round markers a restart looks exactly like a clear that took the whole
+        # board with it, so the number is flagged rather than quietly reported.
+        "cleared_rows_reliable": marked,
+        "cleared_rows_note": (
+            ""
+            if marked
+            else "该 trace 早于局号字段：跨局边界（换局时棋盘从满变空）可能被算成消行，估算不可靠"
+        ),
         "clear_events": cleared["events"],
         "phases": phases,
         "taps": taps,
@@ -135,6 +158,12 @@ def main(argv: list[str] | None = None) -> int:
 
     frames = load(args.trace)
     summary = session_summary(frames)
+    # Written next to the trace so a run directory is self-describing: the session's own
+    # numbers used to exist only on stdout (a /tmp log), which is not a place to keep
+    # evidence.
+    (args.trace.parent / "analysis.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
@@ -148,7 +177,14 @@ def main(argv: list[str] | None = None) -> int:
         f"  棋盘：起 {summary['filled_start']} 格 → 终 {summary['filled_end']} 格，"
         f"峰值 {summary['filled_peak']} 格 / 最高 {summary['height_peak']} 行（终局 {summary['height_end']} 行）"
     )
-    print(f"  消行（估算，基于矩阵序列）: {summary['cleared_rows_estimate']}")
+    print(
+        f"  消行（估算，基于矩阵序列）: {summary['cleared_rows_estimate']}"
+        + ("" if summary.get("cleared_rows_reliable") else "  ⚠ " + summary["cleared_rows_note"])
+    )
+    for key, entry in (summary.get("rounds") or {}).items():
+        print(
+            f"    第{key}局: 帧 {entry['frames']}  跨度 {entry['seconds']}s  ({entry['from']}→{entry['to']})"
+        )
     for event in summary["clear_events"]:
         print(
             f"     t={event['t']:.1f}s  满行 {event['full_before']}→{event['full_after']}  "

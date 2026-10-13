@@ -467,6 +467,11 @@ def main(argv: list[str] | None = None) -> int:
         "directory": str(out),
         "trace": str(trace.path),
     }
+    # Durable, not just stdout: a run directory that cannot say what the session did is not
+    # evidence (the first runs' summaries lived in a /tmp log).
+    (out / "summary.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print("\n== 会话结果 ==", flush=True)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
