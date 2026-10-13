@@ -235,26 +235,26 @@
     ]
   },
   "mechanics": {
-    "note": "The game can switch the drop direction mid-session (切换掉落方向) and defines custom shapes (定义方块). gravity_options is the axis set this skill can play and must match simulator.GRAVITIES; shapes is the app's custom shape set as 0/1 bitmaps, empty until a live session records it - the simulator accepts any mask, so nothing needs recompiling when it is filled in.",
+    "note": "The game can switch the drop direction mid-session (切换掉落方向) and defines custom shapes (定义方块). gravity_options is the axis set this skill can play and must match simulator.GRAVITIES; shapes is the app's custom shape set as 0/1 bitmaps, empty until a live session records it - the simulator accepts any mask, so nothing needs recompiling when it is filled in. shapes was filled on 2026-10-13 from a live session (captures/play/20261013T064359Z/trace.jsonl), where the falling piece's mask was recorded every frame and normalised to its bounding box: 7 distinct shapes over 15 frames that showed a piece, of 1, 2, 3 and 4 cells — the operator confirmed this game does not always spawn tetrominoes. It is a lower bound, not the whole set. It matters because a 1-cell piece has no orientation to choose from, so 'rotate' is not an action it can take.",
     "gravity_options": [
       "down",
       "up",
       "left",
       "right"
     ],
-    "shapes": [
-      [
+    "shapes": {
+      "mono": [
         [
           1
         ]
       ],
-      [
+      "domino": [
         [
           1,
           1
         ]
       ],
-      [
+      "L3": [
         [
           0,
           1
@@ -264,7 +264,7 @@
           1
         ]
       ],
-      [
+      "I3": [
         [
           1
         ],
@@ -275,7 +275,7 @@
           1
         ]
       ],
-      [
+      "S4a": [
         [
           0,
           1,
@@ -287,7 +287,7 @@
           0
         ]
       ],
-      [
+      "T4a": [
         [
           0,
           1
@@ -301,7 +301,7 @@
           1
         ]
       ],
-      [
+      "S4b": [
         [
           1,
           0
@@ -315,7 +315,7 @@
           1
         ]
       ],
-      [
+      "T4b": [
         [
           1,
           1,
@@ -327,8 +327,7 @@
           0
         ]
       ]
-    ],
-    "shapes_source": "Measured 2026-10-13 from a live session (captures/play/20261013T064359Z/trace.jsonl): the falling piece's mask was recorded every frame and normalised to its bounding box, giving 8 distinct shapes over 15 frames that showed a piece — 1, 2, 3 and 4 cells. The operator confirmed this game does not always spawn tetrominoes: a piece may be 1, 2, 3 or 4 cells. This is a *lower bound*, not the whole set: only shapes that appeared are listed. It supersedes the empty list the calibration carried while this was unknown, and matters because a 1-cell piece has no orientation to choose from — 'rotate' is not an action it can take, and the message must not pretend otherwise."
+    }
   },
   "jev": {
     "mode": "choice",
