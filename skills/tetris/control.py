@@ -78,7 +78,12 @@ def to_gestures(action, calibration=None, *, state=None):
     # about its second cell, so the column changes as it turns.
     taps = (action.state or {}).get("rotate_taps")
     if taps is None:
-        taps = 0 if phase == "move" else int(placement.get("rotation") or 0)
+        # `move` and `hold` both mean the turn is behind us. `hold` was missing from this
+        # list, so every hold frame tapped rotate again by defaulting to `placement.rotation`
+        # — measured on the device with the click log: the policy said hold and the gesture
+        # layer kept sending rotations, frame after frame. The search policy sets no phase at
+        # all and relies on this default, so it stays for "no phase given".
+        taps = 0 if phase in ("move", "hold") else int(placement.get("rotation") or 0)
     rotate_point = _tap_point(dialect.get("rotate") or {}, cal or {})
     for _ in range(int(taps)):
         if rotate_point is None:

@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from artemis.reflex import registry
+from artemis.reflex.contract import Action
 from artemis.services import systemone
 
 SKILLS = Path(__file__).resolve().parents[3] / "skills"
@@ -422,6 +423,42 @@ def test_a_confident_model_answer_is_not_second_guessed(tetris, monkeypatch):
     chosen = action.state["placement"]
     expected = candidates[target_index][0]
     assert (chosen["rotation"], chosen["column"]) == (expected.rotation, expected.column)
+
+
+def test_a_hold_action_sends_no_gestures(tetris):
+    """`hold` means done: the piece has been turned and shifted, leave it alone.
+
+    Measured on the device with the click log: after the turn reached its target the policy
+    reported `phase=hold` — and the control layer still tapped rotate on every one of those
+    frames, because it defaulted to `placement.rotation` whenever `rotate_taps` was absent.
+    The policy stopped asking; the gesture layer kept sending.
+    """
+    control = importlib.import_module("artemis_skills_tetris.control")
+    calibration = {
+        "screen": {"width": 720, "height": 1600},
+        "gestures": {
+            "rotate": {"kind": "tap", "at_ratio": [0.81, 0.84]},
+            "move_left": {"kind": "tap", "at_ratio": [0.13, 0.84]},
+            "move_right": {"kind": "tap", "at_ratio": [0.53, 0.84]},
+            "drop": {"kind": "tap", "at_ratio": [0.33, 0.84], "enabled": False},
+        },
+        "grid": {"origin_x": 30, "origin_y": 380, "cell_w": 42.0, "cell_h": 42.75},
+    }
+    placement = {"rotation": 1, "column": 4}
+
+    hold = Action(state={"phase": "hold", "placement": placement, "calibration": calibration})
+    assert control.to_gestures(hold) == [], "a held piece is not turned again"
+
+    move = Action(
+        state={"phase": "move", "placement": placement, "move_columns": 1, "calibration": calibration}
+    )
+    gestures = control.to_gestures(move)
+    assert [g.description for g in gestures] == ["move right"], "a move frame only moves"
+
+    # The search policy sets no phase at all, and relies on the old default: rotate as many
+    # times as the placement asks. That path must keep working.
+    search_style = Action(state={"placement": placement, "calibration": calibration})
+    assert [g.description for g in control.to_gestures(search_style)] == ["rotate"]
 
 
 def test_the_manifest_switches_backend_by_calibration_file(tetris):
