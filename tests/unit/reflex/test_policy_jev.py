@@ -901,6 +901,37 @@ def test_the_placement_shifts_once_and_then_leaves_the_piece_alone(
         assert later.gestures == ()
 
 
+def test_an_on_target_piece_is_dropped_once_not_every_frame(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """Device 2026-10-13 run11 id7: a piece already on its target column dropped f55, f56, f57.
+
+    The turn settles into the ``not delta`` branch, which set ``_last["phase"]`` nowhere, so
+    it stayed ``move`` and every following frame re-entered it and re-dropped. The one-drop
+    flag has to be consulted there too, exactly as the settle path does.
+    """
+    before = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, before)
+    target = next(
+        index
+        for index, (placement, _) in enumerate(candidates)
+        if (placement.rotation, placement.column) == (1, 5)
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    jev_policy.decide(before, calibration)  # turn frame
+    turned = _three_bar([[1], [1], [1]], [(2, 5), (3, 5), (4, 5)])
+    first = jev_policy.decide(turned, calibration)
+    second = jev_policy.decide(turned, calibration)
+
+    assert first.state["phase"] == "hold"
+    assert first.state["drop"] is True, "the frame that lands on target drops the piece"
+    assert second.state["drop"] is False, "the piece was already dropped; it must not drop again"
+
+
 def test_only_the_shift_frame_asks_for_the_drop(jev_policy, simulator, calibration, monkeypatch):
     """Device 2026-10-13: every piece got a second drop on the hold frame, after it had locked.
 

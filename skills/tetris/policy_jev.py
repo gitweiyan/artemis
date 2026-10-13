@@ -282,15 +282,21 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
     if not delta:
         counters["phase"] = "hold"
         counters["on_target"] = 1
-        # On target on the decision frame: this is the frame that locks it.
-        _last["dropped"] = True
+        # On target on the decision frame: this is the frame that locks it — unless it was
+        # already dropped. A piece that stays on target holds for several frames (device
+        # 2026-10-13 run11 id7: dropped f55, f56 and f57), so the flag must be consulted here
+        # exactly as the settle path does; this branch used to re-drop every frame.
+        drop = not _last.get("dropped")
+        if drop:
+            _last["dropped"] = True
+        _last["phase"] = "hold"
         return Action(
             gestures=(),
             done=False,
             state={
                 "placement": placement.as_dict(),
                 "phase": "hold",
-                "drop": True,
+                "drop": drop,
                 "counters": counters,
                 "current_column": current,
                 "note": f"jev {mode} (on target; letting it fall)",
