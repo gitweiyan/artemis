@@ -361,3 +361,28 @@ question: { "move": { type: "choice", instructions: …, criteria: {left:{…}, 
 
 **门禁**：三次修复后 `tests/unit/reflex` → **298 passed**；`ruff` 通过；`quality_ratchet` 通过。
 
+### 11.8.1 修正：不是执行，是"块还没显完就决策"（2026-10-13 续）
+
+**专门的真机实验**（`scripts/tetris_move_probe.py`：连发 N 次左/右移，可带 drop / 立即 drop，低盘面）：taps + drop 本身可靠——1/2/3/4 tap 基本都到位，"立即 drop"（复刻策略同帧连发）也是 15/16 正确。所以 §11.8 把右移欠冲归给执行是**错的**。
+
+**真正的根因是 spawn 逐行显形**：游戏分两帧画出新块，tracker 在第一帧（半个块）就 acquire，策略按半个块的形状承诺了旋转+落点，块随后长成完整的 4 格并在另一列锁定。三局合并统计（每个块第一次决策时的 mask 格数 vs 最终锁定格数）：
+
+| 第一次决策的形状 | 个数 | 落点与计划一致 |
+|---|---|---|
+| 部分（比锁定块小） | 31 | **15/31 = 48%** |
+| 完整 | 16 | **14/16 = 88%** |
+
+**修复**：
+
+1. `perception` 把 tracker 的 `piece_frames` 带进 state；`policy_dispatch` 在 `piece_frames == 1`（刚 acquire）时**空等一帧**（`phase: "appear"`），不调模型、不发手势，下一帧再决策（对所有 placement 后端生效）。
+2. 真机验证时旋转空转又出现（`captures/play/20261013T084956Z` 在 31 s 因 `the piece is not turning` 结束）：游戏把一次旋转也做成跨帧动画（J 两 tap 后 0.55 s 才看到一步），策略立刻重测并补 tap，块走了 0→1→3，再补 3 个 → 护栏结束。修法：旋转帧若 mask 与"上一批 tap 发出时的 bitmap"不同，就返回一帧 `phase: "rotate" / rotate_taps: 0`（**settle**），不加 tap；只有 mask 与发出时完全一致（真的没转）才补 tap。settle 帧不计入 `max_rotate_frames`。
+
+**修复后的真机验证**（`captures/play/20261013T085336Z`，81.5 s / 83 帧 / fps 1.02 / calls 2 / fallbacks 12 / reuses 8）：
+
+- 旋转空转 note **0 次**（前几局每次都有）；
+- 第一次出现 **4 个"单步可消行"的状态**（之前三局都是 0）；
+- 完整形状的首次决策落地 **5/6**；
+- 但**消行仍为 0**，终局列高 `[1,1,8,20,20,20,5,2,0,0]`——中间堆成 20 的高山。此局 12/14 次调用超时，实际 86% 由 search 权重打，所以**剩下的主因是决策目标函数**（`lines=1.6` 太小、回退缺深度项），不再有执行/感知障碍。
+
+**结论**：执行与感知已具备；下一步（未做）就是 §11.8 的建议——把回退改成 `simulator.best_plan` 的 `plan_cost`（或调高 `lines`/`lands_on_row`），做离线 sweep 后重跑 T8 的消行判据。
+
