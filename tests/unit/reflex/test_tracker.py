@@ -211,7 +211,39 @@ TURNED_A = [(4, 3), (5, 3), (5, 4), (5, 5)]
 TURNED_B = [(4, 4), (4, 5), (5, 4), (6, 4)]
 
 
+#: The same physical piece as a rotate tap plus a fast fall leaves it: two cells at the
+#: top, then three cells four rows lower (measured, captures/play/20261013T091013Z f49/f50).
+FAST_A = [(0, 4), (1, 4)]
+FAST_B = [(4, 3), (4, 4), (4, 5)]
+
+
+def test_a_piece_that_falls_fast_after_a_turn_is_still_the_same_piece(tracker_module, calibration):
+    """A fast fall between captures must not release the piece.
+
+    Device 2026-10-13 (captures/play/20261013T091013Z): 3 of 6 rotate decisions lost the
+    piece before its move frame - it fell past the 2-row local window, the frame difference
+    refused the rotated (reshaped) component, the tracker released, and the piece landed at
+    its spawn column with no shift. That is the "no strategy in the second half" the
+    operator saw. Replaying that trace with an 8-row window: 0 lost, 51 -> 58 tracked frames.
+    """
+    tracker = tracker_module.PieceTracker(calibration)
+    tracker.push(matrix(STACK))
+    first = tracker.push(matrix(STACK + FAST_A))
+    state = tracker.push(matrix(STACK + FAST_B))
+
+    assert first["piece_id"] is not None
+    assert state["piece_id"] == first["piece_id"], (
+        "a fast fall (or a turn) between captures released the piece; its move was then lost"
+    )
+
+
 def test_a_turn_while_tracked_does_not_report_sideways_motion(tracker_module, calibration):
+    """The tracker must not hand the policy a gravity signal for a rotation.
+
+    Device evidence (2026-10-13): an acquired, rotated piece reported ``motion_vector ==
+    [0, 1]``; the policy read gravity "right", built candidates up to column 16 on a
+    10-column board, and tapped right 11 times (``captures/play/20261013T080118Z``).
+    """
     """The tracker must not hand the policy a gravity signal for a rotation.
 
     Device evidence (2026-10-13): an acquired, rotated piece reported ``motion_vector ==

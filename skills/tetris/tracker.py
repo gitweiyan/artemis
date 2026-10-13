@@ -47,11 +47,13 @@ DEFAULT_MAX_PIECE_CELLS = 4
 #: A falling piece always moves between captures; this many identical frames in a row
 #: means it has locked. One frame of grace absorbs a capture that caught it mid-cell.
 DEFAULT_MAX_IDLE_FRAMES = 1
-#: Where to look for the piece next, in cells from where it was. The measured fall is at
-#: most ~2 rows per capture (``mechanics.fall_speed``: 3.7 rows/s fastest at ~0.5 s), so a
-#: local match more than a couple of rows away is a different piece; a legitimate fast
-#: drop is caught by the frame difference below instead.
-DEFAULT_MAX_ROW_DELTA = 2
+#: Where to look for the piece next, in cells from where it was. The median fall is ~2 rows
+#: per capture, but the fastest mode plus a long capture gap reaches 4+ (device 2026-10-13,
+#: captures/play/20261013T091013Z f49->f50: a rotated piece fell 3-4 rows). At 2 the tracker
+#: released it and its move was lost - 3 of 6 rotate decisions - and the piece landed at its
+#: spawn column, which is the "no strategy" the operator saw; at 8 the recorded trace loses
+#: none. A legitimate fast drop is still caught by the frame-difference fallback below.
+DEFAULT_MAX_ROW_DELTA = 8
 #: A shift can be several taps in one frame; the same local bound keeps a spawn elsewhere
 #: on the board from being mistaken for the tracked piece.
 DEFAULT_MAX_COL_DELTA = 4
