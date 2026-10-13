@@ -648,6 +648,39 @@ def test_the_rotate_frame_only_asks_for_the_taps_still_missing(
     assert not already_turned.state.get("rotate_taps"), "already upright: nothing left to turn"
 
 
+def test_a_slow_rotation_animation_is_not_a_missed_tap(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """The rotation animation outlasts one capture, so an unchanged mask is not yet a miss.
+
+    Device 2026-10-13 run22: re-tapping on the very next unchanged frame double-rotated an I4
+    and it oscillated horizontal<->vertical for several frames. Wait ROTATE_SETTLE_FRAMES
+    before treating an unchanged mask as a genuinely missed tap.
+    """
+    mask = [[1, 1, 1]]
+    before = _three_bar(mask, [(2, 3), (2, 4), (2, 5)])
+    candidates = candidates_for(simulator, before)
+    target = next(
+        index for index, (placement, _) in enumerate(candidates) if placement.rotation == 1
+    )
+    probabilities = [0.01] * len(candidates)
+    probabilities[target] = 0.9
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    turn = jev_policy.decide(before, calibration)
+    assert turn.state["rotate_taps"] == 1
+
+    # One unchanged frame is the animation, not a miss: no re-tap.
+    first = jev_policy.decide(before, calibration)
+    assert first.state["phase"] == "rotate"
+    assert first.state["rotate_taps"] == 0
+
+    # Still unchanged after the grace: now a tap really was missed.
+    second = jev_policy.decide(before, calibration)
+    assert second.state["rotate_taps"] == 1
+
+
 def test_a_turn_is_allowed_to_finish_animating_before_more_taps(
     jev_policy, simulator, calibration, monkeypatch
 ):

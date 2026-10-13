@@ -83,6 +83,8 @@ _last: dict[str, Any] = {
     #: The bitmap the last batch of rotate taps was issued from. A frame whose mask differs
     #: is the turn still animating; one that matches is the turn stopped (or a missed tap).
     "turn_mask": None,
+    #: Frames the mask has been unchanged since the taps went out (the missed-tap grace).
+    "turn_wait": 0,
     #: Whether this piece has already had its one drop. A hold frame after the shift must not
     #: drop again (the piece locked ~0.1 s after the shift; a second drop is a no-op at best).
     "dropped": False,
@@ -118,6 +120,7 @@ def forget_decision() -> None:
             "phase": None,
             "rotate_frames": 0,
             "turn_mask": None,
+            "turn_wait": 0,
             "dropped": False,
             "piece_id": None,
             "align_column": None,
@@ -215,14 +218,19 @@ def decide(state, calibration):
             taps = _taps_to_reach(mask, _last["shapes"], placement.rotation)
             if taps:
                 if sim.mask_bitmap(mask) == _last.get("turn_mask"):
-                    # The turn has stopped changing and the orientation is still wrong: a tap
-                    # really was missed. Issue the taps still missing and start the wait over.
-                    return _turning_action(placement, state, counters, mode, "jev", taps, cal)
-                # The game animates a turn over more than one capture (measured 2026-10-13,
-                # captures/play/20261013T084956Z: a two-tap turn showed one step 0.55 s later),
-                # so re-measuring now and adding taps overshoots - it walked 0->1->3, asked for
-                # three more, and the rotate guard ended the session. Observe, add nothing.
+                    # The mask has not changed since the taps went out. That is not yet a
+                    # missed tap: the game animates a turn over more than one capture, so a
+                    # re-tap here becomes a double rotation and the piece oscillates back and
+                    # forth (measured run22: an I4 flipped horizontal<->vertical for several
+                    # frames). Wait a couple of frames first, then treat it as a real miss.
+                    _last["turn_wait"] = int(_last.get("turn_wait") or 0) + 1
+                    if _last["turn_wait"] >= ROTATE_SETTLE_FRAMES:
+                        _last["turn_wait"] = 0
+                        return _turning_action(placement, state, counters, mode, "jev", taps, cal)
+                    return _settling_action(placement, state, counters, mode)
+                # The mask changed: the animation is progressing; keep waiting.
                 _last["turn_mask"] = sim.mask_bitmap(mask)
+                _last["turn_wait"] = 0
                 return _settling_action(placement, state, counters, mode)
             # The orientation is right. Wait for the column to hold still for a frame before
             # the shift: the device pivots the piece a column over as it turns, and a reading
@@ -398,6 +406,10 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
 #: changed once, which is 5 s of a 45 s session spent tapping a button that was getting
 #: nowhere. The count is per decision, so an ordinary turn (one or two frames) never sees it.
 DEFAULT_MAX_ROTATE_FRAMES = 3
+#: How many unchanged frames the loop waits after issuing rotate taps before it concludes the
+#: tap was missed and re-taps. The rotation animation outlasts one capture, so one unchanged
+#: frame is the animation, not a miss.
+ROTATE_SETTLE_FRAMES = 2
 #: How many frames the loop will wait for the column reading to hold still before it shifts
 #: after a turn. The turn pivots the piece a column over, so a reading taken mid-pivot is one
 #: column off; waiting for two identical reads (one frame) fixes that without a second Jev
@@ -418,6 +430,7 @@ def _turning_action(placement, state, counters: dict, mode: str, source: str, ta
     #: Remember the bitmap these taps were issued from: the next frame compares against it
     #: to tell "still animating" from "stopped (or the tap was missed)".
     _last["turn_mask"] = sim.mask_bitmap(state.get("current_piece_mask") or [])
+    _last["turn_wait"] = 0
     limit = int(cal.get("max_rotate_frames") or DEFAULT_MAX_ROTATE_FRAMES)
     if frames > limit:
         counters["rotate_frames"] = frames
@@ -550,6 +563,7 @@ def _remember(key, placement, source, *, shapes=(), phase=None, piece_id=None) -
             "phase": phase,
             "rotate_frames": 0,
             "turn_mask": None,
+            "turn_wait": 0,
             "dropped": _last.get("dropped", False) if same_piece else False,
             "piece_id": piece_id,
             "align_column": None,
