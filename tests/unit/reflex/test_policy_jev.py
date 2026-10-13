@@ -606,6 +606,47 @@ def test_a_piece_whose_orientations_repeat_needs_no_taps_to_reach_them(jev_polic
     assert jev_policy._taps_to_reach([[1, 0], [0, 1]], zed_shapes, 1) == 1
 
 
+def test_every_jev_call_can_be_recorded_when_asked_for(
+    jev_policy, simulator, calibration, monkeypatch, tmp_path
+):
+    """The input Jev received and the output it returned, on disk — off unless asked.
+
+    Without this the payload exists only while it is in flight: the trace says `source=jev`
+    and which placement won, but not what the model was asked or what it answered, which is
+    what you need when a decision is wrong. `ARTEMIS_JEV_DUMP` is how the play script turns
+    it on; a skill must not write files on its own.
+    """
+    import json as _json
+    import os
+
+    state = _three_bar([[1, 1, 1]], [(2, 3), (2, 4), (2, 5)])
+    probabilities = [0.9] * len(candidates_for(simulator, state))
+    answering(monkeypatch, probabilities)
+    jev_policy.reset_decisions()
+
+    dump = tmp_path / "jev.jsonl"
+    monkeypatch.delenv("ARTEMIS_JEV_DUMP", raising=False)
+    jev_policy.decide(state, calibration)
+    assert not dump.exists(), "no environment variable, no file"
+
+    monkeypatch.setenv("ARTEMIS_JEV_DUMP", str(dump))
+    jev_policy.reset_decisions()
+    jev_policy.decide(state, calibration)
+
+    assert dump.exists(), "the call left no record"
+    record = _json.loads(dump.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert record["input"], "the message that went out is the point of the record"
+    assert record["question_count"], "and the questions it was asked"
+    assert any("rotation" in str(q) for q in record["questions"].values()), (
+        "each question names the candidate it asks about"
+    )
+    assert record["answers"], "and the answers that came back"
+    # `seconds` may round to 0.0 here: the fake `systemone.ask` answers instantly, while a
+    # real call took 7.63 s on the device (skills/tetris/calibration.json#systemone_timeout_note).
+    assert record["chosen"] and record["seconds"] >= 0
+    assert os.environ["ARTEMIS_JEV_DUMP"] == str(dump)
+
+
 def test_one_piece_turns_once_then_shifts_once(jev_policy, simulator, calibration, monkeypatch):
     """The operator's rule: a piece is turned once and shifted once, never turn-shift-turn-shift.
 

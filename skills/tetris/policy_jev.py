@@ -26,6 +26,10 @@ gravity as the model was offered.
 
 from __future__ import annotations
 
+import json
+import os
+import time
+
 from typing import Any
 
 from artemis.reflex.contract import Action
@@ -378,27 +382,102 @@ def _remember(key, placement, source, *, shapes=(), phase=None) -> None:
 
 
 def _ask(mode, message, candidates, cal, counters):
-    """``(placement, confidence)`` from Jev, or ``(None, None)`` for the search to play."""
+    """``(placement, confidence)`` from Jev, or ``(None, None)`` for the search to play.
+
+    Every call can be recorded — the message that went out, the answers that came back, what
+    was chosen and how long it took — by pointing ``ARTEMIS_JEV_DUMP`` at a file (the play
+    script sets it to ``<run>/jev.jsonl``). Without it the payload exists only while it is in
+    flight: the trace can say ``source=jev`` and which placement won, but not what the model
+    was asked or what it answered, which is the first thing to look at when a decision is
+    wrong.
+    """
     timeout = cal.get("systemone_timeout_s")
+    started = time.monotonic()
+    raw: Any = None
+    # The questions are a separate argument to the service, so the record has to collect them
+    # here: what the model was asked is half of the input.
+    record: dict[str, Any] = {}
     try:
-        answer = (
-            _choice(message, candidates, timeout)
+        placement, confidence, raw = (
+            _choice(message, candidates, timeout, record)
             if mode == "choice"
-            else _noul(message, candidates, timeout)
+            else _noul(message, candidates, timeout, record)
         )
     except systemone.SystemOneUnavailable as exc:
         # Counted where the search then plays (in `decide`), so `source` and `fallbacks`
         # cannot disagree.
         _telemetry["last_error"] = str(exc)
         counters["jev_fallback"] = str(exc)[:120]
+        _dump_jev(
+            mode,
+            message,
+            candidates,
+            None,
+            None,
+            raw,
+            seconds=time.monotonic() - started,
+            failure=str(exc),
+            record=record,
+        )
         return None, None
     _telemetry["calls"] += 1
-    if answer == (None, None):
+    if placement is None:
         counters["jev_fallback"] = "abstained"
-    return answer
+    _dump_jev(
+        mode,
+        message,
+        candidates,
+        placement,
+        confidence,
+        raw,
+        seconds=time.monotonic() - started,
+        record=record,
+    )
+    return placement, confidence
 
 
-def _noul(message, candidates, timeout):
+def _dump_jev(
+    mode, message, candidates, placement, confidence, raw, *, seconds, failure=None, record=None
+):
+    """Append one call to ``ARTEMIS_JEV_DUMP``: the input, the output and the outcome.
+
+    Off by default (a library call should not leave surprise files behind); switched on by
+    the play script, which is where a human reviews decisions. A failure to write must never
+    break a decision.
+    """
+    path = os.environ.get("ARTEMIS_JEV_DUMP")
+    if not path:
+        return
+    try:
+        questions = (record or {}).get("questions")
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "t": round(time.time(), 3),
+                        "mode": mode,
+                        "seconds": round(seconds, 3),
+                        "candidates": len(candidates),
+                        "input": message,
+                        "questions": questions,
+                        "question_count": len(questions) if isinstance(questions, dict) else None,
+                        "answers": raw,
+                        "chosen": None
+                        if placement is None
+                        else {"rotation": placement.rotation, "column": placement.column},
+                        "confidence": confidence,
+                        "failure": failure,
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                )
+                + "\n"
+            )
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _noul(message, candidates, timeout, record=None):
     questions = {
         f"cand_{index}": {
             "type": "noul",
@@ -410,6 +489,8 @@ def _noul(message, candidates, timeout):
         }
         for index in range(len(candidates))
     }
+    if record is not None:
+        record["questions"] = questions
     answers = systemone.ask(message, questions, timeout=timeout)
     scored: list[tuple[float, int]] = []
     for index in range(len(candidates)):
@@ -421,13 +502,13 @@ def _noul(message, candidates, timeout):
         except systemone.SystemOneUnavailable:
             continue
     if not scored:
-        return None, None
+        return None, None, answers
     best = max(probability for probability, _ in scored)
     index = min(index for probability, index in scored if probability >= best)
-    return candidates[index][0], best
+    return candidates[index][0], best, answers
 
 
-def _choice(message, candidates, timeout):
+def _choice(message, candidates, timeout, record=None):
     identifiers = [_identifier(placement) for placement, _ in candidates]
     criteria = {
         name: f"rotation {placement.rotation}, column {placement.column}"
@@ -441,10 +522,14 @@ def _choice(message, candidates, timeout):
         timeout=timeout,
     )
     if winner is None or winner not in identifiers:
-        return None, None
+        return None, None, distribution
     index = identifiers.index(winner)
     confidence = distribution.get(winner)
-    return candidates[index][0], (float(confidence) if confidence is not None else None)
+    return (
+        candidates[index][0],
+        (float(confidence) if confidence is not None else None),
+        distribution,
+    )
 
 
 def _identifier(placement) -> str:

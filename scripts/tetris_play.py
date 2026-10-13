@@ -358,6 +358,12 @@ def main(argv: list[str] | None = None) -> int:
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out = Path(args.out) if args.out else PROJECT_ROOT / "captures" / "play" / stamp
+    out.mkdir(parents=True, exist_ok=True)
+    # What Jev was asked and what it answered, next to the trace. Off unless someone asks
+    # for it (the skill writes nothing on its own), and this is the place a human reviews.
+    import os
+
+    os.environ.setdefault("ARTEMIS_JEV_DUMP", str(out / "jev.jsonl"))
     trace = Trace(out / "trace.jsonl")
     device = default_capture(args.serial, prefer="screencap")
     actuator = AdbInputControl(args.serial)
