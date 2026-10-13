@@ -680,7 +680,7 @@ def _choice(message, candidates, timeout, record=None, max_attempts=1):
     }
     winner, distribution = systemone.choice(
         message,
-        _CHOICE_INSTRUCTIONS,
+        jev_state.PLACEMENT_INSTRUCTIONS,
         criteria,
         question_id="placement",
         timeout=timeout,

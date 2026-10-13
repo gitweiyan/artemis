@@ -89,6 +89,58 @@ def test_the_message_has_exactly_the_keys_jev_is_told_about(jev_state):
     }
 
 
+def test_the_play_message_carries_the_single_best_plan(jev_state, simulator):
+    """The reference's `best_placement_found` + `this_starts_the_best_plan`, in placement form.
+
+    One plan, not one hint per direction: the reference fixed the piece ping-ponging by handing
+    over a single best landing and marking which candidate starts it. The play line
+    (consequences=True) gets both; the bare benchmark arms do not.
+    """
+    board = ["0" * 10] * 19 + ["1111111110"]
+    mask = [[1, 1], [1, 0]]
+    playable = [
+        [simulator.EMPTY if cell == "0" else simulator.MASK_FILL for cell in row] for row in board
+    ]
+    candidates = simulator.legal_placements(playable, mask, gravity="down")
+
+    message = jev_state.build_state(
+        board,
+        {
+            "current_piece_mask": mask,
+            "current_piece_positions": [[16, 3], [16, 4], [17, 3]],
+            "motion_vector": [1, 0],
+        },
+        {},
+        None,
+        candidates,
+        consequences=True,
+    )
+
+    assert message["plan"], "the play line hands over the single best landing"
+    assert any("starts_the_plan" in move for move in message["candidate_moves"])
+
+
+def test_the_bare_message_carries_no_plan_hint(jev_state):
+    """A benchmark arm must not be handed the answer (the D3 question)."""
+    message = build(jev_state)
+
+    assert "plan" not in message
+    assert all("starts_the_plan" not in move for move in message["candidate_moves"])
+
+
+def test_the_placement_instructions_are_the_full_rules(jev_state):
+    instructions = jev_state.PLACEMENT_INSTRUCTIONS
+
+    assert set(instructions) == {
+        "task",
+        "priorities_in_order",
+        "where_to_aim",
+        "tie_breakers",
+        "important",
+    }
+    assert "measured" in instructions["important"]
+
+
 def test_the_message_tells_jev_what_the_task_is(jev_state):
     """Measured: the first real call was flat (0.34-0.37 over 18 candidates) and the
     message never said what game it was, what the goal was, or how to read the numbers."""

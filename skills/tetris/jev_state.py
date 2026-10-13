@@ -113,7 +113,14 @@ def build_state(
     ``candidates`` are legal placements, or ``(placement, mask)`` pairs as
     :func:`simulator.legal_placements` returns them.
     """
-    from .simulator import EMPTY, MASK_FILL, clear_lines, drop, orientations_from_mask
+    from .simulator import (
+        EMPTY,
+        MASK_FILL,
+        best_plan,
+        clear_lines,
+        drop,
+        orientations_from_mask,
+    )
 
     pieces = pieces or {}
     declared = mechanics or {}
@@ -121,6 +128,11 @@ def build_state(
     motion = _motion(pieces.get("motion_vector"))
     gravity = gravity_direction(motion, declared.get("gravity_direction"))
     board = ["".join(row) for row in board_matrix]
+    playable = [[EMPTY if cell in {"0", ".", ""} else MASK_FILL for cell in row] for row in board]
+    # The single best landing, computed here so the model judges rather than plans. Only the
+    # play line sees it (consequences=True): a benchmark arm that hands over the hint would
+    # measure whether the model can read, not whether it can decide (plan §4, the D1 question).
+    plan = best_plan(playable, mask, gravity=gravity) if (consequences and mask) else None
     return {
         "task": TASK.format(columns=len(board[0]) if board else 0, rows=len(board)),
         "goal": GOAL,
@@ -148,6 +160,7 @@ def build_state(
                 gravity=gravity,
                 results=resulting_boards,
                 consequences=consequences,
+                plan=plan,
             )
             for entry in candidates or []
         ],
@@ -156,6 +169,7 @@ def build_state(
             if resulting_boards
             else ({"encoding": {**ENCODING, **ACTION_ENCODING}} if consequences else {})
         ),
+        **({"plan": plan} if consequences else {}),
     }
 
 
@@ -212,6 +226,24 @@ ACTION_INSTRUCTIONS = {
     "important": "Every number in the options was measured from the board by the game and says what "
     "happens if you take that action and the piece falls. Judge the options on those numbers. Do not "
     "try to count squares in the grid yourself.",
+}
+
+
+PLACEMENT_INSTRUCTIONS = {
+    "task": "Choose the single best placement (rotation and column) for the current piece, judged by the stack it leaves behind.",
+    "priorities_in_order": [
+        "1. CLEAR A LINE. clears_lines above 0 means this placement completes rows and shortens the stack.",
+        "2. LAND LOW. on_row is how deep the piece settles and BIGGER means LOWER. Never stack onto a tall column while a lower place is still reachable.",
+        "3. MAKE NO HOLES. new_holes above 0 means sealing squares nothing can ever fill again. Prefer 0.",
+        "4. STAY FLAT. Lower roughness_after means the next piece has somewhere to sit.",
+        "5. FOLLOW THE PLAN. plan names the single best landing found for this piece; prefer the candidate whose then_lands matches it.",
+    ],
+    "where_to_aim": "plan lists the best landing (columns, row, clears, new_holes) found for this piece. Prefer the candidate that starts it; otherwise aim for the lowest on_row with zero new_holes.",
+    "tie_breakers": [
+        "When every option looks the same, head for an edge and pack from one side rather than dropping where the piece appeared.",
+        "When every option looks bad, pick the least bad: fewest new_holes first, then biggest on_row, and see the piece through.",
+    ],
+    "important": "Every number in the options was measured from the board by the game and says what happens if the piece falls straight down after that placement. Judge the options on those numbers. Do not try to count squares in the grid yourself.",
 }
 
 
@@ -414,6 +446,7 @@ def _candidate(
     gravity: str = "down",
     results: bool = False,
     consequences: bool = False,
+    plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One candidate move, with the id an answer has to name to be understood.
 
@@ -443,6 +476,17 @@ def _candidate(
                 key: landed[key]
                 for key in ("in_columns", "on_row", "clears_lines", "new_holes", "roughness_after")
             }
+            if (
+                plan is not None
+                and rotation == int(plan.get("rotation", -1))
+                and tuple(landed["in_columns"]) == tuple(plan.get("in_columns", ()))
+            ):
+                move["starts_the_plan"] = (
+                    f"The best landing found for this piece is columns "
+                    f"{plan['in_columns'][0]}-{plan['in_columns'][1]}, on row "
+                    f"{plan['lands_on_row']}, clearing {plan['clears_lines']} with "
+                    f"{plan['new_holes']} new holes."
+                )
     if results and board and mask:
         from .simulator import EMPTY, MASK_FILL, clear_lines, drop
 
