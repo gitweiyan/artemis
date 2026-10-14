@@ -111,7 +111,13 @@
     "bumpiness": -0.25,
     "row_transitions": -0.25,
     "column_transitions": -0.25,
-    "well_sums": -0.2
+    "well_sums": -0.2,
+    "execution_cost_weight": 0.12,
+    "execution_cost_weight_note": "Penalty per tap (move distance + rotation_cost_factor x rotations), applied only when the piece has fewer than cost_low_threshold rows of fall left. A low piece cannot finish a long move before it locks, so the search prefers a nearer column among otherwise-equal placements.",
+    "rotation_cost_factor": 2.0,
+    "rotation_cost_factor_note": "A rotation costs 2x a one-column move: the turn also needs settle+align frames before the shift can go out.",
+    "cost_low_threshold": 8,
+    "cost_low_threshold_note": "Rows of fall left below which the execution-cost penalty ramps up linearly from 0 to full."
   },
   "target_lines": 0,
   "policy_backend": "jev",

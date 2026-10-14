@@ -228,6 +228,44 @@ def test_an_answer_naming_nothing_is_an_abstention_not_an_action(
 
 
 # --------------------------------------------------------------------------- #
+# The execution-cost penalty: a low piece cannot afford a long move
+# --------------------------------------------------------------------------- #
+
+
+def test_execution_cost_penalizes_only_when_the_piece_is_low(jev_policy, simulator):
+    placement = simulator.Placement
+    weights = {"execution_cost_weight": 0.12, "rotation_cost_factor": 2.0, "cost_low_threshold": 8}
+    cost = jev_policy.search_policy.execution_cost
+
+    # High up (10 rows of fall left >= threshold): no penalty, however far the move.
+    assert cost(placement(0, 0), current_column=7, fall_rows=10, weights=weights) == 0
+    # At the floor (0 rows left): the full move distance is penalized.
+    assert cost(placement(0, 0), current_column=7, fall_rows=0, weights=weights) == pytest.approx(
+        0.12 * 7
+    )
+    # A rotation costs more than a one-column move (2x), on top of the distance.
+    assert cost(placement(2, 7), current_column=7, fall_rows=0, weights=weights) == pytest.approx(
+        0.12 * (0 + 2.0 * 2)
+    )
+
+
+def test_the_search_prefers_the_near_column_when_the_piece_is_low(jev_policy, simulator):
+    """A low piece must pick the near column: the far one cannot finish before it locks."""
+    board = to_board(simulator, FRESH_BOARD)
+    mask = [[1, 1, 1]]
+    weights = {"execution_cost_weight": 0.12, "rotation_cost_factor": 2.0, "cost_low_threshold": 8}
+    low = {"current_piece_positions": [[18, 7], [18, 8], [18, 9]], "grid": {"rows": 20}}
+
+    # Without the penalty, the empty board scores every column equal, so the first (0) wins.
+    unpenalised = jev_policy._search(board, mask, "down", {"weights": {}}, low)
+    assert unpenalised.column == 0
+
+    # With the penalty, the far column (move 7) is punished and the near column (move 0) wins.
+    penalised = jev_policy._search(board, mask, "down", {"weights": weights}, low)
+    assert penalised.column == 7
+
+
+# --------------------------------------------------------------------------- #
 # The choice variant
 # --------------------------------------------------------------------------- #
 

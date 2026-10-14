@@ -139,6 +139,43 @@ def piece_column(state) -> int | None:
     return None
 
 
+def fall_rows_left(state) -> int | None:
+    """Rows of fall left before the piece reaches the floor, or ``None`` when unknown.
+
+    ``None`` means the piece positions are not in the state (an older pipeline); callers
+    then skip any height-dependent behaviour rather than guessing.
+    """
+    positions = state.get("current_piece_positions") or []
+    if not positions:
+        return None
+    rows = int((state.get("grid") or {}).get("rows") or 20)
+    return rows - 1 - max(row for row, _ in positions)
+
+
+def execution_cost(placement, current_column, fall_rows, weights) -> float:
+    """Penalty (>= 0) for the taps this placement needs, scaled by how low the piece is.
+
+    A piece high above the stack has time for a long move and any rotation; the same
+    placement is a gamble when the piece is already at the floor, because the taps race
+    the lock. So the penalty is zero while the piece has at least ``cost_low_threshold``
+    rows of fall left and ramps linearly to ``execution_cost_weight * (|move| +
+    ``rotation_cost_factor`` * rotations) at the floor. ``execution_cost_weight=0`` turns
+    it off entirely.
+    """
+    weight = float(weights.get("execution_cost_weight", 0.0))
+    if weight <= 0 or current_column is None or fall_rows is None:
+        return 0.0
+    threshold = float(weights.get("cost_low_threshold", 8.0))
+    if threshold <= 0:
+        return 0.0
+    height_factor = max(0.0, min(1.0, (threshold - fall_rows) / threshold))
+    if height_factor <= 0:
+        return 0.0
+    factor = float(weights.get("rotation_cost_factor", 2.0))
+    taps = abs(int(placement.column) - int(current_column)) + factor * int(placement.rotation)
+    return weight * taps * height_factor
+
+
 # --------------------------------------------------------------------------- #
 # The skill entry points
 # --------------------------------------------------------------------------- #
@@ -201,4 +238,13 @@ def decide(state, calibration):
     )
 
 
-__all__ = ["DEFAULT_WEIGHTS", "choose", "decide", "evaluate", "piece_column", "score_board"]
+__all__ = [
+    "DEFAULT_WEIGHTS",
+    "choose",
+    "decide",
+    "evaluate",
+    "execution_cost",
+    "fall_rows_left",
+    "piece_column",
+    "score_board",
+]

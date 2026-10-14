@@ -282,7 +282,7 @@ def decide(state, calibration):
             chosen = None
 
     if chosen is None:
-        chosen = _search(board, mask, gravity, cal)
+        chosen = _search(board, mask, gravity, cal, state)
         if chosen is None:  # pragma: no cover - candidates were not empty
             counters["topped_out"] = 1
             return Action(done=True, state={"counters": counters, "placement": None})
@@ -783,9 +783,16 @@ def _identifier(placement) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _search(board, mask, gravity, cal):
-    """The deterministic ranking over the same legal set, in the same gravity."""
+def _search(board, mask, gravity, cal, state=None):
+    """The deterministic ranking over the same legal set, in the same gravity.
+
+    A low piece pays an execution-cost penalty for far columns and extra rotations: the
+    taps race the lock, so a placement the piece cannot reach before it lands is not
+    worth as much as one it can. ``state`` carries the piece's current column and height.
+    """
     weights = cal.get("weights") or search_policy.DEFAULT_WEIGHTS
+    current = search_policy.piece_column(state) if state else None
+    fall_rows = search_policy.fall_rows_left(state) if state else None
     best: tuple[float, sim.Placement] | None = None
     for placement, cells in sim.legal_placements(board, mask, gravity=gravity):
         dropped = sim.drop(board, cells, placement.column, gravity=gravity)
@@ -793,6 +800,7 @@ def _search(board, mask, gravity, cal):
             continue
         settled, cleared = sim.clear_lines(dropped)
         total = search_policy.score_board(settled, cleared, weights)
+        total -= search_policy.execution_cost(placement, current, fall_rows, weights)
         if best is None or total > best[0]:
             best = (total, placement)
     return best[1] if best else None
