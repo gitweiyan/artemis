@@ -147,13 +147,18 @@ def _serial_speed(baudrate: int) -> int:
 def _open_serial(port: str, baudrate: int) -> int:
     """Open ``port`` in raw mode: 8N1, no echo, no line discipline, no flow control.
 
-    ``VMIN``/``VTIME`` are zero so a write never blocks on a read. The file descriptor is
-    returned for :func:`os.write`; the caller owns closing it.
+    ``O_NONBLOCK`` is used only to get past the open (a modem line can block there); it is
+    cleared right after, so a write to a full board buffer **waits** instead of raising
+    ``EAGAIN``. That wait is required: a burst of swipe segments overran the board's serial
+    buffer and aborted mid-draw with ``BlockingIOError`` before this was cleared. ``VMIN`` /
+    ``VTIME`` are zero so a read never blocks. The caller owns closing the descriptor.
     """
+    import fcntl
     import termios
 
     fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
     try:
+        fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
         _iflag, _oflag, _cflag, _lflag, _ispeed, _ospeed, cc = termios.tcgetattr(fd)
         speed = _serial_speed(baudrate)
         cc = list(cc)
