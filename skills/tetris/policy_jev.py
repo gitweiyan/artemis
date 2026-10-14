@@ -826,8 +826,12 @@ def _deepseek_chat(prompt: str, *, timeout) -> str:
         {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
+            # deepseek-flash reasons before it answers by default; the reasoning burns the
+            # whole token budget on a long state and doubles the latency (measured 5.3 s for
+            # a 34-candidate board). The decision only needs a legal id, so think fast.
+            "thinking": {"type": "disabled"},
             "temperature": 0.0,
-            "max_tokens": 64,
+            "max_tokens": 128,
         },
         ensure_ascii=False,
     ).encode("utf-8")
