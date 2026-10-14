@@ -288,7 +288,7 @@ def test_the_llm_mode_plays_the_candidate_the_model_names(
 
     action = jev_policy.decide(state, _llm_calibration(calibration))
 
-    assert action.state["counters"]["source"] == "jev"
+    assert action.state["counters"]["source"] == "llm"
     played = action.state["placement"]
     assert (played["rotation"], played["column"]) == target
 

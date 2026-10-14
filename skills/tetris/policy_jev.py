@@ -229,7 +229,9 @@ def decide(state, calibration):
                     _last["turn_wait"] = int(_last.get("turn_wait") or 0) + 1
                     if _last["turn_wait"] >= ROTATE_SETTLE_FRAMES:
                         _last["turn_wait"] = 0
-                        return _turning_action(placement, state, counters, mode, "jev", taps, cal)
+                        return _turning_action(
+                            placement, state, counters, mode, _last.get("source") or "jev", taps, cal
+                        )
                     return _settling_action(placement, state, counters, mode)
                 # The mask changed: the animation is progressing; keep waiting.
                 _last["turn_mask"] = sim.mask_bitmap(mask)
@@ -295,9 +297,10 @@ def decide(state, calibration):
         counters["source"] = "search"
         return _decided(mask, key, chosen, "search", counters, mode, state, cal)
 
-    counters["source"] = "jev"
+    source = "llm" if mode == "llm" else "jev"
+    counters["source"] = source
     counters["mode"] = mode
-    return _decided(mask, key, chosen, "jev", counters, mode, state, cal)
+    return _decided(mask, key, chosen, source, counters, mode, state, cal)
 
 
 def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state, cal):
