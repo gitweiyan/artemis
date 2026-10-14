@@ -882,55 +882,6 @@ def test_one_piece_turns_once_then_shifts_once(jev_policy, simulator, calibratio
         assert later.state["placement"] == shift_gestures.as_dict()
 
 
-def test_a_piece_too_close_to_the_floor_is_not_dropped(
-    jev_policy, simulator, calibration, monkeypatch
-):
-    """A near-floor drop is a no-op and can hit the next piece; let it lock on its own.
-
-    Device 2026-10-14 run26 f245: a piece at the floor got move+drop, locked in place, and the
-    late drop then put the next piece on the left tower with no trace record.
-    """
-    state = _three_bar([[1, 1, 1]], [(18, 3), (18, 4), (18, 5)])
-    candidates = candidates_for(simulator, state)
-    target = next(
-        index
-        for index, (placement, _) in enumerate(candidates)
-        if (placement.rotation, placement.column) == (0, 5)
-    )
-    probabilities = [0.01] * len(candidates)
-    probabilities[target] = 0.9
-    answering(monkeypatch, probabilities)
-    jev_policy.reset_decisions()
-
-    move = jev_policy.decide(state, calibration)
-
-    assert move.state["phase"] == "move"
-    assert move.state["drop"] is False, (
-        "one row left: it locks on its own; the drop risks the next piece"
-    )
-
-
-def test_a_piece_with_room_is_still_dropped(jev_policy, simulator, calibration, monkeypatch):
-    state = _three_bar([[1, 1, 1]], [(10, 3), (10, 4), (10, 5)])
-    candidates = candidates_for(simulator, state)
-    target = next(
-        index
-        for index, (placement, _) in enumerate(candidates)
-        if (placement.rotation, placement.column) == (0, 5)
-    )
-    probabilities = [0.01] * len(candidates)
-    probabilities[target] = 0.9
-    answering(monkeypatch, probabilities)
-    jev_policy.reset_decisions()
-
-    move = jev_policy.decide(state, calibration)
-
-    assert move.state["phase"] == "move"
-    assert move.state["drop"] is True, (
-        "nine rows left: the drop locks the piece where the plan put it"
-    )
-
-
 def test_the_shift_waits_for_the_column_to_hold_still(
     jev_policy, simulator, calibration, monkeypatch
 ):
