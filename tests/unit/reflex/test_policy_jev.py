@@ -266,6 +266,70 @@ def test_the_search_prefers_the_near_column_when_the_piece_is_low(jev_policy, si
 
 
 # --------------------------------------------------------------------------- #
+# The LLM backend: deepseek-flash picks among the same legal placements
+# --------------------------------------------------------------------------- #
+
+
+def _llm_calibration(calibration):
+    return dict(calibration, jev={**calibration["jev"], "mode": "llm"})
+
+
+def test_the_llm_mode_plays_the_candidate_the_model_names(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """deepseek-flash replaces Jev: a named candidate id is played, nothing invented."""
+    state = state_for()
+    legal = sorted((p.rotation, p.column) for p, _ in candidates_for(simulator, state))
+    target = legal[len(legal) // 2]  # a mid-list candidate, not the first
+    monkeypatch.setattr(
+        jev_policy, "_deepseek_chat", lambda prompt, timeout: f"r{target[0]}c{target[1]}"
+    )
+    jev_policy.reset_decisions()
+
+    action = jev_policy.decide(state, _llm_calibration(calibration))
+
+    assert action.state["counters"]["source"] == "jev"
+    played = action.state["placement"]
+    assert (played["rotation"], played["column"]) == target
+
+
+def test_the_llm_mode_falls_back_to_search_on_an_unusable_answer(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    """A reply that names no legal candidate is an abstention, exactly like Jev's."""
+    monkeypatch.setattr(jev_policy, "_deepseek_chat", lambda prompt, timeout: "r9c9 looks best")
+    jev_policy.reset_decisions()
+
+    action = jev_policy.decide(state_for(), _llm_calibration(calibration))
+
+    assert action.state["counters"]["source"] == "search", (
+        "an id outside the legal set is not a move"
+    )
+
+
+def test_the_llm_mode_falls_back_when_the_deepseek_call_fails(
+    jev_policy, simulator, calibration, monkeypatch
+):
+    def boom(prompt, timeout):
+        raise systemone.SystemOneUnavailable("deepseek unreachable")
+
+    monkeypatch.setattr(jev_policy, "_deepseek_chat", boom)
+    jev_policy.reset_decisions()
+
+    action = jev_policy.decide(state_for(), _llm_calibration(calibration))
+
+    assert action.state["counters"]["source"] == "search"
+
+
+def test_parse_placement_id_extracts_the_first_valid_id(jev_policy):
+    parse = jev_policy._parse_placement_id
+    assert parse("I pick r2c6.", {"r2c6", "r0c0"}) == "r2c6"
+    assert parse("the answer is r0c0 or r2c6", {"r2c6"}) == "r2c6"
+    assert parse("no valid id here", {"r0c0"}) is None
+    assert parse("r9c9 is out of range", {"r0c0"}) is None
+
+
+# --------------------------------------------------------------------------- #
 # The choice variant
 # --------------------------------------------------------------------------- #
 

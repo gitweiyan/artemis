@@ -28,7 +28,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
+import urllib.error
+import urllib.request
 
 from typing import Any
 
@@ -53,7 +56,7 @@ DEFAULT_OPTIONS_CAP = 40
 #: budget and the search fallback (which is designed to play) never gets its turn. Measured
 #: on the device 2026-10-13: a 2.5 s timeout with three attempts cost ~9 s.
 DEFAULT_MAX_ATTEMPTS = 1
-MODES = ("noul", "choice")
+MODES = ("noul", "choice", "llm")
 
 #: One question per candidate, and it *names* the candidate: the first version asked
 #: "is this the best placement?" eighteen times without ever binding "this", and came
@@ -626,11 +629,12 @@ def _ask(mode, message, candidates, cal, counters):
     # here: what the model was asked is half of the input.
     record: dict[str, Any] = {}
     try:
-        placement, confidence, raw = (
-            _choice(message, candidates, timeout, record, attempts)
-            if mode == "choice"
-            else _noul(message, candidates, timeout, record, attempts)
-        )
+        if mode == "llm":
+            placement, confidence, raw = _choice_llm(message, candidates, timeout, record, attempts)
+        elif mode == "choice":
+            placement, confidence, raw = _choice(message, candidates, timeout, record, attempts)
+        else:
+            placement, confidence, raw = _noul(message, candidates, timeout, record, attempts)
     except systemone.SystemOneUnavailable as exc:
         # Counted where the search then plays (in `decide`), so `source` and `fallbacks`
         # cannot disagree.
@@ -776,6 +780,109 @@ def _choice(message, candidates, timeout, record=None, max_attempts=1):
 
 def _identifier(placement) -> str:
     return f"r{placement.rotation}c{placement.column}"
+
+
+_PLACEMENT_ID_RE = re.compile(r"r(\d+)c(\d+)")
+
+
+def _parse_placement_id(text: str, identifiers) -> str | None:
+    """The first ``r<rotation>c<column>`` in the model's reply that is a legal candidate.
+
+    A chat model may wrap its answer in prose ("I pick r2c6 because..."), so the parser
+    scans for the id rather than trusting the whole line. Only a candidate the policy
+    actually offered is returned; an invented id is skipped and the scan continues.
+    """
+    for match in _PLACEMENT_ID_RE.finditer(text or ""):
+        candidate = f"r{match.group(1)}c{match.group(2)}"
+        if candidate in identifiers:
+            return candidate
+    return None
+
+
+def _deepseek_chat(prompt: str, *, timeout) -> str:
+    """One chat completion from deepseek-flash, returning the assistant's text.
+
+    deepseek serves an OpenAI-compatible API, so this is the same two fields the reference
+    implementation sends to TypeSafe, but as plain chat: ``messages`` instead of typed
+    questions. The key and base URL ride the same environment the rest of the repository
+    already uses (``OPENAI_API_KEY`` / ``OPENAI_BASE_URL`` → deepseek).
+    """
+    from pathlib import Path
+
+    from artemis.config import ROOT_DIR
+
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(str(Path(str(ROOT_DIR)) / ".env"), override=False)
+    except (OSError, ImportError, ValueError):
+        pass
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise systemone.SystemOneUnavailable("OPENAI_API_KEY is not set")
+    base = (os.environ.get("OPENAI_BASE_URL") or "https://api.deepseek.com").rstrip("/")
+    model = os.environ.get("TETRIS_LLM_MODEL") or "deepseek-flash"
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 64,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base}/chat/completions",
+        data=body,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout or 20.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        TimeoutError,
+        OSError,
+        ValueError,
+    ) as exc:
+        raise systemone.SystemOneUnavailable(
+            f"deepseek call failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    try:
+        return payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise systemone.SystemOneUnavailable(
+            f"deepseek returned no text: {str(payload)[:200]}"
+        ) from exc
+
+
+def _choice_llm(message, candidates, timeout, record=None, max_attempts=1):
+    """Ask deepseek-flash, in one text prompt, to name the best of the legal candidates.
+
+    The same candidates and consequences go out as for Jev, but as JSON inside a chat
+    message rather than as typed questions; the answer is free text and is parsed for a
+    legal id. ``confidence`` is ``None`` (a chat model gives no probability), which the
+    caller reads as "no confidence gate, just use the named placement".
+    """
+    identifiers = [_identifier(placement) for placement, _ in candidates]
+    prompt = (
+        "You are playing Tetris. Choose the single best placement for the falling piece.\n"
+        "Reply with ONLY the candidate id (for example: r0c3). Nothing else.\n\n"
+        "Instructions:\n"
+        + json.dumps(jev_state.PLACEMENT_INSTRUCTIONS, ensure_ascii=False)
+        + "\n\nState:\n"
+        + json.dumps(message, ensure_ascii=False)
+    )
+    if record is not None:
+        record["questions"] = None
+    text = _deepseek_chat(prompt, timeout=timeout)
+    winner = _parse_placement_id(text, identifiers)
+    if winner is None:
+        return None, None, {"text": text}
+    index = identifiers.index(winner)
+    return candidates[index][0], None, {"text": text}
 
 
 # --------------------------------------------------------------------------- #
