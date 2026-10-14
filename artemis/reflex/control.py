@@ -123,6 +123,15 @@ ESP32_REF_WIDTH = 1080
 ESP32_REF_HEIGHT = 2400
 #: A tap held at least this long is sent as the firmware's separate ``long_press`` command.
 ESP32_LONG_PRESS_MS = 500
+#: HID keyboard usages the firmware documents (decimal): Enter, Esc, Tab, Space, arrows.
+KEY_ENTER = 40
+KEY_ESCAPE = 41
+KEY_TAB = 43
+KEY_SPACE = 44
+KEY_RIGHT = 79
+KEY_LEFT = 80
+KEY_DOWN = 81
+KEY_UP = 82
 #: When set, gestures go through the ESP32-S3 HID board on this serial port (its UART
 #: USB-C console) instead of the assisted paths. Unset keeps the previous choice.
 ENV_ESP32_PORT = "ARTEMIS_ESP32_PORT"
@@ -258,6 +267,51 @@ class Esp32HidControl(Control):
             self._send(f"swipe {ax} {ay} {bx} {by} {int(gesture.duration_ms)}")
         else:
             raise ValueError(f"unsupported gesture kind: {gesture.kind!r}")
+        return (time.monotonic() - started) * 1000.0
+
+    def type_text(self, text: str) -> float:
+        """Type ``text`` on the phone; a newline becomes the Enter key.
+
+        The firmware's ``type`` maps ASCII letters, digits and spaces, one report per
+        character. Anything outside ASCII is refused rather than silently dropped, because a
+        half-typed string is a wrong instruction, not a lost one.
+        """
+        started = time.monotonic()
+        for index, line in enumerate(str(text).split("\n")):
+            if index:
+                self._send(f"key {KEY_ENTER}")
+            if line:
+                if not line.isascii():
+                    raise ValueError(f"the board types ASCII only: {line!r}")
+                self._send(f"type {line}")
+        return (time.monotonic() - started) * 1000.0
+
+    def press_key(self, usage: int) -> float:
+        """Press and release one HID key by its decimal usage code (e.g. 40 = Enter)."""
+        return self._timed(f"key {int(usage)}")
+
+    def key_down(self, usage: int) -> float:
+        return self._timed(f"kdown {int(usage)}")
+
+    def key_up(self, usage: int) -> float:
+        return self._timed(f"kup {int(usage)}")
+
+    def mouse_move(self, dx: int, dy: int) -> float:
+        """Move the pointer by a relative ``(dx, dy)`` — iOS assistive-touch style."""
+        return self._timed(f"move {int(dx)} {int(dy)}")
+
+    def mouse_click(self) -> float:
+        return self._timed("click")
+
+    def mouse_down(self) -> float:
+        return self._timed("mdown")
+
+    def mouse_up(self) -> float:
+        return self._timed("mup")
+
+    def _timed(self, command: str) -> float:
+        started = time.monotonic()
+        self._send(command)
         return (time.monotonic() - started) * 1000.0
 
     def close(self) -> None:

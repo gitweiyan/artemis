@@ -122,3 +122,62 @@ def test_the_esp32_port_is_named_by_the_environment(monkeypatch):
 
     monkeypatch.setenv("ARTEMIS_ESP32_PORT", "  /dev/cu.usbmodem123  ")
     assert esp32_port() == "/dev/cu.usbmodem123", "a named port is stripped, not used verbatim"
+
+
+# --------------------------------------------------------------------------- #
+# The board is a full HID: keyboard and mouse, not just a touchscreen
+# --------------------------------------------------------------------------- #
+
+
+def test_typing_sends_the_firmware_type_command(esp32):
+    control, recorder = esp32()
+    control.type_text("hello 42")
+    assert recorder.lines == ["type hello 42\n"]
+
+
+def test_a_newline_is_typed_as_enter(esp32):
+    control, recorder = esp32()
+    control.type_text("one\ntwo")
+    assert recorder.lines == ["type one\n", "key 40\n", "type two\n"]
+
+
+def test_typing_refuses_what_the_board_cannot_type(esp32):
+    """The firmware maps ASCII keys only; silently dropping characters types the wrong thing."""
+    control, recorder = esp32()
+    with pytest.raises(ValueError):
+        control.type_text("你好")
+    assert recorder.lines == []
+
+
+def test_pressing_a_key_sends_its_hid_usage(esp32):
+    control, recorder = esp32()
+    control.press_key(40)  # Enter
+    assert recorder.lines == ["key 40\n"]
+
+
+def test_a_key_can_be_held_and_released(esp32):
+    control, recorder = esp32()
+    control.key_down(80)
+    control.key_up(80)
+    assert recorder.lines == ["kdown 80\n", "kup 80\n"]
+
+
+def test_the_mouse_moves_relative_and_clicks(esp32):
+    control, recorder = esp32()
+    control.mouse_move(10, -5)
+    control.mouse_click()
+    assert recorder.lines == ["move 10 -5\n", "click\n"]
+
+
+def test_mouse_buttons_are_separate_press_and_release(esp32):
+    control, recorder = esp32()
+    control.mouse_down()
+    control.mouse_up()
+    assert recorder.lines == ["mdown\n", "mup\n"]
+
+
+def test_keyboard_and_mouse_go_through_the_same_lazy_port(esp32):
+    """No writer seam open, only a gesture opens the port — a test never touches a device."""
+    control, _ = esp32()
+    control.type_text("x")
+    assert control._fd is None
