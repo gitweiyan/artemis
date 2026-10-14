@@ -403,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     from artemis.reflex.capture import default_capture
-    from artemis.reflex.control import AdbInputControl
+    from artemis.reflex.control import AdbInputControl, Esp32HidControl, esp32_port
     from artemis.reflex.registry import load_skill
     from artemis.reflex.runtime import run_reflex
 
@@ -423,7 +423,20 @@ def main(argv: list[str] | None = None) -> int:
     os.environ.setdefault("ARTEMIS_JEV_DUMP", str(out / "jev.jsonl"))
     trace = Trace(out / "trace.jsonl")
     device = default_capture(args.serial, prefer="screencap")
-    actuator = AdbInputControl(args.serial)
+    # An ESP32-S3 HID board, when named via ARTEMIS_ESP32_PORT, is the touchscreen: gestures
+    # go out over its UART console instead of adb. Gestures are in this skill's calibrated
+    # frame, so hand the board the screen size to scale into its HID reference.
+    esp = esp32_port()
+    if esp:
+        size = calibration.get("screen") or {}
+        screen = (
+            (int(size["width"]), int(size["height"]))
+            if size.get("width") and size.get("height")
+            else None
+        )
+        actuator = Esp32HidControl(esp, screen=screen)
+    else:
+        actuator = AdbInputControl(args.serial)
 
     try:
         if hasattr(policy_jev, "reset_telemetry"):

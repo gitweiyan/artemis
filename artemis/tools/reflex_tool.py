@@ -18,7 +18,7 @@ from typing import Any
 from artemis.core.tool_declaration import ToolDeclaration
 from artemis.reflex import registry
 from artemis.reflex.capture import default_capture
-from artemis.reflex.control import AdbInputControl, HelperControl
+from artemis.reflex.control import AdbInputControl, Esp32HidControl, HelperControl, esp32_port
 from artemis.reflex.runtime import DEFAULT_FPS_CAP, ReflexRuntime
 from artemis.tools.base import ArtemisTool
 from artemis.tools.tool_wrapper import ToolWrapper
@@ -128,7 +128,15 @@ class PlayReflexTool(ArtemisTool):
 
         try:
             frame_source = default_capture(serial, prefer=capture)
-            actuator = HelperControl(serial) if capture == "helper" else AdbInputControl(serial)
+            # An ESP32-S3 HID board, when one is named, replaces both assisted paths: the
+            # board is the touchscreen, so there is no helper and no adb input.
+            esp = esp32_port()
+            if esp:
+                actuator = Esp32HidControl(esp)
+            elif capture == "helper":
+                actuator = HelperControl(serial)
+            else:
+                actuator = AdbInputControl(serial)
         except (OSError, ValueError, RuntimeError, KeyError, AttributeError) as exc:
             return (
                 f"Error: the {capture} capture/control path could not be built on {serial}: {exc}"

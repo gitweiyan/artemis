@@ -26,7 +26,7 @@ from typing import Annotated
 
 from artemis.reflex import registry
 from artemis.reflex.capture import default_capture
-from artemis.reflex.control import AdbInputControl, HelperControl
+from artemis.reflex.control import AdbInputControl, Esp32HidControl, HelperControl, esp32_port
 from artemis.reflex.runtime import DEFAULT_FPS_CAP, ReflexRuntime
 from rich.console import Console
 from rich.table import Table
@@ -96,7 +96,14 @@ def probe(
         raise typer.Exit(code=1) from exc
 
     frame_source = default_capture(target, prefer=capture)
-    actuator = HelperControl(target) if capture == "helper" else AdbInputControl(target)
+    # An ESP32-S3 HID board, when one is named, replaces both assisted paths.
+    esp = esp32_port()
+    if esp:
+        actuator = Esp32HidControl(esp)
+    elif capture == "helper":
+        actuator = HelperControl(target)
+    else:
+        actuator = AdbInputControl(target)
     runtime = ReflexRuntime(capture=frame_source, control=actuator, fps_cap=fps_cap)
     typer.echo(f"Running reflex skill '{skill}' on {target} for {seconds:g}s ({capture} capture)…")
     result = runtime.run(handle, seconds=seconds)

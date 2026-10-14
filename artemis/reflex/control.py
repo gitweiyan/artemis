@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import os
 import subprocess
 import time
 
@@ -109,4 +110,162 @@ class AdbInputControl(Control):
         return (time.monotonic() - started) * 1000.0
 
 
-__all__ = ["AdbInputControl", "HelperControl"]
+# --------------------------------------------------------------------------- #
+# ESP32-S3 as a USB HID touchscreen
+# --------------------------------------------------------------------------- #
+
+#: The board's UART USB-C console speed (the reference firmware's monitor default).
+DEFAULT_ESP32_BAUDRATE = 115200
+#: The firmware's reference touch frame (its ``TOUCH_REF_WIDTH/HEIGHT``). The host states
+#: phone pixels in this frame and the board rescales them to HID's 0..65535, so only the
+#: aspect has to match the phone — the phone's real resolution does not matter.
+ESP32_REF_WIDTH = 1080
+ESP32_REF_HEIGHT = 2400
+#: A tap held at least this long is sent as the firmware's separate ``long_press`` command.
+ESP32_LONG_PRESS_MS = 500
+#: When set, gestures go through the ESP32-S3 HID board on this serial port (its UART
+#: USB-C console) instead of the assisted paths. Unset keeps the previous choice.
+ENV_ESP32_PORT = "ARTEMIS_ESP32_PORT"
+
+
+def esp32_port() -> str | None:
+    """The ESP32-S3 HID board's serial port if one is named for this run, else ``None``."""
+    value = os.environ.get(ENV_ESP32_PORT)
+    return value.strip() if value and value.strip() else None
+
+
+def _serial_speed(baudrate: int) -> int:
+    """The ``termios`` speed constant for ``baudrate`` (``B115200`` …)."""
+    import termios
+
+    speed = getattr(termios, f"B{int(baudrate)}", None)
+    if speed is None:
+        raise ValueError(f"unsupported serial baud rate {baudrate!r}")
+    return speed
+
+
+def _open_serial(port: str, baudrate: int) -> int:
+    """Open ``port`` in raw mode: 8N1, no echo, no line discipline, no flow control.
+
+    ``VMIN``/``VTIME`` are zero so a write never blocks on a read. The file descriptor is
+    returned for :func:`os.write`; the caller owns closing it.
+    """
+    import termios
+
+    fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    try:
+        _iflag, _oflag, _cflag, _lflag, _ispeed, _ospeed, cc = termios.tcgetattr(fd)
+        speed = _serial_speed(baudrate)
+        cc = list(cc)
+        cc[termios.VMIN] = 0
+        cc[termios.VTIME] = 0
+        termios.tcsetattr(
+            fd,
+            termios.TCSANOW,
+            [
+                0,  # iflag: no CR/NL translation, no flow control
+                0,  # oflag: no output post-processing
+                termios.CS8 | termios.CREAD | termios.CLOCAL,  # cflag: 8N1
+                0,  # lflag: raw, no echo, no canonical
+                speed,
+                speed,
+                cc,
+            ],
+        )
+        termios.tcflush(fd, termios.TCIOFLUSH)
+    except (OSError, ValueError):
+        os.close(fd)
+        raise
+    return fd
+
+
+class Esp32HidControl(Control):
+    """Tap/swipe through an ESP32-S3 acting as a USB HID touchscreen for the phone.
+
+    The Mac talks to the board over its **UART** USB-C port as a plain serial console; the
+    board turns each line into USB HID reports (on its ``USB`` port) to the phone. The
+    command set is the reference firmware's: ``tap x y``, ``long_press x y ms``,
+    ``swipe x1 y1 x2 y2 ms``. Gestures arrive in the device frame the skill is calibrated
+    in; they are scaled into the firmware's reference frame and clamped, so a device whose
+    aspect differs by a pixel does not silently drop taps.
+
+    The port opens lazily, on the first gesture: a skill can be loaded, calibrated and
+    planned with no board attached, and a missing board surfaces as the same
+    :class:`RuntimeError` the other controls raise — which the loop already handles.
+    """
+
+    def __init__(
+        self,
+        port: str,
+        *,
+        baudrate: int = DEFAULT_ESP32_BAUDRATE,
+        reference: tuple[int, int] = (ESP32_REF_WIDTH, ESP32_REF_HEIGHT),
+        screen: tuple[int, int] | None = None,
+        writer=None,
+    ):
+        self.port = port
+        self.baudrate = int(baudrate)
+        self.reference = (int(reference[0]), int(reference[1]))
+        self.screen = (int(screen[0]), int(screen[1])) if screen else None
+        #: A seam for tests (and for a different transport): called with the exact line.
+        self._writer = writer
+        self._fd: int | None = None
+
+    def _frame(self, x: float, y: float) -> tuple[int, int]:
+        """Scale a device-frame point into the firmware reference frame, then clamp."""
+        rx, ry = self.reference
+        if self.screen:
+            sx, sy = self.screen
+            x = float(x) * rx / sx
+            y = float(y) * ry / sy
+        return max(0, min(rx, round(x))), max(0, min(ry, round(y)))
+
+    def _send(self, command: str) -> None:
+        line = command + "\n"
+        if self._writer is not None:
+            self._writer(line)
+            return
+        if self._fd is None:
+            try:
+                self._fd = _open_serial(self.port, self.baudrate)
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(
+                    f"ESP32 serial port {self.port} could not be opened: {exc}"
+                ) from exc
+        try:
+            os.write(self._fd, line.encode("ascii"))
+        except OSError as exc:
+            raise RuntimeError(f"ESP32 serial write to {self.port} failed: {exc}") from exc
+
+    def dispatch(self, gesture: Gesture) -> float:
+        started = time.monotonic()
+        if gesture.kind == "tap":
+            ((x, y),) = gesture.points
+            px, py = self._frame(x, y)
+            if int(gesture.duration_ms) >= ESP32_LONG_PRESS_MS:
+                self._send(f"long_press {px} {py} {int(gesture.duration_ms)}")
+            else:
+                self._send(f"tap {px} {py}")
+        elif gesture.kind == "swipe":
+            (x1, y1), (x2, y2) = gesture.points
+            ax, ay = self._frame(x1, y1)
+            bx, by = self._frame(x2, y2)
+            self._send(f"swipe {ax} {ay} {bx} {by} {int(gesture.duration_ms)}")
+        else:
+            raise ValueError(f"unsupported gesture kind: {gesture.kind!r}")
+        return (time.monotonic() - started) * 1000.0
+
+    def close(self) -> None:
+        """Release the serial port, if it was opened."""
+        if self._fd is not None:
+            os.close(self._fd)
+            self._fd = None
+
+
+__all__ = [
+    "ENV_ESP32_PORT",
+    "AdbInputControl",
+    "Esp32HidControl",
+    "HelperControl",
+    "esp32_port",
+]
