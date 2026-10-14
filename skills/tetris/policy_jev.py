@@ -213,7 +213,7 @@ def decide(state, calibration):
             # until it lands. The operator's rule, and the fix for what the device showed —
             # turn, shift, turn, shift — because both halves used to re-measure every frame
             # and a mask that reads a column over kept sending the piece back to the buttons.
-            return _placement_action(placement, state, counters, mode, settle_only=True)
+            return _placement_action(placement, state, counters, mode, settle_only=True, cal=cal)
         if _last.get("phase") == "rotate":
             taps = _taps_to_reach(mask, _last["shapes"], placement.rotation)
             if taps:
@@ -264,7 +264,7 @@ def decide(state, calibration):
         # is corrected rather than silently landing in the wrong place; and with no hard
         # drop the piece keeps falling, which is exactly what leaves those frames available.
         _last["phase"] = "move"
-        return _placement_action(placement, state, counters, mode)
+        return _placement_action(placement, state, counters, mode, cal=cal)
 
     message = jev_state.build_state(
         board_matrix=state.get("board_matrix") or _as_matrix(board),
@@ -315,14 +315,35 @@ def _decided(mask, key, chosen, source: str, counters: dict, mode: str, state, c
         piece_id=state.get("piece_id"),
     )
     if not taps:
-        return _placement_action(chosen, state, counters, mode)
+        return _placement_action(chosen, state, counters, mode, cal=cal)
     action = _turning_action(chosen, state, counters, mode, source, taps, cal)
     if not action.done:
         action.state["note"] = f"{source} {mode} r{chosen.rotation}c{chosen.column} (turn first)"
     return action
 
 
-def _placement_action(placement, state, counters: dict, mode: str, *, settle_only: bool = False):
+def _fall_rows_left(state) -> int | None:
+    """Rows of fall left before the piece reaches the floor, or None when unknown.
+
+    ``None`` means the piece positions are not in the state (an older pipeline); the caller
+    then drops as before rather than guessing.
+    """
+    positions = state.get("current_piece_positions") or []
+    if not positions:
+        return None
+    rows = int((state.get("grid") or {}).get("rows") or 20)
+    return rows - 1 - max(row for row, _ in positions)
+
+
+def _placement_action(
+    placement,
+    state,
+    counters: dict,
+    mode: str,
+    *,
+    settle_only: bool = False,
+    cal: dict | None = None,
+):
     """Shift the piece to the chosen column once, then hold until it lands.
 
     **Once.** The first version re-measured the column every frame and corrected any
@@ -335,6 +356,14 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
     """
     current = search_policy.piece_column(state)
     delta = None if settle_only or current is None else int(placement.column) - int(current)
+    # If the piece is already near the floor, the drop is a no-op at best and a risk at
+    # worst: a late drop tap hits the *next* piece and lands it where we never saw it
+    # (measured 2026-10-14 run26 f245 -> f247: a piece at the floor got move+drop, locked in
+    # place, and a 3-cell bar then appeared locked at the top of the left tower with no trace
+    # record). Let a near-floor piece lock on its own.
+    min_fall = int((cal or {}).get("min_fall_rows_for_drop") or DEFAULT_MIN_FALL_ROWS_FOR_DROP)
+    fall_left = _fall_rows_left(state)
+    too_close = fall_left is not None and fall_left < min_fall
     if settle_only:
         counters["phase"] = "hold"
         counters["on_target"] = 1
@@ -343,6 +372,8 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
         drop = not _last.get("dropped")
         if drop:
             _last["dropped"] = True
+        if too_close:
+            drop = False
         return Action(
             gestures=(),
             done=False,
@@ -365,6 +396,8 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
         drop = not _last.get("dropped")
         if drop:
             _last["dropped"] = True
+        if too_close:
+            drop = False
         _last["phase"] = "hold"
         return Action(
             gestures=(),
@@ -393,7 +426,7 @@ def _placement_action(placement, state, counters: dict, mode: str, *, settle_onl
             "placement": placement.as_dict(),
             "phase": "move",
             "move_columns": delta,
-            "drop": True,
+            "drop": False if too_close else True,
             "counters": counters,
             "current_column": current,
             "note": f"jev {mode} (move {delta:+d} to column {placement.column})",
@@ -415,6 +448,11 @@ ROTATE_SETTLE_FRAMES = 2
 #: column off; waiting for two identical reads (one frame) fixes that without a second Jev
 #: request.
 DEFAULT_MAX_ALIGN_FRAMES = 2
+#: If the piece has fewer than this many rows of fall left, the drop tap is skipped: it is
+#: about to lock on its own, and the tap is a no-op at best or lands on the next piece at worst
+#: (measured 2026-10-14 run26 f245: a piece at the floor got move+drop, locked in place, and a
+#: late drop then put the next piece on the left tower with no trace record).
+DEFAULT_MIN_FALL_ROWS_FOR_DROP = 2
 
 
 def _turning_action(placement, state, counters: dict, mode: str, source: str, taps: int, cal: dict):
