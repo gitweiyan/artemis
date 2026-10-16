@@ -148,11 +148,124 @@ class ScreencapCapture(Capture):
         return None
 
 
+#: The capture card's name on this Mac (measured 2026-10-16: "USB Video"). A UVC card is
+#: chosen **by name, never by index**: macOS's AVFoundation order is not stable — two
+#: listings a minute apart put the card at index 1 and then 0, so ``-i 1`` returned the
+#: capture card once and the built-in camera the next time, silently feeding the loop a
+#: webcam image of the room instead of the phone.
+DEFAULT_UVC_DEVICE = "USB Video"
+#: The card's frame. 1080p keeps a phone's UI text readable after the letterbox is cropped.
+DEFAULT_UVC_SIZE = (1920, 1080)
+DEFAULT_UVC_FRAMERATE = 30
+
+
+def _crop_png(png: bytes, box) -> tuple[bytes, tuple[int, int]]:
+    """Crop a PNG to ``box`` (left, top, right, bottom in source pixels) and re-encode."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    cropped = Image.open(BytesIO(png)).crop(tuple(box))
+    out = BytesIO()
+    cropped.save(out, "PNG")
+    return out.getvalue(), cropped.size
+
+
+class UvcCapture(Capture):
+    """Frames from a UVC capture card (an HDMI dongle), via ffmpeg + AVFoundation.
+
+    One ffmpeg process per frame, a PNG on stdout. ``crop`` trims a letterboxed phone
+    out of the card's wider frame; the frame then reports the *cropped* size, so a
+    skill's ROI ratios line up with what it is looking at.
+    """
+
+    def __init__(
+        self,
+        device: str = DEFAULT_UVC_DEVICE,
+        *,
+        size: tuple[int, int] = DEFAULT_UVC_SIZE,
+        framerate: int = DEFAULT_UVC_FRAMERATE,
+        crop: tuple[int, int, int, int] | None = None,
+        ffmpeg: str = "ffmpeg",
+        timeout_s: float = 20.0,
+        runner=None,
+    ):
+        self.device = device
+        self.size = (int(size[0]), int(size[1]))
+        self.framerate = int(framerate)
+        self.crop = tuple(int(v) for v in crop) if crop else None
+        self.ffmpeg = ffmpeg
+        self.timeout_s = float(timeout_s)
+        #: A seam for tests (and for another grabber): ``runner(cmd, timeout_s)``.
+        self._runner = runner
+
+    def _command(self) -> list[str]:
+        width, height = self.size
+        return [
+            self.ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "avfoundation",
+            "-framerate",
+            str(self.framerate),
+            "-video_size",
+            f"{width}x{height}",
+            "-i",
+            self.device,
+            "-frames:v",
+            "1",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "png",
+            "-",
+        ]
+
+    def _run(self, cmd):
+        if self._runner is not None:
+            return self._runner(cmd, self.timeout_s)
+        return subprocess.run(cmd, capture_output=True, timeout=self.timeout_s)
+
+    def grab(self) -> Frame:
+        started = time.monotonic()
+        try:
+            result = self._run(self._command())
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CaptureError(f"uvc capture failed: {exc}") from exc
+        png = result.stdout
+        if result.returncode != 0 or not png:
+            raise CaptureError(
+                f"uvc capture returned {result.returncode}: {bytes(result.stderr)[:200]!r}"
+            )
+        if self.crop is not None:
+            png, size = _crop_png(png, self.crop)
+        else:
+            size = self.size
+        return Frame(
+            image=png,
+            captured_at=time.monotonic(),
+            capture_ms=(time.monotonic() - started) * 1000.0,
+            width=size[0],
+            height=size[1],
+        )
+
+    def close(self) -> None:
+        return None
+
+
 def default_capture(serial: str, *, prefer: str = "helper") -> Capture:
-    """The capture path for ``serial``; ``prefer='screencap'`` forces the slow one."""
+    """The capture path for ``serial``.
+
+    ``prefer='screencap'`` forces the slow adb path; ``prefer='uvc'`` uses the capture
+    card and treats ``serial`` as its **device name** (a UVC card has no adb serial).
+    """
+    if prefer == "uvc":
+        return UvcCapture(serial)
     if prefer == "screencap":
         return ScreencapCapture(serial)
     return HelperCapture(serial)
 
 
-__all__ = ["HelperCapture", "ScreencapCapture", "default_capture"]
+__all__ = ["HelperCapture", "ScreencapCapture", "UvcCapture", "default_capture"]
