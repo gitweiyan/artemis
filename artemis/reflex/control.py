@@ -223,33 +223,6 @@ def parse_usb_state(text: str) -> dict[str, int | str | None]:
     }
 
 
-def _query_serial(fd: int, command: str, *, timeout: float = 2.0) -> str:
-    """Send one console command and collect its response until the usb line appears."""
-    # Drain stale boot logs/echo first; the board's console also carries ESP_LOG output.
-    while select.select([fd], [], [], 0)[0]:
-        os.read(fd, 4096)
-    os.write(fd, (command + "\n").encode("ascii"))
-
-    deadline = time.monotonic() + timeout
-    chunks: list[bytes] = []
-    while time.monotonic() < deadline:
-        wait = min(0.1, max(0.0, deadline - time.monotonic()))
-        readable, _, _ = select.select([fd], [], [], wait)
-        if not readable:
-            continue
-        chunk = os.read(fd, 4096)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        text = b"".join(chunks).decode("utf-8", "replace")
-        if _USB_STATE_RE.search(text):
-            time.sleep(0.05)  # collect the rest of the line
-            while select.select([fd], [], [], 0)[0]:
-                chunks.append(os.read(fd, 4096))
-            break
-    return b"".join(chunks).decode("utf-8", "replace")
-
-
 class Esp32HidControl(Control):
     """Tap/swipe through an ESP32-S3 acting as a USB HID touchscreen for the phone.
 
@@ -274,6 +247,7 @@ class Esp32HidControl(Control):
         screen: tuple[int, int] | None = None,
         writer=None,
         reader: Callable[[str], str] | None = None,
+        ack_timeout_s: float = 3.0,
     ):
         self.port = port
         self.baudrate = int(baudrate)
@@ -283,6 +257,8 @@ class Esp32HidControl(Control):
         self._writer = writer
         #: A preflight seam: called with a command name, returns the console response.
         self._reader = reader
+        #: The firmware prints ``OK`` after each command; the next line is not sent first.
+        self.ack_timeout_s = float(ack_timeout_s)
         self._fd: int | None = None
 
     def _frame(self, x: float, y: float) -> tuple[int, int]:
@@ -305,16 +281,58 @@ class Esp32HidControl(Control):
                 ) from exc
         return self._fd
 
-    def _send(self, command: str) -> None:
+    def _send_with_response(self, command: str, *, timeout: float | None = None) -> str:
+        """Send one command and wait for the firmware's ``OK`` before returning.
+
+        The firmware prints ``OK`` after every command (including a slow ``home``),
+        so the host never has a second line in flight while the UART is busy. This is
+        the fix for the 2026-10-19 overrun that turned ``move`` into ``ove``.
+        """
         line = command + "\n"
         if self._writer is not None:
             self._writer(line)
-            return
+            return ""
+        if self._reader is not None:
+            return self._reader(command)
+
         fd = self._ensure_open()
+        while select.select([fd], [], [], 0)[0]:
+            try:
+                os.read(fd, 4096)
+            except BlockingIOError:
+                break
+
         try:
             os.write(fd, line.encode("ascii"))
         except OSError as exc:
             raise RuntimeError(f"ESP32 serial write to {self.port} failed: {exc}") from exc
+
+        wait_for = self.ack_timeout_s if timeout is None else float(timeout)
+        deadline = time.monotonic() + wait_for
+        data = b""
+        while time.monotonic() < deadline:
+            wait = min(0.05, max(0.0, deadline - time.monotonic()))
+            readable, _, _ = select.select([fd], [], [], wait)
+            if not readable:
+                continue
+            try:
+                chunk = os.read(fd, 4096)
+            except BlockingIOError:
+                continue
+            if not chunk:
+                break
+            data += chunk
+            text = data.decode("utf-8", "replace")
+            if any(part.strip() == "OK" for part in text.splitlines()):
+                return text
+
+        raise RuntimeError(
+            f"ESP32 command {command!r} got no OK ack within {wait_for:.1f}s; "
+            f"response={data[-300:]!r}"
+        )
+
+    def _send(self, command: str) -> None:
+        self._send_with_response(command)
 
     def preflight(self) -> dict[str, int | str | None]:
         """Fail fast unless the board's HID interfaces can accept input.
@@ -326,14 +344,9 @@ class Esp32HidControl(Control):
         otherwise. The opened port is reused by the first gesture.
         """
         try:
-            if self._reader is not None:
-                text = self._reader("usb")
-            else:
-                text = _query_serial(self._ensure_open(), "usb")
+            text = self._send_with_response("usb")
         except OSError as exc:
-            raise RuntimeError(
-                f"ESP32 serial preflight failed on {self.port}: {exc}"
-            ) from exc
+            raise RuntimeError(f"ESP32 serial preflight failed on {self.port}: {exc}") from exc
 
         try:
             state = parse_usb_state(text)

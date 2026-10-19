@@ -122,16 +122,18 @@ static void handle_line(char *line)
         }
     } else if (strcmp(cmd, "home") == 0) {
         printf("[cmd] home\n");
-        for (int i = 0; i < 50; i++) {
-            hid_mouse_move(-127, -127);
-            vTaskDelay(pdMS_TO_TICKS(2));
+        if (!hid_mouse_home()) {
+            printf("ERR mouse not ready\n");
         }
     } else if (strcmp(cmd, "move") == 0) {
-        if (sscanf(line, "%*s %d %d", &a, &b) == 2) {
+        if (sscanf(line, "%*s %d %d", &a, &b) == 2 &&
+            a >= -10000 && a <= 10000 && b >= -10000 && b <= 10000) {
             printf("[cmd] move %d %d\n", a, b);
-            hid_mouse_move((int8_t) a, (int8_t) b);
+            if (!hid_mouse_move(a, b)) {
+                printf("ERR mouse not ready\n");
+            }
         } else {
-            printf("usage: move <dx> <dy>\n");
+            printf("usage: move <dx> <dy> (each -10000..10000)\n");
         }
     } else if (strcmp(cmd, "click") == 0) {
         printf("[cmd] click\n");
@@ -181,8 +183,7 @@ static void handle_line(char *line)
         printf("[cmd] type: %s\n", text);
         hid_keyboard_type(text);
     } else {
-        printf("unknown command: %s\n", cmd);
-        print_help();
+        printf("ERR unknown command: %s\n", cmd);
     }
 }
 
@@ -190,6 +191,7 @@ static void cmd_task(void *arg)
 {
     (void) arg;
     char line[128];
+    char discard[64];
 
     printf("\n=== HID Touch/Mouse/Keyboard ready. Type 'help' for commands. ===\n");
 
@@ -198,7 +200,24 @@ static void cmd_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] != '\n') {
+            // Overlong line: drain to the next newline, never execute a fragment.
+            while (fgets(discard, sizeof(discard), stdin) != NULL) {
+                size_t n = strlen(discard);
+                if (n > 0 && discard[n - 1] == '\n') {
+                    break;
+                }
+            }
+            printf("ERR line too long\nOK\n");
+            fflush(stdout);
+            continue;
+        }
         handle_line(line);
+        // Every command ends with an explicit ack. The host keeps exactly one
+        // command in flight, so a slow home/move cannot overrun the UART parser.
+        printf("OK\n");
+        fflush(stdout);
     }
 }
 

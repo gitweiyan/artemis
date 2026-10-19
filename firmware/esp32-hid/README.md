@@ -21,7 +21,7 @@
 - `artemis/tools/reflex_tool.py` — `play_reflex` 工具，把 capture/control 接进 reflex 运行时；
 - 环境变量 `ARTEMIS_ESP32_PORT` 指向本固件的 UART 口（如 `/dev/cu.usbmodemXXXX`）；`play_reflex` 的 `capture` 参数当前文档写的是 `helper`/`screencap`，底层 `default_capture` 已支持 `uvc`。
 
-串口参数：**115200 8N1**，一行一条命令，固件在 UART0 控制台回显 `[cmd] ...` 和诊断信息。
+串口参数：**115200 8N1**，一行一条命令，固件在 UART0 控制台回显 `[cmd] ...` 和诊断信息。每条命令执行完回一行 `OK`；上位机必须**一次只发一条**，收到 `OK` 再发下一条（P0 的 ack 流控，防止 `home`/`move` 期间 UART 溢出）。
 
 ## 硬件与接线
 
@@ -162,7 +162,7 @@ help
 | `swipe` | 滑动 | `x1 y1 x2 y2 duration_ms` |
 | `drag` | 长按后拖拽 | `x1 y1 x2 y2 duration_ms` |
 | `home` | 鼠标指针归零到左上角 | — |
-| `move` | 鼠标相对移动 | `dx dy`（每轴 −127..127） |
+| `move` | 鼠标相对移动 | `dx dy`（每轴 −10000..10000；固件自动拆成 ≤127 的报文） |
 | `click` | 鼠标左键点击 | — |
 | `mdown` / `mup` | 鼠标按下 / 松开 | — |
 | `key` | 按下并释放一个键 | `usage`（十进制） |
@@ -229,7 +229,7 @@ Android 把 HID 逻辑范围 0..65535 映射到整个屏幕，所以只要参考
 - **iOS 相对鼠标有加速度**：`home` + 固定 `move` 不能保证精确落点；生产路径需要指针检测/两点校准/aim 闭环。
 - **UVC 不总是显示辅助触控指针**：辅助触控未生效时抓帧里看不到指针；开启后部分采集路径可见，仍建议先做 preflight。
 - 触摸屏当前为**单点触控**（multi-touch 未实现）；iOS-only 构建不包含触摸接口。
-- `move` 每轴范围 −127..127；超过会按 HID 报文字节截断，上位机应分段发送。
+- `move` 单条命令每轴 −10000..10000；固件按 `int8` HID 范围自动拆分，并按 10ms/`tud_hid_n_ready` 节奏发送，上位机不需要自己拆。
 - 串口命令是手动测试通道，不是 Wi-Fi/云端 LLM 接入。
 - Hub/线缆兼容性：直连可用但经 Hub `mounted=0` 时，优先换 **支持 USB 数据的 Hub 或数据线**，不要用只供电/只 HDMI 的转接。
 

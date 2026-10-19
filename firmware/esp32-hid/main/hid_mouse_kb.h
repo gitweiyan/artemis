@@ -4,7 +4,10 @@
 #include <stdbool.h>
 
 // Mouse (relative) — used by iOS AssistiveTouch as a pointer.
-void hid_mouse_move(int8_t dx, int8_t dy);
+// The firmware owns the int8 HID range: it splits a large intent into <=127
+// reports, waits for the endpoint to be ready, and leaves 10 ms between reports.
+bool hid_mouse_move(int dx, int dy);
+bool hid_mouse_home(void);    // slam the pointer to the top-left corner
 void hid_mouse_click(void);   // left button press + release
 void hid_mouse_down(void);
 void hid_mouse_up(void);
