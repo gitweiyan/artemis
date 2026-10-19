@@ -222,6 +222,48 @@ class RedPointerDetector:
         return Pointer(x, y, confidence, "red-ring")
 
 
+class RingShapeDetector:
+    """Shape-only fallback for a small pointer ring over a red/colored target."""
+
+    def __init__(self, *, min_radius: int = 6, max_radius: int = 16, param2: int = 12):
+        self.min_radius = min_radius
+        self.max_radius = max_radius
+        self.param2 = param2
+
+    def detect(self, image: bytes, near: tuple[float, float] | None = None) -> Pointer | None:
+        cv2 = _cv2()
+        np = _numpy()
+        decoded = cv2.imdecode(np.frombuffer(image, np.uint8), cv2.IMREAD_COLOR)
+        if decoded is None:
+            return None
+        gray = cv2.cvtColor(decoded, cv2.COLOR_BGR2GRAY)
+        gray = cv2.medianBlur(gray, 5)
+        circles = cv2.HoughCircles(
+            gray,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=20,
+            param1=80,
+            param2=self.param2,
+            minRadius=self.min_radius,
+            maxRadius=self.max_radius,
+        )
+        if circles is None:
+            return None
+        height, width = gray.shape[:2]
+        candidates = [
+            (float(x) / width, float(y) / height, float(radius))
+            for x, y, radius in np.round(circles[0]).astype(int)
+        ]
+        if near is not None:
+            nx, ny = near
+            candidates.sort(key=lambda item: (item[0] - nx) ** 2 + (item[1] - ny) ** 2)
+        else:
+            candidates.sort(key=lambda item: item[2], reverse=True)
+        x, y, _radius = candidates[0]
+        return Pointer(x, y, 0.65, "ring-shape")
+
+
 def pointer(
     before: bytes,
     after: bytes,
@@ -297,4 +339,4 @@ def changed(
     return count >= min_pixels
 
 
-__all__ = ["Pointer", "PointerTracker", "RedPointerDetector", "changed", "pointer"]
+__all__ = ["Pointer", "PointerTracker", "RedPointerDetector", "RingShapeDetector", "changed", "pointer"]
