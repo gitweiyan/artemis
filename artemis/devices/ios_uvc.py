@@ -1,0 +1,42 @@
+"""Compose the iOS UVC perception + ESP32 HID control session."""
+
+from __future__ import annotations
+
+from artemis.control.hid import HidControlSink
+from artemis.devices.geometry import ScreenGeometry
+from artemis.devices.session import DeviceSession
+from artemis.reflex.mouse import PointerSession, SessionTapController
+from artemis.perception.uvc import UvcSource
+from artemis.reflex.vision import RedPointerDetector
+
+
+class _GrabLatest:
+    """Adapt the one-shot UVC capture to SessionTapController's grab_latest seam."""
+
+    def __init__(self, capture):
+        self.capture = capture
+
+    def grab_latest(self):
+        return self.capture.grab()
+
+
+def build_ios_uvc_session(
+    capture,
+    control,
+    *,
+    frame_size: tuple[int, int] = (449, 974),
+    screen_size: tuple[int, int] = (1080, 2400),
+    pointer_gain: tuple[float, float] = (1.8, 1.8),
+    detector=None,
+) -> DeviceSession:
+    pointer = PointerSession(control, frame_size=frame_size, gain=pointer_gain)
+    controller = SessionTapController(
+        pointer,
+        capture=_GrabLatest(capture),
+        detector=detector or RedPointerDetector(),
+    )
+    return DeviceSession(
+        perception=[UvcSource(capture)],
+        control=[HidControlSink(pointer, controller)],
+        geometry=ScreenGeometry(frame_size, screen_size),
+    )
