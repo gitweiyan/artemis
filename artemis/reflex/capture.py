@@ -192,10 +192,12 @@ class UvcCapture(Capture):
         ffmpeg: str = "ffmpeg",
         timeout_s: float = 20.0,
         runner=None,
+        pixel_format: str | None = "nv12",
     ):
         self.device = device
         self.size = (int(size[0]), int(size[1]))
         self.framerate = int(framerate)
+        self.pixel_format = pixel_format
         self.crop = tuple(int(v) for v in crop) if crop else None
         self.ffmpeg = ffmpeg
         self.timeout_s = float(timeout_s)
@@ -211,6 +213,7 @@ class UvcCapture(Capture):
             "error",
             "-f",
             "avfoundation",
+            *(["-pixel_format", self.pixel_format] if self.pixel_format else []),
             "-framerate",
             str(self.framerate),
             "-video_size",
@@ -282,10 +285,12 @@ class UvcStream(Capture):
         ffmpeg: str = "ffmpeg",
         timeout_s: float = 2.0,
         process_factory=None,
+        pixel_format: str | None = "nv12",
     ):
         self.device = device
         self.size = (int(size[0]), int(size[1]))
         self.framerate = int(framerate)
+        self.pixel_format = pixel_format
         self.crop = tuple(int(value) for value in crop) if crop else None
         self.ffmpeg = ffmpeg
         self.timeout_s = float(timeout_s)
@@ -307,6 +312,7 @@ class UvcStream(Capture):
             "error",
             "-f",
             "avfoundation",
+            *(["-pixel_format", self.pixel_format] if self.pixel_format else []),
             "-framerate",
             str(self.framerate),
             "-video_size",

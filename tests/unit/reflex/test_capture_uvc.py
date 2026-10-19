@@ -107,3 +107,20 @@ def test_the_crop_removes_the_letterbox_bars():
 
 def test_close_is_a_no_op():
     assert UvcCapture("USB Video", runner=FakeRunner()).close() is None
+
+
+def test_the_command_selects_the_uvc_supported_pixel_format():
+    """This card rejects ffmpeg's default yuv420p; explicit nv12 avoids a hung open."""
+    runner = FakeRunner()
+    UvcCapture("USB Video", pixel_format="nv12", runner=runner).grab()
+
+    cmd = runner.commands[0]
+    assert cmd[cmd.index("-pixel_format") + 1] == "nv12"
+
+
+def test_nv12_is_the_default_pixel_format():
+    runner = FakeRunner()
+    UvcCapture("USB Video", runner=runner).grab()
+
+    cmd = runner.commands[0]
+    assert cmd[cmd.index("-pixel_format") + 1] == "nv12"
