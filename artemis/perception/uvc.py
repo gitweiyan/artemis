@@ -8,7 +8,7 @@ from io import BytesIO
 from PIL import Image
 
 from artemis.devices.capabilities import CapabilitySet
-from artemis.perception.base import Frame, Target
+from artemis.perception.base import Frame, Target, TextBox
 
 
 def _classify(image: bytes) -> str:
@@ -31,9 +31,11 @@ class UvcSource:
 
     capabilities = CapabilitySet()
 
-    def __init__(self, capture, *, name: str = "uvc"):
+    def __init__(self, capture, *, name: str = "uvc", ocr_engine=None):
         self.capture = capture
         self.name = name
+        self.ocr_engine = ocr_engine
+        self.capabilities = CapabilitySet(supports_ocr=ocr_engine is not None)
 
     async def snapshot(self) -> Frame:
         raw = await asyncio.to_thread(self.capture.grab)
@@ -49,8 +51,20 @@ class UvcSource:
     async def ui_tree(self):
         return None
 
-    async def ocr(self, frame: Frame):
-        return None
+    async def ocr(self, frame: Frame) -> list[TextBox] | None:
+        if self.ocr_engine is None:
+            return None
+        return await asyncio.to_thread(
+            self.ocr_engine.recognize,
+            frame.image,
+            width=frame.width,
+            height=frame.height,
+        )
 
-    async def locate(self, frame: Frame, target: Target):
-        return None
+    async def locate(self, frame: Frame, target: Target) -> Target | None:
+        boxes = await self.ocr(frame)
+        if boxes is None:
+            return None
+        from artemis.perception.text_locator import locate_text
+
+        return locate_text(boxes, target.label)
