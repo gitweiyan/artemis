@@ -1,0 +1,11 @@
+menu "Artemis HID configuration"
+
+    config ARTEMIS_HID_INCLUDE_TOUCH
+        bool "Include the absolute touchscreen (digitizer) interface"
+        default y
+        help
+            Android can use an external absolute touchscreen. iOS does not
+            support external HID digitizers, so an iOS-only build should
+            disable this and expose keyboard + mouse only.
+
+endmenu

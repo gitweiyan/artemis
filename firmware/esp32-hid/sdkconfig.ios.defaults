@@ -1,0 +1,16 @@
+# iOS-only build: no absolute digitizer; keyboard + mouse only.
+# The device descriptor still uses the default Espressif VID/PID; the product
+# string and the HID interface count distinguish this build from the default
+# Android/composite build.
+#
+# Load it explicitly with SDKCONFIG_DEFAULTS (do not reuse a sdkconfig that was
+# generated from sdkconfig.defaults alone):
+#
+#   idf.py -B build-ios -D SDKCONFIG=build-ios/sdkconfig \
+#     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.ios.defaults" \
+#     set-target esp32s3
+#   idf.py -B build-ios -D SDKCONFIG=build-ios/sdkconfig \
+#     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.ios.defaults" \
+#     build
+CONFIG_ARTEMIS_HID_INCLUDE_TOUCH=n
+CONFIG_TINYUSB_HID_COUNT=2

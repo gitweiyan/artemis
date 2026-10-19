@@ -1,0 +1,18 @@
+# Three HID interfaces (touchscreen + mouse + keyboard). Sets CFG_TUD_HID = 3.
+# For an iOS-only keyboard+mouse build, see sdkconfig.ios.defaults.
+CONFIG_TINYUSB_HID_COUNT=3
+CONFIG_ARTEMIS_HID_INCLUDE_TOUCH=y
+
+# Keep TinyUSB logs quiet in normal use. Raise to 3 and rebuild to see USBD
+# BUS_RESET/SUSPEND/RESUME lines while debugging.
+CONFIG_TINYUSB_DEBUG_LEVEL=1
+
+# Console goes to UART0 (GPIO43=TX, GPIO44=RX), NOT USB-Serial/JTAG.
+# On ESP32-S3 the USB-Serial/JTAG and USB-OTG (used by TinyUSB HID) share one
+# USB PHY and cannot work at the same time. HID needs USB-OTG, so the console
+# must use UART0 to coexist. Connect a USB-UART adapter to GPIO43/44 for the
+# interactive command console; this build has no auto-demo.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# This DevKitC-1 has 8MB flash (verified from the previous boot log).
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
