@@ -323,7 +323,13 @@ class Esp32HidControl(Control):
                 break
             data += chunk
             text = data.decode("utf-8", "replace")
-            if any(part.strip() == "OK" for part in text.splitlines()):
+            lines = [part.strip() for part in text.splitlines()]
+            if any(part == "OK" for part in lines):
+                errors = [
+                    part for part in lines if part.startswith("ERR ") or part.startswith("usage:")
+                ]
+                if errors:
+                    raise RuntimeError(f"ESP32 command {command!r} failed: {errors[0]}")
                 return text
 
         raise RuntimeError(

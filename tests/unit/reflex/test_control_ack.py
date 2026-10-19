@@ -79,3 +79,19 @@ def test_mouse_move_goes_through_the_ack_channel_without_host_side_splitting():
     assert seen == [b"move 300 -300\n"], (
         "the firmware owns int8 splitting; the host sends the intent once"
     )
+
+
+def test_an_err_response_is_a_failure_even_though_it_ends_with_ok():
+    host, firmware = _socketpair()
+    control = Esp32HidControl("FAKE", ack_timeout_s=1.0)
+    control._fd = host.fileno()
+    seen: list[bytes] = []
+    thread = _responder(firmware, b"ERR line too long\r\nOK\r\n", seen)
+    try:
+        with pytest.raises(RuntimeError, match="line too long"):
+            control._send_with_response("type " + "x" * 200)
+    finally:
+        thread.join(timeout=1.0)
+        control._fd = None
+        host.close()
+        firmware.close()
