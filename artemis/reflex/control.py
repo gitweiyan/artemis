@@ -8,9 +8,11 @@ so the choice can be made on numbers rather than on hope.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import os
+import re
+import select
 import subprocess
 import time
 
@@ -193,6 +195,61 @@ def _open_serial(port: str, baudrate: int) -> int:
     return fd
 
 
+#: The firmware's diagnostic line. ``mode`` is optional so old firmware still parses;
+#: ``touch`` is informational — iOS builds legitimately report ``touch=0``.
+_USB_STATE_RE = re.compile(
+    r"usb mounted=(\d+) suspended=(\d+) mouse=(\d+) keyboard=(\d+) touch=(\d+)"
+    r"(?: mode=(\w+))?"
+)
+
+
+def parse_usb_state(text: str) -> dict[str, int | str | None]:
+    """Parse the last ``usb mounted=...`` line in a console response.
+
+    Raises ``ValueError`` when the response has no state line, so the caller can turn
+    that into an actionable preflight error rather than treating boot noise as ready.
+    """
+    matches = _USB_STATE_RE.findall(text or "")
+    if not matches:
+        raise ValueError("no 'usb mounted=...' line in the response")
+    mounted, suspended, mouse, keyboard, touch, mode = matches[-1]
+    return {
+        "mounted": int(mounted),
+        "suspended": int(suspended),
+        "mouse": int(mouse),
+        "keyboard": int(keyboard),
+        "touch": int(touch),
+        "mode": mode or None,
+    }
+
+
+def _query_serial(fd: int, command: str, *, timeout: float = 2.0) -> str:
+    """Send one console command and collect its response until the usb line appears."""
+    # Drain stale boot logs/echo first; the board's console also carries ESP_LOG output.
+    while select.select([fd], [], [], 0)[0]:
+        os.read(fd, 4096)
+    os.write(fd, (command + "\n").encode("ascii"))
+
+    deadline = time.monotonic() + timeout
+    chunks: list[bytes] = []
+    while time.monotonic() < deadline:
+        wait = min(0.1, max(0.0, deadline - time.monotonic()))
+        readable, _, _ = select.select([fd], [], [], wait)
+        if not readable:
+            continue
+        chunk = os.read(fd, 4096)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        text = b"".join(chunks).decode("utf-8", "replace")
+        if _USB_STATE_RE.search(text):
+            time.sleep(0.05)  # collect the rest of the line
+            while select.select([fd], [], [], 0)[0]:
+                chunks.append(os.read(fd, 4096))
+            break
+    return b"".join(chunks).decode("utf-8", "replace")
+
+
 class Esp32HidControl(Control):
     """Tap/swipe through an ESP32-S3 acting as a USB HID touchscreen for the phone.
 
@@ -216,6 +273,7 @@ class Esp32HidControl(Control):
         reference: tuple[int, int] = (ESP32_REF_WIDTH, ESP32_REF_HEIGHT),
         screen: tuple[int, int] | None = None,
         writer=None,
+        reader: Callable[[str], str] | None = None,
     ):
         self.port = port
         self.baudrate = int(baudrate)
@@ -223,6 +281,8 @@ class Esp32HidControl(Control):
         self.screen = (int(screen[0]), int(screen[1])) if screen else None
         #: A seam for tests (and for a different transport): called with the exact line.
         self._writer = writer
+        #: A preflight seam: called with a command name, returns the console response.
+        self._reader = reader
         self._fd: int | None = None
 
     def _frame(self, x: float, y: float) -> tuple[int, int]:
@@ -234,11 +294,8 @@ class Esp32HidControl(Control):
             y = float(y) * ry / sy
         return max(0, min(rx, round(x))), max(0, min(ry, round(y)))
 
-    def _send(self, command: str) -> None:
-        line = command + "\n"
-        if self._writer is not None:
-            self._writer(line)
-            return
+    def _ensure_open(self) -> int:
+        """Open the serial port lazily and translate open failures for the reflex loop."""
         if self._fd is None:
             try:
                 self._fd = _open_serial(self.port, self.baudrate)
@@ -246,10 +303,62 @@ class Esp32HidControl(Control):
                 raise RuntimeError(
                     f"ESP32 serial port {self.port} could not be opened: {exc}"
                 ) from exc
+        return self._fd
+
+    def _send(self, command: str) -> None:
+        line = command + "\n"
+        if self._writer is not None:
+            self._writer(line)
+            return
+        fd = self._ensure_open()
         try:
-            os.write(self._fd, line.encode("ascii"))
+            os.write(fd, line.encode("ascii"))
         except OSError as exc:
             raise RuntimeError(f"ESP32 serial write to {self.port} failed: {exc}") from exc
+
+    def preflight(self) -> dict[str, int | str | None]:
+        """Fail fast unless the board's HID interfaces can accept input.
+
+        Queries the firmware's ``usb`` command and requires ``mounted=1``,
+        ``suspended=0``, ``mouse=1`` and ``keyboard=1``. ``touch`` is informational:
+        the iOS-only build has no digitizer and legitimately reports ``touch=0``.
+        Returns the parsed state; raises ``RuntimeError`` with a remediation hint
+        otherwise. The opened port is reused by the first gesture.
+        """
+        try:
+            if self._reader is not None:
+                text = self._reader("usb")
+            else:
+                text = _query_serial(self._ensure_open(), "usb")
+        except OSError as exc:
+            raise RuntimeError(
+                f"ESP32 serial preflight failed on {self.port}: {exc}"
+            ) from exc
+
+        try:
+            state = parse_usb_state(text)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"ESP32 HID preflight could not read the board's usb state: {exc}"
+            ) from exc
+
+        problems: list[str] = []
+        if state["mounted"] != 1:
+            problems.append(
+                "mounted=0 (check the OTG cable, hub data port/cable, camera adapter, "
+                "and the Allow prompt; try a direct connection to isolate the hub)"
+            )
+        if state["suspended"] != 0:
+            problems.append(
+                "suspended=1 (unlock the phone, set Auto-Lock to Never, or send 'wake')"
+            )
+        if state["mouse"] != 1:
+            problems.append("mouse=0 (the HID mouse interface is not ready)")
+        if state["keyboard"] != 1:
+            problems.append("keyboard=0 (the HID keyboard interface is not ready)")
+        if problems:
+            raise RuntimeError("ESP32 HID not ready: " + "; ".join(problems))
+        return state
 
     def dispatch(self, gesture: Gesture) -> float:
         started = time.monotonic()
@@ -327,4 +436,5 @@ __all__ = [
     "Esp32HidControl",
     "HelperControl",
     "esp32_port",
+    "parse_usb_state",
 ]

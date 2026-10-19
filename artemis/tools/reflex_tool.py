@@ -133,6 +133,10 @@ class PlayReflexTool(ArtemisTool):
             esp = esp32_port()
             if esp:
                 actuator = Esp32HidControl(esp)
+                try:
+                    actuator.preflight()
+                except RuntimeError as exc:
+                    return f"Error: ESP32 HID preflight failed: {exc}"
             elif capture == "helper":
                 actuator = HelperControl(serial)
             else:
