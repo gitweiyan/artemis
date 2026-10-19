@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>操作复盘 · 20261019-iPhone UVC + ESP32 HID 链路</title>
+<style>
+  :root{
+    --ink:#1b1f24; --muted:#6b7280; --line:#e5e7eb; --bg:#f7f8fa; --card:#fff;
+    --red:#c1121f; --red-bg:#fdecec; --red-line:#e04b4b;
+    --amber:#b45309; --amber-bg:#fff7ed; --green:#15803d; --green-bg:#ecfdf3; --blue:#1d4ed8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 24px 64px}
+  header.report{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  h1{margin:0 0 6px;font-size:26px}
+  .sub{color:var(--muted);font-size:13px}
+  .chips{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:3px 12px;font-size:12.5px;background:#fbfbfd}
+  .chip.bad{color:var(--red);border-color:var(--red-line);background:var(--red-bg)}
+  .chip.ok{color:var(--green);border-color:#a7e0bf;background:var(--green-bg)}
+  .chip.warn{color:var(--amber);border-color:#f0c48a;background:var(--amber-bg)}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 28px;margin-top:20px}
+  h2{font-size:19px;margin:0 0 14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  h2 .n{display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;border-radius:8px;background:#eef2ff;color:var(--blue);font-size:14px;margin-right:10px}
+  h3{font-size:15.5px;margin:20px 0 8px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top;text-align:left}
+  th{background:#f3f4f6;font-weight:600;white-space:nowrap}
+  td.t{white-space:nowrap;font-variant-numeric:tabular-nums;color:#374151;font-size:13px}
+  td.ev{font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--muted);max-width:270px;word-break:break-all}
+  tr.problem{background:var(--red-bg)}
+  tr.problem td:first-child{border-left:4px solid var(--red)}
+  tr.problem .txt{color:#7f1010}
+  .tag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:6px;font-size:12px;background:var(--red);color:#fff;white-space:nowrap}
+  .tag.ok{background:var(--green)}
+  .id{display:inline-block;min-width:34px;padding:1px 6px;border-radius:6px;background:#eef2ff;color:var(--blue);font:12px/1.5 ui-monospace,Menlo,monospace;text-align:center}
+  a{color:var(--blue);text-decoration:none;border-bottom:1px dotted #9db4f0}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 14px;font-size:14px}
+  .kv dt{color:var(--muted)} .kv dd{margin:0}
+  .note{background:#fbfbfd;border:1px dashed var(--line);border-radius:10px;padding:12px 14px;font-size:13.5px}
+  .legend{font-size:13px;background:#fbfbfd;border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .card{border:1px solid var(--line);border-left:4px solid #c7d2fe;border-radius:10px;padding:14px 16px;margin:12px 0;background:#fdfdff}
+  .card.r1{border-left-color:#ef4444}.card.r2{border-left-color:#f59e0b}
+  .card.r3{border-left-color:#8b5cf6}.card.r4{border-left-color:#0ea5e9}
+  .card h4{margin:0 0 8px;font-size:15px}
+  .card .cls{font-size:12px;color:#fff;background:#6b7280;border-radius:6px;padding:1px 8px;margin-left:8px}
+  .card .cls.env{background:#f59e0b}.card .cls.fw{background:#8b5cf6}
+  .card .cls.model{background:#ef4444}.card .cls.task{background:#0ea5e9}
+  .dec{color:var(--amber);font-weight:600;white-space:nowrap}
+  footer{margin-top:20px;color:var(--muted);font-size:12.5px;line-height:1.8}
+  footer code{background:#eef2ff;border-radius:4px;padding:1px 5px}
+  @media print{body{background:#fff}section,header.report{box-shadow:none;break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="report">
+  <h1>操作复盘 · 20261019-iPhone UVC + ESP32 HID 链路</h1>
+  <div class="sub">被复盘仓库 <code>/Users/xf/Documents/code/artemis</code> · 报告生成 2026-10-19 11:06（+08:00）· 数据来源：DSH v4 操作会话、UVC 截图、ESP32 固件源码、仓库代码</div>
+  <div class="chips">
+    <span class="chip ok">结果：任务达成（微信最新消息 + 中信证券 7 只自选股）</span>
+    <span class="chip warn">iOS 操作层仍不稳：指针可见性依赖辅助触控 + HID 报文节奏 + IME/弹窗</span>
+    <span class="chip">1 次操作会话 / 31 条关键事件 / 8 个问题 / 5 类根因 / 12 个改进项</span>
+    <span class="chip bad">关键限制：iPhone 不消费外部 HID digitizer，touch 不可用</span>
+  </div>
+</header>
+
+<section id="s1">
+  <h2><span class="n">1</span>事项简介</h2>
+  <dl class="kv">
+    <dt>事项名称</dt><dd>20261019-iPhone UVC + ESP32 HID 链路（目标：<code>打开微信，查看最新消息</code>；后续扩展：<code>打开中信证券，查看自选股价格</code>）</dd>
+    <dt>执行时间</dt><dd>2026-10-19 <b>09:36:11 – 11:03:18</b>（+08:00），共 <b>87 分钟</b>；其中 09:47–10:00 为 Hub/线缆隔离，10:16–10:43 为 keyboard-only / Report ID 修复，10:50–11:03 为 iOS 指针、IME 与弹窗处理。</dd>
+    <dt>执行人</dt><dd>用户 <code>xf</code>（MacBook Pro M5 Pro / macOS 26.4，手动插拔 USB 线、开启辅助触控）＋ DSH Agent（provider <code>deepseek-official</code>，model <code>deepseek-flash</code>，session <code>a5d612bb</code>）＋ 设备 iPhone（USB-C / iOS，UVC 画面裁切 449×974）、ESP32-S3 HID（VID:PID <code>303a:400c</code>，固件 <code>hid_touchscreen</code>）、UVC 采集卡 <code>USB Video</code>（MACROSILICON <code>345b:2109</code>）、串口 <code>/dev/cu.usbmodem5B140947461</code>。</dd>
+    <dt>执行概况</dt><dd>先用仓库里的 <code>UvcCapture</code> 抓 UVC 帧，再通过自建串口桥接服务把绝对触摸、相对鼠标、键盘命令发给 ESP32。第一轮发现「命令被固件接收、iPhone 却无反应」，随后依次定位到 Hub/线缆、复合 HID 的 Report ID、iOS 不消费 digitizer、UVC 不显示辅助触控指针、IME 吃 Enter 等问题。期间共烧录 5 次固件、读取/比对 77 张截图、执行 304 次 bash 工具调用；最终打开微信并读到群聊最新消息，又用拼音 Spotlight 打开中信证券、关闭「温馨提示」弹窗并读出 7 只自选股。</dd>
+    <dt>结果</dt><dd><b>功能结论：达成</b>——微信「凯旋之家（结疗群）」10:36 乐乐妈的最新消息已读取；中信证券自选页 7 只股票价格已读取（寒武纪、上汽集团、紫金矿业、中国平安、贵州茅台、比亚迪、华友钴业）。<br><b>质量结论：可用但不稳</b>——iPhone 控制依赖「可见指针 + 视觉闭环」，而辅助触控未生效时 UVC/HDMI 不显示指针、固件报文节奏不稳、IME 与 App 弹窗没有通用处理；本次成功含大量人工插拔和试错。</dd>
+  </dl>
+  <div class="note" style="margin-top:14px"><b>一句话结论：</b>硬件链路和最终任务都跑通了，但 iPhone 操作层最该改的是两件事：<b>让“眼睛”能看到辅助触控指针（AirPlay 或可靠的指针检测）</b>，以及<b>让固件按 USB HID 节奏稳定发鼠标报文（ready 检查 + 10ms 间隔 + 去掉 int8_t 截断）</b>；否则每次都要靠盲点和运气。</div>
+</section>
+
+<section id="s2">
+  <h2><span class="n">2</span>执行时间线</h2>
+  <div class="legend">
+    <b>标记规则：</b><span class="tag">问题引入</span> 埋下后续故障；
+    <span class="tag">问题放大</span> 已有问题在此扩大或产生额外代价；
+    <span class="tag">问题暴露</span> 问题在此以可观测形式出现；
+    <span class="tag ok">问题规避</span> 有效的应对动作。
+    红色底纹行 = 含问题的条目；「证据」列给出可复查来源（会话 <code>seq</code>、截图路径、固件文件行）。
+  </div>
+  <table>
+    <thead><tr><th style="width:70px">ID</th><th style="width:150px">时间 (+08:00)</th><th>事件（执行人 + 动作 + 对象）</th><th style="width:90px">标记</th><th>证据</th></tr></thead>
+    <tbody>
+      <tr id="T1"><td><span class="id">T1</span></td><td class="t">09:36:11</td><td>用户下达任务：当前工程支持 UVC capture + ESP32 HID，要求测试链路并打开微信看最新消息；Agent 开始读 <code>artemis/reflex</code> 的 capture/control 实现。</td><td></td><td class="ev">session-a5d612bb:seq=8, seq=27</td></tr>
+      <tr class="problem" id="T2"><td><span class="id">T2</span></td><td class="t">09:36:54–09:37:46</td><td class="txt">首次 UVC 抓帧：ffmpeg 启动耗时 51.9s，输出 1920×1080 全黑帧（8.4KB）；此时误判“采集卡没有信号”，实际是首帧/启动慢。</td><td><span class="tag">问题暴露</span></td><td class="ev">session-a5d612bb:seq=160–161；capture:/tmp/artemis-chain/frame0.png</td></tr>
+      <tr id="T3"><td><span class="id">T3</span></td><td class="t">09:37:46–09:38:13</td><td>第二次抓帧成功，测得手机显示区域 bbox (737,54)–(1184,1026)，裁成 449×974；后续所有截图均用这个 crop。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=175, seq=195</td></tr>
+      <tr id="T4"><td><span class="id">T4</span></td><td class="t">09:38:21–09:38:59</td><td>确认 ESP32 UART 115200 可读写，<code>help</code> 返回 tap/swipe/key 命令表；复位日志显示 ESP32-S3、TinyUSB 3 个 HID 接口、VID:PID 303a:400c。</td><td></td><td class="ev">session-a5d612bb:seq=225, seq=335, seq=504</td></tr>
+      <tr class="problem" id="T5"><td><span class="id">T5</span></td><td class="t">09:39:19–09:42:50</td><td class="txt">发送 <code>key 74</code>（Home）、底部上滑、<code>type a</code>、<code>key 4</code>。串口日志显示 <code>[cmd] key 0x4A</code>、<code>[cmd] swipe ...</code> 均被固件接收，但 iPhone 屏幕无任何变化——设备“已接收”不等于 Host“已消费”。</td><td><span class="tag">问题暴露</span></td><td class="ev">session-a5d612bb:seq=293, seq=305, seq=406, seq=452</td></tr>
+      <tr id="T6"><td><span class="id">T6</span></td><td class="t">09:42:01–09:42:50</td><td>复位板子并读启动日志：TinyUSB 初始化成功，3 个 HID 接口（touch/mouse/keyboard）全部 ready；说明固件侧正常，问题在 Host 枚举/消费或物理链路。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=504</td></tr>
+      <tr id="T7"><td><span class="id">T7</span></td><td class="t">09:43:08</td><td>用户澄清：当前手机是 iPhone，不支持触摸，只能键盘/鼠标。Agent 由此放弃“绝对 tap”，转向 keyboard/mouse 与辅助触控。</td><td></td><td class="ev">session-a5d612bb:seq=558</td></tr>
+      <tr id="T8"><td><span class="id">T8</span></td><td class="t">09:43:14–09:44:46</td><td>Agent 阅读 <code>esp32-iphone-agent</code>：其架构是 AirPlay 镜像 + 相对鼠标 + <code>vision.pointer</code> 两点校准 + 每次点击前 aim 闭环；这正是 UVC 链路缺少的部分。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=560, seq=571, seq=575, seq=586</td></tr>
+      <tr class="problem" id="T9"><td><span class="id">T9</span></td><td class="t">09:47:19–09:48:09</td><td class="txt">给固件加 <code>usb/wake/keymod/home</code> 诊断命令并烧录；烧录后 <code>usb</code> 返回 <code>mounted=0</code>，经 Hub 时 iPhone 始终没有枚举到 ESP32。</td><td><span class="tag">问题暴露</span></td><td class="ev">session-a5d612bb:seq=772, seq=801</td></tr>
+      <tr id="T10"><td><span class="id">T10</span></td><td class="t">09:51:15–09:52:18</td><td>改为直连 iPhone 后 <code>usb mounted=1 suspended=0 mouse=1 keyboard=1 touch=1</code>；对照证明板子、固件、线都没问题，问题在 Hub 的 USB 数据口/线。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=865</td></tr>
+      <tr id="T11"><td><span class="id">T11</span></td><td class="t">10:16:45</td><td>用户要求先只刷 keyboard，验证键盘是否可用；Agent 备份复合固件后裁剪 HID 配置。</td><td></td><td class="ev">session-a5d612bb:seq=1080, seq=1108</td></tr>
+      <tr id="T12"><td><span class="id">T12</span></td><td class="t">10:17:29–10:19:24</td><td>keyboard-only 第一版仍带 Report ID 3，<code>mounted=0</code>/不可输入；改成标准 boot keyboard、<b>无 Report ID</b> 后键盘开始工作。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=1219, seq=1223, seq=1236</td></tr>
+      <tr id="T13"><td><span class="id">T13</span></td><td class="t">10:30:25–10:39:55</td><td>用户要求打印 SUSPEND/RESUME 事件；首次实现与 <code>esp_tinyusb</code> 的 <code>tud_mount_cb</code> 符号重定义，链接失败；改用 <code>event_cb</code> 后抓到 <code>[USB] MOUNTED</code>、<code>Enable Remote Wakeup</code>、<code>HID keyboard ready=1</code>。</td><td></td><td class="ev">session-a5d612bb:seq=1326, seq=1566, seq=1591</td></tr>
+      <tr id="T14"><td><span class="id">T14</span></td><td class="t">10:39:51–10:41:57</td><td>用户确认 iPhone 上能看到 <code>test</code>，并插上 UVC；要求刷回完整 HID，检查 keyboard/mouse/touch，然后完成微信任务。</td><td></td><td class="ev">session-a5d612bb:seq=1591, seq=1620</td></tr>
+      <tr id="T15"><td><span class="id">T15</span></td><td class="t">10:42:19–10:43:21</td><td>恢复复合 HID，keyboard/mouse 改为无 Report ID；烧录后 <code>usb mounted=1 suspended=0 mouse=1 keyboard=1 touch=1</code>，三个接口全部挂载。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=1636, seq=1661, seq=1730</td></tr>
+      <tr id="T16"><td><span class="id">T16</span></td><td class="t">10:43:34–10:44:02</td><td>键盘输入 <code>k</code> 可见并退格删除；鼠标 <code>home</code> 后 <code>move 100 100</code>，画面右下出现新的指针位置；keyboard/mouse 验证通过。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=1749, seq=1763</td></tr>
+      <tr class="problem" id="T17"><td><span class="id">T17</span></td><td class="t">10:44:02</td><td class="txt">绝对坐标 <code>tap(220,700)</code> 前后 <b>0 像素变化</b>；USB 层 <code>touch=1</code> 只代表接口挂载，iOS 不消费 digitizer。iPhone 上绝对触摸路径不可用。</td><td><span class="tag">问题暴露</span></td><td class="ev">session-a5d612bb:seq=1784；diff touch_before/touch_after = 0</td></tr>
+      <tr id="T18"><td><span class="id">T18</span></td><td class="t">10:44:11–10:44:21</td><td><code>Cmd+H</code> 回主屏，<code>Cmd+Space</code> 打开 Spotlight；键盘快捷键可用。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=1798, seq=1810</td></tr>
+      <tr class="problem" id="T19"><td><span class="id">T19</span></td><td class="t">10:44:28–10:44:43</td><td class="txt">输入 <code>wechat</code> 后单按 Enter 没有打开微信；必须按 Down 选中结果再 Enter 才打开。中文输入法候选栏会吃掉 Enter/Down。</td><td><span class="tag">问题暴露</span></td><td class="ev">session-a5d612bb:seq=1822, seq=1834, seq=1846</td></tr>
+      <tr id="T20"><td><span class="id">T20</span></td><td class="t">10:47:17</td><td>打开「凯旋之家（结疗群）」，读到 <b>10:36 乐乐妈</b> 的最新消息：<code>小伙伴们，有没有知道杭州哪些个中医会调理结节的，求推荐🥺</code>。微信目标达成。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=2117；captures/wechat_group_latest_20261019_1047.png</td></tr>
+      <tr id="T21"><td><span class="id">T21</span></td><td class="t">10:49:55</td><td>用户要求打开中信证券看自选股价格；Agent 开始第二轮 App 操作。</td><td></td><td class="ev">session-a5d612bb:seq=2154</td></tr>
+      <tr class="problem" id="T22"><td><span class="id">T22</span></td><td class="t">10:50:04–10:50:19</td><td class="txt">搜 <code>citic</code> 时搜索框保留上次的 <code>wechat</code>；<code>Cmd+A</code> 没有清空，输入被拼成 <code>citiccitic</code>，搜索结果完全跑偏。</td><td><span class="tag">问题暴露</span></td><td class="ev">session-a5d612bb:seq=2183, seq=2195</td></tr>
+      <tr class="problem" id="T23"><td><span class="id">T23</span></td><td class="t">10:50:45</td><td class="txt">按 Down 想选 App 结果，却被中文输入法候选栏吃掉，查询变成「赐题 c」，App 结果消失；Spotlight 的键盘操作在 IME 激活时不可靠。</td><td><span class="tag">问题放大</span></td><td class="ev">session-a5d612bb:seq=2219</td></tr>
+      <tr class="problem" id="T24"><td><span class="id">T24</span></td><td class="t">10:51:24–10:53:32</td><td class="txt">主屏/UVC 里看不到辅助触控指针；<code>home</code> + 盲移 + 点击“银行”文件夹/搜索结果均未命中；<code>Tab</code>、<code>Down</code>、<code>Enter</code>、<code>Cmd+Tab</code> 都不能替代鼠标选中 App。</td><td><span class="tag">问题暴露</span></td><td class="ev">session-a5d612bb:seq=2269, seq=2388, seq=2400, seq=2412, seq=2424, seq=2438, seq=2474</td></tr>
+      <tr class="problem" id="T25"><td><span class="id">T25</span></td><td class="t">10:54:32–10:55:22</td><td class="txt">给桥接服务加 paced <code>moves</code>（20ms/步），但 UVC 帧里仍看不到指针，盲点仍失败；同时串口出现 <code>usage: move</code>/<code>unknown command: 7</code>，说明突发写入下命令解析也会被刷屏打乱。</td><td><span class="tag">问题放大</span></td><td class="ev">session-a5d612bb:seq=2492, seq=2517, seq=2529</td></tr>
+      <tr id="T26"><td><span class="id">T26</span></td><td class="t">10:55:43–10:56:03</td><td>改用中文拼音 <code>zhongxinzhengquan</code>，候选第 1 条就是「中信证券」；按 <code>1</code> 选中后 Enter 成功打开 App。这是本次最可靠的非 ASCII App 启动方式。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=2541, seq=2553</td></tr>
+      <tr class="problem" id="T27"><td><span class="id">T27</span></td><td class="t">10:56:07–10:56:52</td><td class="txt">中信证券“温馨提示”弹窗挡住自选页；Enter、Esc、Tab、Cmd+.、Cmd+Enter 都不能关闭；paced 盲点也未命中“确定”（附近还有“一键打新”，不能乱点）。</td><td><span class="tag">问题暴露</span></td><td class="ev">session-a5d612bb:seq=2567, seq=2579, seq=2591, seq=2603, seq=2615</td></tr>
+      <tr id="T28"><td><span class="id">T28</span></td><td class="t">11:01:04–11:01:07</td><td>用户开启辅助触控后，<code>move 20 0</code> 前后帧 diff 出现 17×20 的指针 blob；辅助触控指针终于出现在 UVC 画面里，鼠标从“盲走”变成“可见闭环”。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=2641, seq=2643</td></tr>
+      <tr class="problem" id="T29"><td><span class="id">T29</span></td><td class="t">11:01:07–11:01:52</td><td class="txt">指针虽可见，但第一次点击误入 AssistiveTouch「新建手势」；用 paced moves 归零→下移→点 X 才退出，说明“可见”之后仍需闭环校正，不能凭一次移动定位。</td><td><span class="tag">问题放大</span></td><td class="ev">session-a5d612bb:seq=2657, seq=2671, seq=2683, seq=2697, seq=2711, seq=2725</td></tr>
+      <tr id="T30"><td><span class="id">T30</span></td><td class="t">11:02:11–11:03:08</td><td>重新用拼音打开中信证券；指针可见后用单步 <code>move 0 100</code> 逐次校正（100 单位≈182px），点“确定”关闭弹窗，读到 7 只自选股：寒武纪 942.00、上汽集团 10.84、紫金矿业 29.70、中国平安 51.78、贵州茅台 1338.30、比亚迪 83.85、华友钴业 32.35。</td><td><span class="tag ok">问题规避</span></td><td class="ev">session-a5d612bb:seq=2750, seq=2795, seq=2807, seq=2819, seq=2831</td></tr>
+      <tr id="T31"><td><span class="id">T31</span></td><td class="t">11:03:18</td><td>保存自选股截图到 <code>captures/citic_watchlist_20261019_1103.png</code>；操作任务结束。</td><td></td><td class="ev">session-a5d612bb:seq=2843</td></tr>
+    </tbody>
+  </table>
+
+  <h3>静默区间（&gt;30s，摘录；15–30s 的短停顿未逐条展开）</h3>
+  <div class="note" style="margin-bottom:10px">分类按会话边界判定：<b>idle</b> = 等用户回复/操作；<b>waiting_for_run</b> = 等后台命令/抓帧；<b>in_turn</b> = Agent 思考或工具执行。以下均为可复查的 session 区间。</div>
+  <table>
+    <thead><tr><th style="width:54px">ID</th><th style="width:150px">时间 (+08:00)</th><th style="width:76px">时长</th><th style="width:110px">分类</th><th>说明</th><th style="width:150px">证据</th></tr></thead>
+    <tbody>
+      <tr><td><span class="id">G1</span></td><td class="t">09:36:54–09:37:46</td><td>51.9s</td><td>waiting_for_run</td><td>首次 UVC 抓帧，ffmpeg 启动慢并返回黑帧。</td><td class="ev">seq=160–161</td></tr>
+      <tr><td><span class="id">G2</span></td><td class="t">09:43:23–09:44:23</td><td>60.0s</td><td>waiting_for_run</td><td>全盘 grep 找固件源码，同时启动串口桥接服务。</td><td class="ev">seq=594–595</td></tr>
+      <tr><td><span class="id">G3</span></td><td class="t">09:45:23–09:46:16</td><td>52.8s</td><td>idle</td><td>向用户确认 iPhone 接口/接线/辅助触控状态。</td><td class="ev">seq=679–680</td></tr>
+      <tr><td><span class="id">G4</span></td><td class="t">09:48:19–09:48:59</td><td>40.0s</td><td>waiting_for_run</td><td>UVC 采集卡打开超时，等待手动超时脚本结束。</td><td class="ev">seq=816–817</td></tr>
+      <tr><td><span class="id">G5</span></td><td class="t">09:49:12–09:51:13</td><td>121.2s</td><td>idle</td><td>请用户重新插拔 OTG；Agent 等待回复。</td><td class="ev">seq=841–842</td></tr>
+      <tr><td><span class="id">G6</span></td><td class="t">09:51:40–09:52:16</td><td>36.0s</td><td>idle</td><td>再次询问直连/Hub 状态。</td><td class="ev">seq=860–861</td></tr>
+      <tr><td><span class="id">G7</span></td><td class="t">09:52:35–09:53:59</td><td>83.9s</td><td>idle</td><td>用户思考并回复“直连可以、Hub 不行”。</td><td class="ev">seq=891–893</td></tr>
+      <tr><td><span class="id">G8</span></td><td class="t">09:54:29–09:56:57</td><td>148.2s</td><td>idle</td><td>询问是否改用 AirPlay 镜像；用户未选该方案。</td><td class="ev">seq=932–933</td></tr>
+      <tr><td><span class="id">G9</span></td><td class="t">10:02:25–10:16:45</td><td>859.9s</td><td>idle</td><td>最长等待：用户研究/准备 keyboard-only 验证，14 分 20 秒无 Agent 事件。</td><td class="ev">seq=1075–1077</td></tr>
+      <tr><td><span class="id">G10</span></td><td class="t">10:19:31–10:22:54</td><td>203.1s</td><td>idle</td><td>等用户重新插好 ESP32 并回复。</td><td class="ev">seq=1262–1264</td></tr>
+      <tr><td><span class="id">G11</span></td><td class="t">10:25:05–10:30:24</td><td>319.9s</td><td>idle</td><td>等用户准备 SUSPEND/RESUME 诊断需求。</td><td class="ev">seq=1321–1323</td></tr>
+      <tr><td><span class="id">G12</span></td><td class="t">10:34:12–10:39:51</td><td>338.6s</td><td>idle</td><td>用户在手机上验证 keyboard-only；Agent 等待“test 可见”的确认。</td><td class="ev">seq=1586–1588</td></tr>
+      <tr><td><span class="id">G13</span></td><td class="t">10:40:11–10:41:57</td><td>106.5s</td><td>idle</td><td>等待用户确认并插回 UVC。</td><td class="ev">seq=1615–1617</td></tr>
+      <tr><td><span class="id">G14</span></td><td class="t">10:47:56–10:49:55</td><td>119.3s</td><td>idle</td><td>微信任务完成后，等待下一个任务（中信证券）。</td><td class="ev">seq=2149–2151</td></tr>
+      <tr><td><span class="id">G15</span></td><td class="t">10:57:06–10:58:10</td><td>63.7s</td><td>idle</td><td>弹窗处理失败后，用户插入“为什么 iPhone 鼠标难用”的问题。</td><td class="ev">seq=2628–2630</td></tr>
+      <tr><td><span class="id">G16</span></td><td class="t">10:58:32–11:01:04</td><td>151.5s</td><td>idle</td><td>Agent 解释 Android/iOS 输入模型差异；用户去开启辅助触控。</td><td class="ev">seq=2636–2638</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s3">
+  <h2><span class="n">3</span>问题影响</h2>
+  <table>
+    <thead><tr><th style="width:60px">问题</th><th style="width:150px">时间线</th><th style="width:220px">结果维度</th><th>过程维度</th><th style="width:56px">严重度</th></tr></thead>
+    <tbody>
+      <tr id="P1"><td><span class="id">P1</span></td><td><a href="#T5">T5</a>、<a href="#T9">T9</a>、<a href="#T12">T12</a></td><td><b>任务受阻</b>：固件日志显示命令已接收、接口显示 ready，但 iPhone 没有输入，微信任务无法开始。</td><td>重复复位/烧录/换输入法；09:39–10:43 约 64 分钟在同一条“有没有真正到 Host”的问题上打转。</td><td>高</td></tr>
+      <tr id="P2"><td><span class="id">P2</span></td><td><a href="#T9">T9</a>、<a href="#T10">T10</a></td><td><b>无法同时采集+控制</b>：Hub 路径 UVC 正常但 ESP32 <code>mounted=0</code>；直连路径 HID 正常但 UVC 断开。</td><td>直连/Hub 来回切换、换线、换口；用户最终确认是 ESP32↔Hub 的 USB 线问题。</td><td>高</td></tr>
+      <tr id="P3"><td><span class="id">P3</span></td><td><a href="#T17">T17</a></td><td><b>绝对触摸不可用</b>：<code>touch=1</code> 但 tap 前后 0 像素变化；iPhone 上只能键盘/鼠标。</td><td>反复测试 tap/swipe/坐标映射；最终确认是 iOS 平台限制而非固件 bug。</td><td>高（平台约束）</td></tr>
+      <tr id="P4"><td><span class="id">P4</span></td><td><a href="#T24">T24</a>、<a href="#T25">T25</a>、<a href="#T27">T27</a>、<a href="#T29">T29</a></td><td><b>精确点击失败</b>：辅助触控未生效时 UVC 不显示指针，无法定位“确定/银行文件夹/搜索结果”；弹窗卡住，且盲点有误触“一键打新”的风险。</td><td>盲走 + 猜测 + 多次截图 diff；10:50–11:01 约 11 分钟无法完成一次小目标点击；开启辅助触控后仍需闭环校正。</td><td>高</td></tr>
+      <tr id="P5"><td><span class="id">P5</span></td><td><a href="#T24">T24</a>、<a href="#T25">T25</a>、<a href="#T29">T29</a>、<a href="#T30">T30</a></td><td><b>指针位置不可预测</b>：<code>home</code> 连发 50 个报文/2ms，USB HID 轮询 10ms，报文被丢；<code>move</code> 强转 <code>int8_t</code>，长距离回绕。</td><td>paced 小步成为唯一可行办法；100 单位约 182px 的实测比例只能事后拟合，不能预先规划。</td><td>高</td></tr>
+      <tr id="P6"><td><span class="id">P6</span></td><td><a href="#T19">T19</a>、<a href="#T22">T22</a>、<a href="#T23">T23</a></td><td><b>App 启动不稳定</b>：ASCII 搜 <code>citic</code> 被 IME 候选栏和残留查询破坏；Enter/Down 行为依赖 IME 状态。</td><td>多次清空/重输/切输入法，单次 App 启动成本从 1 步变成 6–8 步。</td><td>中</td></tr>
+      <tr id="P7"><td><span class="id">P7</span></td><td><a href="#T27">T27</a></td><td><b>任务被弹窗阻塞</b>：中信证券“温馨提示”挡住自选页，键盘无默认关闭键，鼠标又点不中“确定”。</td><td>Enter/Esc/Tab/Cmd+./Cmd+Enter 全试；paced 盲点也未命中，最后靠用户开启辅助触控才解。</td><td>中</td></tr>
+      <tr id="P8"><td><span class="id">P8</span></td><td><a href="#T2">T2</a></td><td><b>误判无信号</b>：UVC 首帧黑 + 51.9s 启动，容易把“慢/首帧”当成“采集卡没接”。</td><td>多抓一帧即恢复；但每次抓帧约 850ms，77 次截图读取放大了等待。</td><td>低</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s4">
+  <h2><span class="n">4</span>根因分析</h2>
+
+  <div class="card r1" id="R1">
+    <h4>R1 · 单 USB-C 口 + Hub 数据路径不可靠 <span class="cls env">环境原因</span></h4>
+    <p><b>触发条件与生命周期：</b>iPhone 只有一个 USB-C 口，要同时接 UVC（HDMI 采集）和 ESP32 HID，只能经 Hub。Hub 的 HDMI 通道正常，但 ESP32 所在的 USB 数据口/线不通：直连 <code>mounted=1</code>，经 Hub <code>mounted=0</code>。用户后来确认是 ESP32↔Hub 的 USB 线问题，换线后复合设备也能挂载。</p>
+    <p><b>证据：</b><a href="#T9">T9</a> 烧录后 <code>mounted=0</code>；<a href="#T10">T10</a> 直连 <code>mounted=1 suspended=0 mouse=1 keyboard=1 touch=1</code>；用户 09:53:59/10:00:48 的回复（<code>session-a5d612bb:seq=896, seq=1057</code>）。</p>
+    <p><b>关联问题：</b><a href="#P1">P1</a>、<a href="#P2">P2</a> ｜ <b>关联改进项：</b><a href="#I1">I1</a>、<a href="#I7">I7</a></p>
+  </div>
+
+  <div class="card r2" id="R2">
+    <h4>R2 · iOS 的输入模型：无外部 digitizer、相对鼠标、指针显示依赖辅助触控状态 <span class="cls env">环境原因</span></h4>
+    <p><b>触发条件与生命周期：</b>iOS 只接受键盘和鼠标/触控板；鼠标必须开 AssistiveTouch，指针是相对、带加速度的系统 overlay。本次在辅助触控未真正生效时，UVC/HDMI 抓帧里看不到这个指针（<code>move 20 0</code> 前后 diff 为 0）；用户开启后，同一路 UVC 出现了 17×20 的指针 blob。也就是说，<b>UVC 本身可以承载指针，但必须先确认辅助触控已生效</b>。叠加 USB 挂起（<code>suspended=1</code>）时，键盘/鼠标报文也发不进去。</p>
+    <p><b>证据：</b><a href="#T17">T17</a> touch tap 0 像素变化；<a href="#T24">T24</a> UVC 指针不可见/盲点失败；<a href="#T28">T28</a> 开启辅助触控后指针 blob 出现；<code>session-a5d612bb:seq=1784, seq=2269, seq=2643</code>。</p>
+    <p><b>关联问题：</b><a href="#P3">P3</a>、<a href="#P4">P4</a>、<a href="#P7">P7</a> ｜ <b>关联改进项：</b><a href="#I2">I2</a>、<a href="#I6">I6</a>、<a href="#I7">I7</a>、<a href="#I8">I8</a></p>
+  </div>
+
+  <div class="card r3" id="R3">
+    <h4>R3 · 固件/采集工具链没有按 HID 语义处理 <span class="cls fw">Agent 框架原因</span></h4>
+    <p><b>触发条件与生命周期：</b>复合 HID 的 keyboard/mouse 最初带 Report ID 3/2 且声明为 boot protocol，iOS 能枚举但报文不生效；改成无 Report ID 后键盘立刻可用。鼠标侧 <code>home</code> 以 2ms 间隔连发 50 个报文，而 HID 端点轮询是 10ms，大量报文被丢；<code>cmd.c</code> 的 <code>move</code> 把 dx/dy 强转 <code>int8_t</code>，超过 127 会回绕。UVC 采集又是每帧一个 ffmpeg 进程（约 850ms/帧），没有持久流。</p>
+    <p><b>证据：</b>固件 <code>mobile-agent-demo/esp32-hid/firmware/main/hid_descriptor.h:13-14</code>（Report ID 0）、<code>hid_descriptor.c:59-67</code>、<code>hb_mouse_kb.c:21</code>（<code>hid_mouse_move</code>）、<code>cmd.c:109-121</code>（home/move）、<code>cmd.c:138</code>（keymod）；UVC 单帧耗时见 <code>session-a5d612bb:seq=286, seq=1737</code>。</p>
+    <p><b>关联问题：</b><a href="#P1">P1</a>、<a href="#P4">P4</a>、<a href="#P5">P5</a>、<a href="#P8">P8</a> ｜ <b>关联改进项：</b><a href="#I3">I3</a>、<a href="#I4">I4</a>、<a href="#I9">I9</a>、<a href="#I11">I11</a></p>
+  </div>
+
+  <div class="card r1" id="R4">
+    <h4>R4 · 策略层：在“看不见指针”时仍用开环盲走 <span class="cls model">模型原因</span></h4>
+    <p><b>触发条件与生命周期：</b>在 UVC 不显示指针的前提下，Agent 多次采用 <code>home</code> + 固定 <code>move</code> + <code>click</code> 的开环路径，点击“银行”文件夹、搜索结果、弹窗“确定”都未命中；对同一个弹窗重复尝试 Enter/Esc/Tab/Cmd+./Cmd+Enter，未先建立“指针是否可见”的判据。直到用户开启辅助触控、指针出现后，才改成可见闭环。</p>
+    <p><b>证据：</b><a href="#T24">T24</a> 盲点序列 <code>seq=2269–2474</code>；<a href="#T27">T27</a> 弹窗多次失败 <code>seq=2567–2615</code>；<a href="#T28">T28</a> 指针出现后 <code>seq=2643</code>；<a href="#T29">T29</a> 可见指针仍需校正 <code>seq=2671–2725</code>。</p>
+    <p><b>关联问题：</b><a href="#P4">P4</a>、<a href="#P6">P6</a>、<a href="#P7">P7</a> ｜ <b>关联改进项：</b><a href="#I4">I4</a>、<a href="#I5">I5</a>、<a href="#I6">I6</a>、<a href="#I12">I12</a></p>
+  </div>
+
+  <div class="card r4" id="R5">
+    <h4>R5 · 任务/验收口径不完整 <span class="cls task">任务原因</span></h4>
+    <p><b>触发条件与生命周期：</b>“最新消息”没有说明是聊天列表最顶部的服务通知，还是真人/群聊消息；“打开中信证券”没有说明是 App 还是网页、要看几只股票；“可以了 输入”没有说明 iPhone 的辅助触控/指针可见状态。Agent 只能在过程中不断向用户确认，或在多个口径间试错。</p>
+    <p><b>证据：</b>首条任务 <code>session-a5d612bb:seq=8</code>；用户 09:58:27 “屏幕亮起，当前是文本编辑状态”（<code>seq=973</code>）；10:49:55 “打开中信证券，看看我关注的几只股票价格”（<code>seq=2154</code>）；11:01:04 “我打开了触碰辅助”（<code>seq=2641</code>）。</p>
+    <p><b>关联问题：</b><a href="#P3">P3</a>、<a href="#P7">P7</a> ｜ <b>关联改进项：</b><a href="#I10">I10</a></p>
+  </div>
+
+  <div class="note"><b>非问题项（已核实排除）：</b>① ESP32 串口本身正常，<code>help</code>/<code>usb</code>/<code>wake</code> 均有响应；② UVC 采集卡本身正常，第二次抓帧即有画面；③ 键盘/鼠标 HID 接口在改 Report ID 后均能工作；④ iOS 触摸失败是平台限制，不能归因于固件或坐标映射错误；⑤ 用户开启辅助触控后指针确实出现在 UVC 画面，说明采集链路能承载指针 overlay，只是默认/此前状态下未显示。</div>
+</section>
+
+<section id="s5">
+  <h2><span class="n">5</span>改进项（每条对应根因，决策留给下一轮）</h2>
+  <p class="sub" style="margin:0 0 12px">「决策」列交付时一律保持 <span class="dec">待决策</span>；报告只提方案，由你决定后回写「已采纳/不采纳」并附可解析引用。</p>
+  <table>
+    <thead><tr><th style="width:50px">ID</th><th style="width:64px">关联根因</th><th>改进方案（可执行）</th><th style="width:88px">类型</th><th style="width:70px">成本</th><th>风险 / 副作用</th><th style="width:72px">建议</th><th style="width:74px">决策</th></tr></thead>
+    <tbody>
+      <tr id="I1"><td><span class="id">I1</span></td><td><a href="#R1">R1</a></td><td>加硬件 preflight：要求 Hub 明确支持 HDMI + USB-A 数据 + PD；启动前先查 <code>usb mounted=1 suspended=0 mouse=1 keyboard=1</code>，并做一次“直连 vs Hub”对照；任一不满足就 fail fast，不再让 Agent 在盲态下继续。</td><td>流程/工具</td><td>低</td><td>需要用户准备合格 Hub；preflight 多花 5–10s。</td><td>建议采纳</td><td class="dec">待决策</td></tr>
+      <tr id="I2"><td><span class="id">I2</span></td><td><a href="#R2">R2</a></td><td>优先验证 UVC 在辅助触控真正生效时能否看到指针（本次开启后同一路 UVC 已能看到 17×20 的 blob）；若 UVC 仍不显示/不稳定，再改用 AirPlay（UxPlay 或 macOS AirPlay 接收端）作为 iPhone 的眼睛，保留 UVC 给 Android。两种路径都配合 <code>vision.pointer</code> 做闭环；参考 <code>esp32-iphone-agent/server/hidagent/phone.py:49,83,114</code>。</td><td>流程/配置</td><td>中</td><td>AirPlay 有 1–2s 延迟，不适合高速内环；UVC 路径则需要辅助触控始终生效。</td><td>建议采纳（先 UVC 预检，后 AirPlay 备选）</td><td class="dec">待决策</td></tr>
+      <tr id="I3"><td><span class="id">I3</span></td><td><a href="#R3">R3</a></td><td>固件鼠标按 HID 语义发送：<code>hid_mouse_kb.c:21</code> 的 <code>hid_mouse_move</code> 先等 <code>tud_hid_n_ready()</code>，每报文后 10ms；<code>cmd.c:109</code> 的 <code>home</code> 改为 20–30 次、10ms 间隔；<code>cmd.c:115</code> 的 <code>move</code> 对 dx/dy 做 <code>int8_t</code> 范围校验/分段；保留 <code>wake</code>。</td><td>代码</td><td>低</td><td>鼠标命令会慢 2–3 倍；需回归“指针能到四个角”。</td><td>建议采纳</td><td class="dec">待决策</td></tr>
+      <tr id="I4"><td><span class="id">I4</span></td><td><a href="#R3">R3</a>、<a href="#R4">R4</a></td><td>新增 <code>tools/pointer_probe.py</code>：在截图中用 Hough/template/diff 找 AssistiveTouch 指针，<code>home</code> 后做两点（如 150/350 单位）校准，得到“鼠标单位↔屏幕像素”映射；每次点击前 aim 闭环。参考 <code>phone.py:83</code> 的 <code>_find_pointer</code> 与 <code>phone.py:114</code> 的 <code>_aim</code>。</td><td>工具</td><td>中</td><td>指针外观/背景变化会影响检测；需要 2–3 帧确认。</td><td>建议采纳</td><td class="dec">待决策</td></tr>
+      <tr id="I5"><td><span class="id">I5</span></td><td><a href="#R4">R4</a></td><td>建立 iOS App 启动 helper：中文 App 用拼音输入（如 <code>zhongxinzhengquan</code>），看候选栏选第 1 条；搜索框先用 <code>Esc</code> 退出/清空，再输入；IME 候选栏出现时不要按 Down/Enter。把已验证的快捷键/流程写进 <code>knowledge/ios-app-launch.md</code>。</td><td>知识/工具</td><td>低</td><td>不同 App 的中文名/拼音可能不同，需要每次确认候选。</td><td>建议采纳</td><td class="dec">待决策</td></tr>
+      <tr id="I6"><td><span class="id">I6</span></td><td><a href="#R2">R2</a>、<a href="#R4">R4</a></td><td>做通用弹窗处理：检测居中 modal，OCR/视觉找底部「确定/关闭/知道了/取消」，用可见指针点击；优先点中性按钮，避开红色「一键打新/立即购买」等破坏性动作；找不到就停下来问用户。</td><td>代码/工具</td><td>中</td><td>OCR 受字体/遮挡影响；误点风险必须用白名单控制。</td><td>建议观察</td><td class="dec">待决策</td></tr>
+      <tr id="I7"><td><span class="id">I7</span></td><td><a href="#R1">R1</a>、<a href="#R2">R2</a></td><td>把 iOS preflight 固化成脚本：辅助触控开关、指针是否可见（diff/Hough）、Auto-Lock 是否 Never、<code>usb mounted/suspended</code>、Hub/直连状态；任一失败就提示用户开启辅助触控/换 Hub，不要进入盲走。</td><td>流程/工具</td><td>低</td><td>需要用户配合初始设置；脚本只能检查可见状态，不能替用户点开关。</td><td>建议采纳</td><td class="dec">待决策</td></tr>
+      <tr id="I8"><td><span class="id">I8</span></td><td><a href="#R2">R2</a></td><td>给 iOS 暴露 keyboard+mouse-only 的 HID 配置（不包含 digitizer），Android 保留 touch+mouse+keyboard 复合配置；用编译开关区分，降低 iOS 对复合描述符的兼容风险。已落地：<code>CONFIG_ARTEMIS_HID_INCLUDE_TOUCH</code> + <code>sdkconfig.ios.defaults</code>；2026-10-19 真机验证 iOS 构建为 <code>mounted=1 suspended=0 mouse=1 keyboard=1 touch=0 mode=ios</code>，键盘/鼠标正常，<code>tap</code> 返回 disabled。</td><td>代码</td><td>中</td><td>需要两套固件/构建；现场切换成本增加，已用独立 <code>build-ios</code> 目录并存。</td><td>建议采纳（已落地）</td><td class="dec">已采纳 · 2026-10-19 · 8b4383f</td></tr>
+      <tr id="I9"><td><span class="id">I9</span></td><td><a href="#R3">R3</a></td><td>UVC 采集改成持久 ffmpeg/avfoundation 流（单进程多帧），替代每帧一个进程；首帧黑时做 warm-up/重试，保留 crop 与 449×974 映射。目标从 850ms/帧降到 30fps 可用。</td><td>代码</td><td>中</td><td>长驻进程需要清理；采集卡异常时要重启。</td><td>建议观察</td><td class="dec">待决策</td></tr>
+      <tr id="I10"><td><span class="id">I10</span></td><td><a href="#R5">R5</a></td><td>任务开始前确认验收口径：<code>最新消息</code> = 聊天列表最顶部的真人/群聊，还是包括服务通知/公众号；<code>自选股</code> = 当前屏幕可见的几只，还是全部；<code>打开中信证券</code> = App 还是网页。把答案写进任务上下文，减少来回确认。</td><td>流程</td><td>低</td><td>多一次确认，但能避免“读到了却答错口径”。</td><td>建议采纳</td><td class="dec">待决策</td></tr>
+      <tr id="I11"><td><span class="id">I11</span></td><td><a href="#R3">R3</a></td><td>加固串口命令协议：限制单行长度、帮助文本不要刷屏、关键命令回 ACK；发送端按 20ms 节奏限流，遇到 <code>unknown command</code> 时先 drain 再重试，而不是继续灌命令。</td><td>代码</td><td>低</td><td>吞吐略降；需要同步修改桥接服务与固件。</td><td>建议采纳</td><td class="dec">待决策</td></tr>
+      <tr id="I12"><td><span class="id">I12</span></td><td><a href="#R4">R4</a></td><td>补齐键盘优先的 iOS 导航：<code>Cmd+H</code> 回主屏、<code>Cmd+Space</code> 搜索、中文 App 用拼音候选、<code>Down+Enter</code> 仅在无 IME 候选时使用；实测 <code>Cmd+Tab</code> 在 iPhone 上无效，不要把它当通用路径。可试开 Full Keyboard Access 做对照。</td><td>知识/流程</td><td>低</td><td>不同 iOS 版本/键盘布局可能不同，需要维护快捷键表。</td><td>建议观察</td><td class="dec">待决策</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s6">
+  <h2><span class="n">6</span>知识与工具沉淀（候选，等决策后写入 skill 目录）</h2>
+  <table>
+    <thead><tr><th style="width:50px">ID</th><th style="width:72px">来源</th><th>沉淀内容（触发条件 / 不沉淀的代价 / 可执行载体）</th><th style="width:260px">目标路径</th><th style="width:86px">状态</th></tr></thead>
+    <tbody>
+      <tr><td><span class="id">K1</span></td><td>R2、R3、R4</td><td><b>iOS 外部 HID 的指针/校准规则。</b>触发：任何 iPhone HID 自动化；不沉淀的代价：本次约 11 分钟盲点 + 一次误入“新建手势”；可执行载体：<code>tools/pointer_probe.py</code> + <code>tools/ios_hid_preflight.py</code>，知识本身只作为读前索引。</td><td><code>knowledge/ios-hid-pointer.md</code></td><td>建议沉淀</td></tr>
+      <tr><td><span class="id">K2</span></td><td>R1、R2</td><td><b>iOS HID 预检脚本。</b>触发：接上 iPhone 准备跑任务；不沉淀的代价：Hub/线/辅助触控状态不对时白跑 10+ 分钟；可执行载体：<code>tools/ios_hid_preflight.py</code>，检查 <code>usb</code>、指针 diff、Auto-Lock、Hub/直连。</td><td><code>tools/ios_hid_preflight.py</code></td><td>建议沉淀</td></tr>
+      <tr><td><span class="id">K3</span></td><td>R3、R4</td><td><b>指针检测/两点校准/aim 工具。</b>触发：UVC 或 AirPlay 帧里需要知道指针在哪；不沉淀的代价：每次重新写 Hough/diff/模板匹配；可执行载体：<code>tools/pointer_probe.py</code>，输入一张帧输出指针坐标与校准参数。</td><td><code>tools/pointer_probe.py</code></td><td>建议沉淀</td></tr>
+      <tr><td><span class="id">K4</span></td><td>R3、R5</td><td><b>DSH v4 会话证据读取。</b>触发：对 agent-in-repo 任务做复盘；不沉淀的代价：本次技能采集器只读 v3 <code>session.jsonl.zstd</code>，误选了 10-12/10-13 的旧会话（28.51h），只能手工解析 v4；可执行载体：更新 <code>collect_session_evidence.py</code> 读取 <code>session.v4.jsonl.zstd</code> 并按时间窗选会话。</td><td><code>knowledge/dsh-v4-session-evidence.md</code> + <code>tools/collect_session_evidence.py</code></td><td>建议沉淀</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  <b>证据来源（可复查）：</b>
+  <code>~/.dsh/sessions/--Users-xf-Documents-code-artemis--/session-a5d612bb-a2e3-48f4-a017-387e1ef688dd/session.v4.jsonl.zstd</code>（2942 行 / 18 轮 / 30 条用户消息 / 463 次工具调用；文中 <code>seq</code> 均指该文件行号）；
+  <code>captures/wechat_group_latest_20261019_1047.png</code>、<code>captures/wechat_list_20261019_1045.png</code>、<code>captures/citic_watchlist_20261019_1103.png</code>；
+  固件源码 <code>/Users/xf/Documents/code/mobile-agent-demo/esp32-hid/firmware/main/{cmd.c,hid_mouse_kb.c,hid_descriptor.c,hid_descriptor.h}</code>；
+  仓库代码 <code>artemis/reflex/capture.py</code>、<code>artemis/reflex/control.py</code>、<code>artemis/tools/reflex_tool.py</code>；
+  参考实现 <code>/Users/xf/Documents/code/esp32-iphone-agent/server/hidagent/phone.py</code>。
+  <br>
+  <b>数据缺口：</b>① 本次不是 Artemis 主 agent 的 Run DB 运行，没有 <code>run_outcome.json</code>/DB trace；链路由临时桥接服务 <code>/tmp/artemis-chain/phone_server.py</code> 驱动，未产品化；<code>make preflight</code> 实测 <code>branch=feat/new-project head=4eff99d dirty=5</code>，当前树上有未提交的 <code>config/artemis.jsonc</code>、<code>captures/</code>、<code>reports/</code> 等，验证的代码不是单一可复现提交；② 技能自带的 <code>collect_session_evidence.py</code> 只读 v3 <code>session.jsonl.zstd</code>，本次误选了 10-12/10-13 的旧会话（28.51h），报告中的时间线是手工解析 v4 会话得到，15–30s 的短静默未逐条展开；③ ESP32 固件在 <code>mobile-agent-demo</code> 下且该目录不是 git 仓库，改动未提交，无法给出 commit（2026-10-19 11:51 已移植到 <code>artemis/firmware/esp32-hid</code>，2026-10-19 12:36 已提交 <code>8b4383f</code>）；④ 未记录 iPhone 具体型号/iOS 版本，只知 USB-C、UVC 裁切 449×974；⑤ 没有连续录像，只有离散截图与工具输出；⑥ <code>/tmp/artemis-chain</code> 下的中间帧可能被系统清理，关键截图已复制到 <code>captures/</code>。
+  <br>
+  生成方式：skill <code>writing-run-retrospectives</code> · 报告为单文件自包含 HTML，可直接打印或归档。
+</footer>
+
+</div>
+</body>
+</html>
