@@ -57,3 +57,23 @@ class ScreenGeometry:
         x = round(max(0, min(1000, int(nx))) * width / 1000)
         y = round(max(0, min(1000, int(ny))) * height / 1000)
         return x, y
+
+    def normalized_box_to_screen(
+        self, box: tuple[float, float, float, float]
+    ) -> tuple[int, int, int, int]:
+        width, height = self.screen_size
+        left, top, right, bottom = box
+        if not (0 <= left <= right <= 1 and 0 <= top <= bottom <= 1):
+            raise ValueError(f"normalized box outside 0..1: {box}")
+        return (
+            round(left * width),
+            round(top * height),
+            round(right * width),
+            round(bottom * height),
+        )
+
+    def normalized_box_center(
+        self, box: tuple[float, float, float, float]
+    ) -> tuple[int, int]:
+        left, top, right, bottom = self.normalized_box_to_screen(box)
+        return (left + right) // 2, (top + bottom) // 2

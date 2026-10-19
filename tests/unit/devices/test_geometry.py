@@ -28,3 +28,14 @@ def test_invalid_geometry_is_rejected():
 
     with pytest.raises(ValueError):
         ScreenGeometry((100, 100), (100, 100), content_rect=(0, 0, 200, 100))
+
+
+def test_normalized_box_maps_to_screen_center():
+    geometry = ScreenGeometry((449, 974), (1080, 2400))
+    box = (0.296, 0.0719, 0.394, 0.0955)
+
+    px = geometry.normalized_box_to_screen(box)
+    center = geometry.normalized_box_center(box)
+
+    assert px == (320, 173, 426, 229)
+    assert center == (373, 201)
