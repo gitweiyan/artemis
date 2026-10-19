@@ -27,6 +27,144 @@ class TapResult:
     message: str
 
 
+class PointerSession:
+    """Dead-reckoned pointer state for one iOS mouse connection.
+
+    iOS starts a newly connected pointer at the top-left and keeps clicking at the
+    last position even after the cursor hides. ``home`` is verified to re-anchor
+    repeatedly, so state is ``origin + calibrated HID deltas``, clamped to the screen.
+    UVC is only needed for calibration/correction, not for every tap.
+    """
+
+    def __init__(
+        self,
+        control,
+        *,
+        frame_size: tuple[int, int] = (449, 974),
+        gain: tuple[float, float] = (1.4, 1.4),
+    ):
+        if gain[0] <= 0 or gain[1] <= 0:
+            raise ValueError("gain must be positive")
+        self.control = control
+        self.frame_size = (int(frame_size[0]), int(frame_size[1]))
+        self.gain_x = float(gain[0])
+        self.gain_y = float(gain[1])
+        self._x = 0.0
+        self._y = 0.0
+        self.connected = False
+
+    @property
+    def position(self) -> tuple[float, float]:
+        return self._x, self._y
+
+    def connect(self) -> None:
+        """Preflight and re-anchor to the top-left; call once per mouse connection."""
+        self.control.preflight()
+        self.control.mouse_home()
+        self._x = 0.0
+        self._y = 0.0
+        self.connected = True
+
+    def home(self) -> None:
+        """Re-anchor to the top-left (home is verified to zero repeatedly)."""
+        self.control.mouse_home()
+        self._x = 0.0
+        self._y = 0.0
+
+    def move(self, dx: int, dy: int) -> tuple[float, float]:
+        if not self.connected:
+            raise RuntimeError("pointer session is not connected; call connect() first")
+        self.control.mouse_move(int(dx), int(dy))
+        self._x = max(0.0, min(float(self.frame_size[0]), self._x + int(dx) * self.gain_x))
+        self._y = max(0.0, min(float(self.frame_size[1]), self._y + int(dy) * self.gain_y))
+        return self.position
+
+    def _target(self, x: float, y: float) -> tuple[int, int]:
+        width, height = self.frame_size
+        if not (0.0 <= x <= width and 0.0 <= y <= height):
+            raise ValueError(f"target outside frame {self.frame_size}: ({x}, {y})")
+        return round((x - self._x) / self.gain_x), round((y - self._y) / self.gain_y)
+
+    def tap(self, x: float, y: float) -> tuple[int, int]:
+        """Move by the calibrated delta, then click at the current position."""
+        if not self.connected:
+            raise RuntimeError("pointer session is not connected; call connect() first")
+        dx, dy = self._target(x, y)
+        if dx or dy:
+            self.move(dx, dy)
+        self.control.mouse_click()
+        return dx, dy
+
+    def observe(self, x: float, y: float) -> None:
+        """Correct dead reckoning from a trusted UVC/template reading."""
+        self._x = max(0.0, min(float(self.frame_size[0]), float(x)))
+        self._y = max(0.0, min(float(self.frame_size[1]), float(y)))
+
+    def calibrate(self, samples: list[tuple[int, int, float, float]]) -> None:
+        """Fit gain from ``(dx, dy, observed_x, observed_y)`` samples taken from home."""
+        x_pairs = [
+            (int(dx), float(observed_x)) for dx, _dy, observed_x, _observed_y in samples if dx
+        ]
+        y_pairs = [
+            (int(dy), float(observed_y)) for _dx, dy, _observed_x, observed_y in samples if dy
+        ]
+        if not x_pairs or not y_pairs:
+            raise ValueError("calibration needs at least one nonzero x and y sample")
+        gain_x = sum(dx * observed for dx, observed in x_pairs) / sum(dx * dx for dx, _ in x_pairs)
+        gain_y = sum(dy * observed for dy, observed in y_pairs) / sum(dy * dy for dy, _ in y_pairs)
+        if gain_x <= 0 or gain_y <= 0:
+            raise ValueError("calibration produced a non-positive gain")
+        self.gain_x = gain_x
+        self.gain_y = gain_y
+        self._x = 0.0
+        self._y = 0.0
+
+
+class SessionTapController:
+    """Tap using PointerSession dead reckoning; UVC, when present, only verifies.
+
+    This is the stateful path: no per-tap pointer detection. A failed screen
+    verification re-anchors with ``home`` and retries from the known origin.
+    """
+
+    def __init__(self, session: PointerSession, *, capture=None, max_attempts: int = 3):
+        self.session = session
+        self.capture = capture
+        self.max_attempts = max(1, int(max_attempts))
+
+    def tap(self, x: float, y: float) -> TapResult:
+        if not self.session.connected:
+            self.session.connect()
+        for attempt in range(1, self.max_attempts + 1):
+            before = self.capture.grab_latest() if self.capture is not None else None
+            deltas = self.session.tap(x, y)
+            if self.capture is None:
+                return TapResult(
+                    True,
+                    attempt,
+                    None,
+                    0.0,
+                    f"clicked by pointer state (delta={deltas}); no screen verification",
+                )
+            after = self.capture.grab_latest()
+            if changed(before.image, after.image):
+                return TapResult(
+                    True,
+                    attempt,
+                    None,
+                    0.0,
+                    f"clicked by pointer state (delta={deltas}); screen changed",
+                )
+            self.session.home()
+        return TapResult(
+            False,
+            self.max_attempts,
+            None,
+            None,
+            "click did not change the screen; pointer was re-anchored",
+        )
+
+
 class MouseController:
     """Turn ``tap(x, y)`` into the smallest reliable sequence of relative moves."""
 
@@ -135,4 +273,4 @@ class MouseController:
             self.control.mouse_move(-self.nudge, 0)
 
 
-__all__ = ["MouseController", "TapResult"]
+__all__ = ["MouseController", "PointerSession", "SessionTapController", "TapResult"]
