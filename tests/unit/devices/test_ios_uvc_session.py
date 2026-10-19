@@ -48,3 +48,29 @@ def test_ocr_engine_is_available_through_ios_session():
 
     assert target is not None
     assert target.box == (0.3, 0.1, 0.4, 0.2)
+
+
+def test_tap_target_maps_box_center_to_relative_hid_sink():
+    import asyncio
+    from artemis.control.base import ActionResult
+    from artemis.devices.geometry import ScreenGeometry
+    from artemis.devices.ios_uvc import tap_target
+    from artemis.devices.session import DeviceSession
+    from artemis.devices.capabilities import CapabilitySet
+    from artemis.perception.base import Target
+
+    class Sink:
+        capabilities = CapabilitySet(supports_relative_pointer=True)
+        def __init__(self): self.calls = []
+        async def tap_abs(self, x, y):
+            self.calls.append((x, y))
+            return ActionResult(True, "tap_abs")
+
+    sink = Sink()
+    session = DeviceSession([], [sink], ScreenGeometry((449, 974), (1080, 2400)))
+    target = Target("闪购", (0.296, 0.0719, 0.394, 0.0955), 0.99, "ocr")
+
+    result = asyncio.run(tap_target(session, target))
+
+    assert result.ok is True
+    assert sink.calls == [(373, 201)]

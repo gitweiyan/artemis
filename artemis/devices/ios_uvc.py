@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from artemis.control.base import ActionResult
 from artemis.control.hid import HidControlSink
 from artemis.devices.geometry import ScreenGeometry
 from artemis.devices.session import DeviceSession
 from artemis.reflex.mouse import PointerSession, SessionTapController
+from artemis.perception.base import Target
 from artemis.perception.uvc import UvcSource
 from artemis.reflex.vision import RedPointerDetector
 
@@ -41,3 +43,12 @@ def build_ios_uvc_session(
         control=[HidControlSink(pointer, controller)],
         geometry=ScreenGeometry(frame_size, screen_size),
     )
+
+
+async def tap_target(session: DeviceSession, target: Target) -> ActionResult:
+    """Map a normalized OCR target to screen pixels and tap via relative HID."""
+    if session.geometry is None:
+        raise ValueError("session has no ScreenGeometry")
+    x, y = session.geometry.normalized_box_center(target.box)
+    sink = session.control_for(absolute=False)
+    return await sink.tap_abs(x, y)
