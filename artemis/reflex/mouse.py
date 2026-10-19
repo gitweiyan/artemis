@@ -42,6 +42,7 @@ class PointerSession:
         *,
         frame_size: tuple[int, int] = (449, 974),
         gain: tuple[float, float] = (1.4, 1.4),
+        home_settle_s: float = 0.8,
     ):
         if gain[0] <= 0 or gain[1] <= 0:
             raise ValueError("gain must be positive")
@@ -52,14 +53,23 @@ class PointerSession:
         self._x = 0.0
         self._y = 0.0
         self.connected = False
+        self.home_settle_s = max(0.0, float(home_settle_s))
 
     @property
     def position(self) -> tuple[float, float]:
         return self._x, self._y
 
+    def ensure_home_screen(self) -> None:
+        """Return to the iOS Home screen without touching the pointer state."""
+        if hasattr(self.control, "ios_home"):
+            self.control.ios_home()
+            if self.home_settle_s > 0:
+                time.sleep(self.home_settle_s)
+
     def connect(self) -> None:
-        """Preflight and re-anchor to the top-left; call once per mouse connection."""
+        """Preflight, return to iOS Home, then re-anchor the pointer to the top-left."""
         self.control.preflight()
+        self.ensure_home_screen()
         self.control.mouse_home()
         self._x = 0.0
         self._y = 0.0
@@ -155,6 +165,7 @@ class SessionTapController:
                     0.0,
                     f"clicked by pointer state (delta={deltas}); screen changed",
                 )
+            self.session.ensure_home_screen()
             self.session.home()
         return TapResult(
             False,

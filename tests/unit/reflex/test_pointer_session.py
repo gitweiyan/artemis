@@ -16,6 +16,8 @@ class FakeControl:
     def __init__(self):
         self.preflights = 0
         self.homes = 0
+        self.ios_homes = 0
+        self.events: list[str] = []
         self.moves: list[tuple[int, int]] = []
         self.clicks = 0
 
@@ -23,8 +25,13 @@ class FakeControl:
         self.preflights += 1
         return {"mounted": 1, "suspended": 0, "mouse": 1, "keyboard": 1, "touch": 0, "mode": "ios"}
 
+    def ios_home(self):
+        self.ios_homes += 1
+        self.events.append("ios_home")
+
     def mouse_home(self):
         self.homes += 1
+        self.events.append("mouse_home")
 
     def mouse_move(self, dx, dy):
         self.moves.append((int(dx), int(dy)))
@@ -35,7 +42,9 @@ class FakeControl:
 
 def _session(control=None):
     control = control or FakeControl()
-    return PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0)), control
+    return PointerSession(
+        control, frame_size=(449, 974), gain=(2.0, 2.0), home_settle_s=0.0
+    ), control
 
 
 def test_connect_preflights_homes_and_starts_at_the_top_left():
@@ -44,7 +53,9 @@ def test_connect_preflights_homes_and_starts_at_the_top_left():
     session.connect()
 
     assert control.preflights == 1
+    assert control.ios_homes == 1
     assert control.homes == 1
+    assert control.events[:2] == ["ios_home", "mouse_home"], "iOS Home before pointer home"
     assert session.position == (0.0, 0.0)
     assert session.connected is True
 
@@ -200,6 +211,7 @@ def test_failed_click_reanchors_and_retries():
     assert result.ok is False
     assert control.clicks == 2
     assert control.homes == 1 + 2, "connect + one re-anchor after each failed click"
+    assert control.ios_homes == 1 + 2, "each re-anchor also returns to the iOS Home screen"
 
 
 def test_stateful_tap_without_capture_reports_ack_success_only():
@@ -215,3 +227,14 @@ def test_stateful_tap_without_capture_reports_ack_success_only():
     assert result.ok is True
     assert control.clicks == 1
     assert result.message.startswith("clicked")
+
+
+def test_ensure_ios_home_does_not_move_the_pointer():
+    session, control = _session()
+    session.connect()
+    before = session.position
+
+    session.ensure_home_screen()
+
+    assert session.position == before
+    assert control.ios_homes == 2

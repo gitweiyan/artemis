@@ -442,6 +442,10 @@ class Esp32HidControl(Control):
         """Slam the pointer to the top-left corner (firmware-paced, one command)."""
         return self._timed("home")
 
+    def ios_home(self) -> float:
+        """Go to the iOS Home screen (Cmd+H); distinct from ``mouse_home``."""
+        return self._timed("keymod 8 11")
+
     def mouse_click(self) -> float:
         return self._timed("click")
 
