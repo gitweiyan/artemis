@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 from adbutils import AdbClient, AdbDevice
 from artemis.config.paths import get_temp_dir
+from artemis.devices.capabilities import CapabilitySet
 from artemis.drivers.base import BaseDeviceDriver, KeyCode, ScreenData, SwipeDirection
 from artemis.toolchain import find_ffmpeg, find_scrcpy
 from artemis.utils.video import build_scrcpy_record_command
@@ -71,6 +72,13 @@ def _escape_for_adb_text(s: str) -> str:
 
 class AndroidAdbDriver(BaseDeviceDriver):
     """Android device driver using ADB and UIAutomator2."""
+
+    capabilities = CapabilitySet(
+        supports_ui_tree=True,
+        supports_absolute_tap=True,
+        supports_text_input=True,
+        supports_shell=True,
+    )
 
     def __init__(
         self,

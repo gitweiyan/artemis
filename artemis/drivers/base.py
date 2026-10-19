@@ -28,6 +28,8 @@ import time
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
+from artemis.devices.capabilities import CapabilitySet
+
 from third_party.mobile_use.controllers.types import ElementQuery
 
 
@@ -68,6 +70,8 @@ class ScreenData(BaseModel):
 
 class BaseDeviceDriver(ABC):
     """Abstract Base Class for mobile device and emulator drivers."""
+
+    capabilities = CapabilitySet()
 
     @property
     @abstractmethod
