@@ -62,3 +62,15 @@ def test_near_prefers_the_closer_ring():
 def test_non_image_is_rejected():
     detector = RedPointerDetector()
     assert detector.detect(b"not an image") is None
+
+
+def test_rejects_a_solid_red_ad_block():
+    import cv2
+    import numpy as np
+
+    image = np.full((200, 200, 3), 240, dtype=np.uint8)
+    cv2.rectangle(image, (80, 80), (120, 120), (0, 0, 255), -1)
+    payload = cv2.imencode(".png", image)[1].tobytes()
+    detector = RedPointerDetector(size_range=(30, 50), area_range=(300, 1200))
+
+    assert detector.detect(payload) is None

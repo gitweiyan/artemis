@@ -33,6 +33,11 @@ def main() -> int:
     parser.add_argument("--steps", type=int, default=6)
     parser.add_argument("--max-step", type=int, default=80)
     parser.add_argument("--click", action="store_true")
+    parser.add_argument(
+        "--no-home",
+        action="store_true",
+        help="do not Cmd+H; aim from the current app screen",
+    )
     parser.add_argument("--out", default="/tmp/artemis-chain/servo")
     args = parser.parse_args()
     tx, ty = (float(v) for v in args.target.split(","))
@@ -57,34 +62,46 @@ def main() -> int:
     error = None
     try:
         print("connect:", control.preflight())
-        session.connect()
+        if args.no_home:
+            session.connected = True
+            session.observe(21.5, 21.5)
+        else:
+            session.connect()
         for step in range(1, args.steps + 1):
             frame = capture.grab()
             (out / f"step{step:02d}.png").write_bytes(frame.image)
             found = detector.detect(
                 frame.image,
-                near=(session.x / 449.0, session.y / 974.0),
+                near=(session.position[0] / 449.0, session.position[1] / 974.0),
             )
             if found is not None:
                 session.observe(found.x * 449.0, found.y * 974.0)
                 print(
-                    f"step {step}: pointer=({session.x:.1f},{session.y:.1f}) "
+                    f"step {step}: pointer=({session.position[0]:.1f},{session.position[1]:.1f}) "
                     f"conf={found.confidence:.2f}"
                 )
             else:
                 print(f"step {step}: pointer not found; using state {session.position}")
-            error = ((tx - session.x) ** 2 + (ty - session.y) ** 2) ** 0.5
+            error = ((tx - session.position[0]) ** 2 + (ty - session.position[1]) ** 2) ** 0.5
             print(f"  target=({tx:.0f},{ty:.0f}) error={error:.1f}px")
             if error <= args.tolerance:
-                final = (session.x, session.y)
+                final = session.position
                 break
-            dx = round((tx - session.x) / session.gain_x)
-            dy = round((ty - session.y) / session.gain_y)
+            dx = round((tx - session.position[0]) / session.gain_x)
+            dy = round((ty - session.position[1]) / session.gain_y)
             dx = max(-args.max_step, min(args.max_step, dx))
             dy = max(-args.max_step, min(args.max_step, dy))
             if dx == 0 and dy == 0:
                 break
-            session.move(dx, dy)
+            try:
+                session.move(dx, dy)
+            except RuntimeError as exc:
+                # A transient UART "line too long" can arrive late; re-observe on
+                # the next loop instead of blindly resending a move that may have
+                # already been applied.
+                print(f"  move error, will re-observe: {exc}")
+                time.sleep(0.15)
+                continue
             time.sleep(0.25)
 
         if final is None:
@@ -93,12 +110,15 @@ def main() -> int:
             found = detector.detect(frame.image)
             if found is not None:
                 session.observe(found.x * 449.0, found.y * 974.0)
-            error = ((tx - session.x) ** 2 + (ty - session.y) ** 2) ** 0.5
-            print(f"final: pointer=({session.x:.1f},{session.y:.1f}) error={error:.1f}px")
+            error = ((tx - session.position[0]) ** 2 + (ty - session.position[1]) ** 2) ** 0.5
+            print(
+                f"final: pointer=({session.position[0]:.1f},{session.position[1]:.1f}) "
+                f"error={error:.1f}px"
+            )
         if args.click:
             if error is not None and error <= args.tolerance:
                 before = capture.grab()
-                session.tap(session.x, session.y)
+                session.tap(*session.position)
                 time.sleep(0.4)
                 after = capture.grab()
                 print("click changed:", changed(before.image, after.image))

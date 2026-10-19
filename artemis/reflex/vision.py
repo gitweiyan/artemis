@@ -201,6 +201,11 @@ class RedPointerDetector:
                 continue
             if not 0.7 <= w / max(1, h) <= 1.4:
                 continue
+            # The pointer is a ring: its center shows the background, not red.
+            # Solid red ad blocks/badges have a saturated center and are rejected.
+            center = mask[y + h // 2 - 3 : y + h // 2 + 4, x + w // 2 - 3 : x + w // 2 + 4]
+            if center.size and float(center.mean()) > 0.35 * 255.0:
+                continue
             cx, cy = centroids[index]
             candidates.append((float(cx) / width, float(cy) / height, area))
         if not candidates:
