@@ -238,3 +238,86 @@ def test_ensure_ios_home_does_not_move_the_pointer():
 
     assert session.position == before
     assert control.ios_homes == 2
+
+
+class FakeDetector:
+    def __init__(self, readings):
+        self.readings = list(readings)
+        self.calls = 0
+
+    def detect(self, image, near=None):
+        self.calls += 1
+        if not self.readings:
+            return None
+        return self.readings.pop(0)
+
+
+def test_verified_tap_clicks_only_after_pointer_is_at_the_target():
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120)), _png((240, 40, 40))])
+    detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")])
+    controller = SessionTapController(session, capture=capture, detector=detector)
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is True
+    assert control.clicks == 1
+    assert control.moves == []
+
+
+def test_verified_tap_corrects_an_offset_pointer_before_clicking():
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120)), _png((240, 40, 40))])
+    detector = FakeDetector([Pointer(0.25, 0.25, 0.95, "fake"), Pointer(0.5, 0.5, 0.95, "fake")])
+    controller = SessionTapController(session, capture=capture, detector=detector)
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is True
+    assert control.moves, "the controller must correct before clicking"
+    assert control.clicks == 1
+
+
+def test_verified_tap_refuses_to_click_when_pointer_is_not_detected():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120))])
+    detector = FakeDetector([None])
+    controller = SessionTapController(session, capture=capture, detector=detector)
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is False
+    assert control.clicks == 0, "no pre-click verification means no click"
+    assert "not detected" in result.message
+
+
+def test_verified_tap_fails_when_click_does_not_change_the_screen():
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120))])
+    detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")])
+    controller = SessionTapController(session, capture=capture, detector=detector)
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is False
+    assert control.clicks == 1
+    assert "did not change" in result.message

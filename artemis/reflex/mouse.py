@@ -95,6 +95,12 @@ class PointerSession:
             raise ValueError(f"target outside frame {self.frame_size}: ({x}, {y})")
         return round((x - self._x) / self.gain_x), round((y - self._y) / self.gain_y)
 
+    def click(self) -> None:
+        """Left-click at the current state position (no move)."""
+        if not self.connected:
+            raise RuntimeError("pointer session is not connected; call connect() first")
+        self.control.mouse_click()
+
     def tap(self, x: float, y: float) -> tuple[int, int]:
         """Move by the calibrated delta, then click at the current position."""
         if not self.connected:
@@ -102,7 +108,7 @@ class PointerSession:
         dx, dy = self._target(x, y)
         if dx or dy:
             self.move(dx, dy)
-        self.control.mouse_click()
+        self.click()
         return dx, dy
 
     def observe(self, x: float, y: float) -> None:
@@ -131,20 +137,99 @@ class PointerSession:
 
 
 class SessionTapController:
-    """Tap using PointerSession dead reckoning; UVC, when present, only verifies.
+    """Tap with a mandatory pre-click pointer check when a detector is supplied.
 
-    This is the stateful path: no per-tap pointer detection. A failed screen
-    verification re-anchors with ``home`` and retries from the known origin.
+    The verified path grabs a frame, detects the pointer, corrects with bounded
+    moves, and clicks only when the detected pointer is within ``tolerance_px`` of
+    the target. A missing pointer means no click. The legacy dead-reckoning path is
+    kept for callers without a capture/detector, but it cannot pre-verify.
     """
 
-    def __init__(self, session: PointerSession, *, capture=None, max_attempts: int = 3):
+    def __init__(
+        self,
+        session: PointerSession,
+        *,
+        capture=None,
+        detector=None,
+        max_attempts: int = 3,
+        tolerance_px: float = 8.0,
+        max_steps: int = 6,
+        max_step: int = 80,
+    ):
+        if detector is not None and capture is None:
+            raise ValueError("pre-click pointer verification needs a capture")
         self.session = session
         self.capture = capture
+        self.detector = detector
         self.max_attempts = max(1, int(max_attempts))
+        self.tolerance_px = float(tolerance_px)
+        self.max_steps = max(1, int(max_steps))
+        self.max_step = max(1, int(max_step))
+
+    def _verified_tap(self, x: float, y: float) -> TapResult:
+        width, height = self.session.frame_size
+        last_pointer: Pointer | None = None
+        last_error: float | None = None
+        for attempt in range(1, self.max_attempts + 1):
+            for _step in range(self.max_steps):
+                frame = self.capture.grab_latest()
+                pointer = self.detector.detect(
+                    frame.image,
+                    near=(self.session.position[0] / width, self.session.position[1] / height),
+                )
+                if pointer is None:
+                    return TapResult(
+                        False,
+                        attempt,
+                        None,
+                        None,
+                        "pointer not detected before click; refusing to click",
+                    )
+                last_pointer = pointer
+                self.session.observe(pointer.x * width, pointer.y * height)
+                error = math.hypot(x - self.session.position[0], y - self.session.position[1])
+                last_error = error
+                if error <= self.tolerance_px:
+                    before = frame.image
+                    self.session.click()
+                    after = self.capture.grab_latest()
+                    if changed(before, after.image):
+                        return TapResult(
+                            True,
+                            attempt,
+                            pointer,
+                            error,
+                            "pointer verified at target; click changed the screen",
+                        )
+                    return TapResult(
+                        False,
+                        attempt,
+                        pointer,
+                        error,
+                        "pointer verified at target, but click did not change the screen",
+                    )
+                dx = round((x - self.session.position[0]) / self.session.gain_x)
+                dy = round((y - self.session.position[1]) / self.session.gain_y)
+                dx = max(-self.max_step, min(self.max_step, dx))
+                dy = max(-self.max_step, min(self.max_step, dy))
+                if dx == 0 and dy == 0:
+                    break
+                self.session.move(dx, dy)
+            # No click happened if the pointer never reached the target.
+        return TapResult(
+            False,
+            self.max_attempts,
+            last_pointer,
+            last_error,
+            "pointer did not converge to the target; refusing to click",
+        )
 
     def tap(self, x: float, y: float) -> TapResult:
         if not self.session.connected:
             self.session.connect()
+        if self.capture is not None and self.detector is not None:
+            return self._verified_tap(x, y)
+        # Legacy dead-reckoning path; no pre-click verification is possible here.
         for attempt in range(1, self.max_attempts + 1):
             before = self.capture.grab_latest() if self.capture is not None else None
             deltas = self.session.tap(x, y)
