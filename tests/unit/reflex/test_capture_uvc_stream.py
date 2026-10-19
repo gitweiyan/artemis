@@ -134,3 +134,20 @@ def test_grab_latest_discards_queued_frames_and_returns_the_newest():
 
     assert frame.image == second
     stream.close()
+
+
+def test_grab_latest_extracts_frames_before_enforcing_the_buffer_cap(monkeypatch):
+    first = _jpeg((220, 30, 30))
+    second = _jpeg((30, 30, 220))
+    process = FakeProcess(first + second)
+    stream = UvcStream(
+        "USB Video",
+        size=(50, 100),
+        process_factory=lambda cmd: process,
+    )
+    monkeypatch.setattr(stream, "_MAX_BUFFER", len(first) + len(second) - 1)
+
+    frame = stream.grab_latest(timeout_s=1.0)
+
+    assert frame.image == second
+    stream.close()

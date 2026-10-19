@@ -270,6 +270,8 @@ class UvcStream(Capture):
     ``process_factory(cmd)`` is a test seam; production uses ``subprocess.Popen``.
     """
 
+    _MAX_BUFFER = 8 * 1024 * 1024
+
     def __init__(
         self,
         device: str = DEFAULT_UVC_DEVICE,
@@ -399,9 +401,9 @@ class UvcStream(Capture):
             chunk = self._read_chunk()
             if chunk:
                 self._buffer += chunk
-                if len(self._buffer) > 8 * 1024 * 1024:
+                if len(self._buffer) > self._MAX_BUFFER:
                     self._buffer = b""
-                    raise CaptureError("uvc stream buffer exceeded 8 MiB without a frame")
+                    raise CaptureError("uvc stream buffer exceeded its cap without a frame")
             elif chunk == b"":
                 raise CaptureError("uvc stream ended before a frame arrived")
 
@@ -418,14 +420,23 @@ class UvcStream(Capture):
         newest: bytes | None = None
 
         while True:
-            while True:
-                chunk = self._read_chunk_nowait()
-                if not chunk:
-                    break
+            # Extract frames as chunks arrive. Draining megabytes first and only
+            # then splitting can trip the buffer cap while complete frames are
+            # already sitting in the buffer.
+            chunk = self._read_chunk_nowait()
+            if chunk:
                 self._buffer += chunk
-                if len(self._buffer) > 8 * 1024 * 1024:
+                while True:
+                    jpeg = self._pop_jpeg()
+                    if jpeg is None:
+                        break
+                    newest = jpeg
+                if len(self._buffer) > self._MAX_BUFFER and newest is None:
                     self._buffer = b""
-                    raise CaptureError("uvc stream buffer exceeded 8 MiB without a frame")
+                    raise CaptureError("uvc stream buffer exceeded its cap without a frame")
+                continue
+
+            # No complete frame yet; pull a partial frame out of the buffer.
             while True:
                 jpeg = self._pop_jpeg()
                 if jpeg is None:
