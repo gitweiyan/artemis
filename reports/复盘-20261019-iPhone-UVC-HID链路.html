@@ -233,16 +233,17 @@
 </section>
 
 <section id="s6">
-  <h2><span class="n">6</span>知识与工具沉淀（候选，等决策后写入 skill 目录）</h2>
+  <h2><span class="n">6</span>知识与工具沉淀（K1–K3 已沉淀，K4 待决策）</h2>
   <table>
     <thead><tr><th style="width:50px">ID</th><th style="width:72px">来源</th><th>沉淀内容（触发条件 / 不沉淀的代价 / 可执行载体）</th><th style="width:260px">目标路径</th><th style="width:86px">状态</th></tr></thead>
     <tbody>
-      <tr><td><span class="id">K1</span></td><td>R2、R3、R4</td><td><b>iOS 外部 HID 的指针/校准规则。</b>触发：任何 iPhone HID 自动化；不沉淀的代价：本次约 11 分钟盲点 + 一次误入“新建手势”；可执行载体：<code>tools/pointer_probe.py</code> + <code>tools/ios_hid_preflight.py</code>，知识本身只作为读前索引。</td><td><code>knowledge/ios-hid-pointer.md</code></td><td>建议沉淀</td></tr>
-      <tr><td><span class="id">K2</span></td><td>R1、R2</td><td><b>iOS HID 预检脚本。</b>触发：接上 iPhone 准备跑任务；不沉淀的代价：Hub/线/辅助触控状态不对时白跑 10+ 分钟；可执行载体：<code>tools/ios_hid_preflight.py</code>，检查 <code>usb</code>、指针 diff、Auto-Lock、Hub/直连。</td><td><code>tools/ios_hid_preflight.py</code></td><td>建议沉淀</td></tr>
-      <tr><td><span class="id">K3</span></td><td>R3、R4</td><td><b>指针检测/两点校准/aim 工具。</b>触发：UVC 或 AirPlay 帧里需要知道指针在哪；不沉淀的代价：每次重新写 Hough/diff/模板匹配；可执行载体：<code>tools/pointer_probe.py</code>，输入一张帧输出指针坐标与校准参数。</td><td><code>tools/pointer_probe.py</code></td><td>建议沉淀</td></tr>
+      <tr><td><span class="id">K1</span></td><td>R2、R3、R4</td><td><b>iOS 外部 HID 的“判断与流程”（不是检测算法）。</b>触发：准备用 ESP32 HID 操作 iPhone；不沉淀的代价：本次约 11 分钟盲点 + 一次误入“新建手势”；内容：何时需要校准、前置检查、UVC/AirPlay 选择、失败模式；可执行载体：K2/K3（知识本身是读前索引）。</td><td><code>knowledge/ios-hid-pointer.md</code></td><td>已沉淀</td></tr>
+      <tr><td><span class="id">K2</span></td><td>R1、R2</td><td><b>iOS HID 预检脚本（门控）。</b>触发：接上 iPhone 准备跑任务；不沉淀的代价：Hub/线/辅助触控/锁屏状态不对时白跑 10+ 分钟；可执行载体：<code>tools/ios_hid_preflight.py</code>；已实测 PASS（解锁）/ FAIL（<code>suspended=1</code>）/ SKIP（未提供帧）三种路径。</td><td><code>tools/ios_hid_preflight.py</code></td><td>已沉淀</td></tr>
+      <tr><td><span class="id">K3</span></td><td>R3、R4</td><td><b>指针检测/两点校准/aim 的“算法与工具”。</b>触发：UVC 或 AirPlay 帧里需要知道指针在哪；不沉淀的代价：每次重新写 Hough/diff/模板匹配；内容：检测、两点拟合、aim；<b>不包含“何时该用”的判断（在 K1/K2）</b>；可执行载体：<code>tools/pointer_probe.py</code>，含合成 <code>selftest</code>。</td><td><code>tools/pointer_probe.py</code></td><td>已沉淀</td></tr>
       <tr><td><span class="id">K4</span></td><td>R3、R5</td><td><b>DSH v4 会话证据读取。</b>触发：对 agent-in-repo 任务做复盘；不沉淀的代价：本次技能采集器只读 v3 <code>session.jsonl.zstd</code>，误选了 10-12/10-13 的旧会话（28.51h），只能手工解析 v4；可执行载体：更新 <code>collect_session_evidence.py</code> 读取 <code>session.v4.jsonl.zstd</code> 并按时间窗选会话。</td><td><code>knowledge/dsh-v4-session-evidence.md</code> + <code>tools/collect_session_evidence.py</code></td><td>建议沉淀</td></tr>
     </tbody>
   </table>
+  <div class="note" style="margin-top:12px"><b>K1 与 K3 的边界：</b>K1 决定“要不要/为什么”，K3 只负责“怎么算”；K2 是前置门控。K1–K3 已于 2026-10-19 写入 <code>writing-run-retrospectives</code> skill 目录并更新索引；K4 仍待决策。</div>
 </section>
 
 <footer>
