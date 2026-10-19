@@ -18,6 +18,7 @@ from typing import Any
 
 import base64
 import os
+import select
 import subprocess
 import time
 from io import BytesIO
@@ -257,6 +258,206 @@ class UvcCapture(Capture):
         return None
 
 
+class UvcStream(Capture):
+    """Persistent UVC frames from one ffmpeg process (I9/P1).
+
+    The per-frame :class:`UvcCapture` spawns ffmpeg for every grab (~0.85 s); the
+    AssistiveTouch pointer fades before the frame arrives. This class keeps one
+    MJPEG ffmpeg alive, crops in ffmpeg (no Python re-encode), and splits JPEG
+    frames from arbitrary stdout chunks. ``grab()`` returns the next complete
+    frame, so a pointer nudge can be followed by a fresh observation quickly.
+
+    ``process_factory(cmd)`` is a test seam; production uses ``subprocess.Popen``.
+    """
+
+    def __init__(
+        self,
+        device: str = DEFAULT_UVC_DEVICE,
+        *,
+        size: tuple[int, int] = DEFAULT_UVC_SIZE,
+        framerate: int = DEFAULT_UVC_FRAMERATE,
+        crop: tuple[int, int, int, int] | None = None,
+        ffmpeg: str = "ffmpeg",
+        timeout_s: float = 2.0,
+        process_factory=None,
+    ):
+        self.device = device
+        self.size = (int(size[0]), int(size[1]))
+        self.framerate = int(framerate)
+        self.crop = tuple(int(value) for value in crop) if crop else None
+        self.ffmpeg = ffmpeg
+        self.timeout_s = float(timeout_s)
+        self._process_factory = process_factory
+        self._process = None
+        self._buffer = b""
+        if self.crop:
+            left, top, right, bottom = self.crop
+            self.frame_size = (right - left, bottom - top)
+        else:
+            self.frame_size = self.size
+
+    def _command(self) -> list[str]:
+        width, height = self.size
+        cmd = [
+            self.ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "avfoundation",
+            "-framerate",
+            str(self.framerate),
+            "-video_size",
+            f"{width}x{height}",
+            "-i",
+            self.device,
+        ]
+        if self.crop:
+            left, top, right, bottom = self.crop
+            cmd += ["-vf", f"crop={right - left}:{bottom - top}:{left}:{top}"]
+        cmd += [
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "mjpeg",
+            "-q:v",
+            "3",
+            "-",
+        ]
+        return cmd
+
+    def _start(self) -> None:
+        if self._process is not None:
+            return
+        cmd = self._command()
+        if self._process_factory is not None:
+            self._process = self._process_factory(cmd)
+        else:
+            self._process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=0,
+            )
+
+    def _read_chunk(self) -> bytes | None:
+        stdout = self._process.stdout
+        try:
+            fd = stdout.fileno()
+        except (AttributeError, OSError, ValueError):
+            return stdout.read(4096)
+        readable, _, _ = select.select([fd], [], [], 0.05)
+        if not readable:
+            return None
+        return os.read(fd, 4096)
+
+    def _read_chunk_nowait(self) -> bytes | None:
+        stdout = self._process.stdout
+        try:
+            fd = stdout.fileno()
+        except (AttributeError, OSError, ValueError):
+            return stdout.read(4096)
+        readable, _, _ = select.select([fd], [], [], 0)
+        if not readable:
+            return None
+        return os.read(fd, 4096)
+
+    def _make_frame(self, jpeg: bytes, started: float) -> Frame:
+        return Frame(
+            image=jpeg,
+            captured_at=time.monotonic(),
+            capture_ms=(time.monotonic() - started) * 1000.0,
+            width=self.frame_size[0],
+            height=self.frame_size[1],
+        )
+
+    def _pop_jpeg(self) -> bytes | None:
+        start = self._buffer.find(b"\xff\xd8")
+        if start < 0:
+            # Keep a trailing 0xFF: it may be the first byte of the next SOI.
+            self._buffer = self._buffer[-1:] if self._buffer.endswith(b"\xff") else b""
+            return None
+        end = self._buffer.find(b"\xff\xd9", start + 2)
+        if end < 0:
+            return None
+        frame = self._buffer[start : end + 2]
+        self._buffer = self._buffer[end + 2 :]
+        return frame
+
+    def grab(self, timeout_s: float | None = None) -> Frame:
+        self._start()
+        started = time.monotonic()
+        timeout = self.timeout_s if timeout_s is None else float(timeout_s)
+        deadline = started + timeout
+
+        while True:
+            jpeg = self._pop_jpeg()
+            if jpeg is not None:
+                return self._make_frame(jpeg, started)
+            if time.monotonic() >= deadline:
+                raise CaptureError(f"uvc stream produced no frame within {timeout:.2f}s")
+            chunk = self._read_chunk()
+            if chunk:
+                self._buffer += chunk
+                if len(self._buffer) > 8 * 1024 * 1024:
+                    self._buffer = b""
+                    raise CaptureError("uvc stream buffer exceeded 8 MiB without a frame")
+            elif chunk == b"":
+                raise CaptureError("uvc stream ended before a frame arrived")
+
+    def grab_latest(self, timeout_s: float | None = None) -> Frame:
+        """Return the newest frame currently available (drain older queued frames).
+
+        ffmpeg keeps producing while the caller is planning or moving the pointer;
+        returning the oldest queued frame would feed the controller a stale image.
+        """
+        self._start()
+        started = time.monotonic()
+        timeout = self.timeout_s if timeout_s is None else float(timeout_s)
+        deadline = started + timeout
+        newest: bytes | None = None
+
+        while True:
+            while True:
+                chunk = self._read_chunk_nowait()
+                if not chunk:
+                    break
+                self._buffer += chunk
+                if len(self._buffer) > 8 * 1024 * 1024:
+                    self._buffer = b""
+                    raise CaptureError("uvc stream buffer exceeded 8 MiB without a frame")
+            while True:
+                jpeg = self._pop_jpeg()
+                if jpeg is None:
+                    break
+                newest = jpeg
+            if newest is not None:
+                return self._make_frame(newest, started)
+            if time.monotonic() >= deadline:
+                raise CaptureError(f"uvc stream produced no frame within {timeout:.2f}s")
+            chunk = self._read_chunk()
+            if chunk:
+                self._buffer += chunk
+            elif chunk == b"":
+                raise CaptureError("uvc stream ended before a frame arrived")
+
+    def close(self) -> None:
+        process = self._process
+        self._process = None
+        self._buffer = b""
+        if process is None:
+            return
+        try:
+            process.terminate()
+            process.wait(timeout=2.0)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            process.stdout.close()
+        except (AttributeError, OSError):
+            pass
+
+
 #: macOS screen rectangle of the AirPlay receiver window, ``left,top,right,bottom``.
 #: Unset means the whole screen. Only used by ``prefer='airplay'``.
 ENV_AIRPLAY_REGION = "ARTEMIS_AIRPLAY_REGION"
@@ -348,9 +549,10 @@ def default_capture(serial: str, *, prefer: str = "helper") -> Capture:
     card and treats ``serial`` as its **device name** (a UVC card has no adb serial).
     ``prefer='airplay'`` grabs the macOS AirPlay receiver window region configured by
     ``ARTEMIS_AIRPLAY_REGION`` (the slow iPhone fallback; UVC remains first choice).
+    ``prefer='uvc-stream'`` keeps one ffmpeg process alive for low-latency frames.
     """
-    if prefer == "uvc":
-        return UvcCapture(serial)
+    if prefer in ("uvc", "uvc-stream"):
+        return UvcCapture(serial) if prefer == "uvc" else UvcStream(serial)
     if prefer == "airplay":
         return AirPlayCapture(airplay_region())
     if prefer == "screencap":
@@ -364,9 +566,7 @@ __all__ = [
     "HelperCapture",
     "ScreencapCapture",
     "UvcCapture",
+    "UvcStream",
     "airplay_region",
     "default_capture",
 ]
-
-
-__all__ = ["HelperCapture", "ScreencapCapture", "UvcCapture", "default_capture"]

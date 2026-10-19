@@ -62,7 +62,8 @@ class PlayReflexArgs(BaseModel):
         default="helper",
         description=(
             "'helper' (loopback, lowest latency), 'screencap' (adb), "
-            "'uvc' (HDMI capture card), or 'airplay' "
+            "'uvc' (HDMI capture card), 'uvc-stream' "
+            "(persistent card, low latency), or 'airplay' "
             "(macOS AirPlay receiver region; slow iPhone fallback)."
         ),
     )
