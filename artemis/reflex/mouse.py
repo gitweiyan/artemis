@@ -40,7 +40,7 @@ class MouseController:
         gain: float = 1.3,
         tolerance_px: float = 8.0,
         max_attempts: int = 3,
-        nudge: int = 12,
+        nudge: int = 60,
         max_step: int = 300,
         min_confidence: float = 0.5,
         settle_s: float = 0.04,
@@ -128,7 +128,7 @@ class MouseController:
                 before.image,
                 after.image,
                 near=expected,
-                shift=self.nudge / self.frame_size[0],
+                shift=(self.nudge * self.gain) / self.frame_size[0],
                 reach=(0.5, 0.5),
             )
         finally:

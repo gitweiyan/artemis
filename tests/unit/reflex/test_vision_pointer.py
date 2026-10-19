@@ -64,3 +64,14 @@ def test_pointer_returns_none_when_the_change_is_outside_reach():
     result = pointer(before, after, near=(0.80, 0.80), shift=0.05, reach=(0.05, 0.05))
 
     assert result is None
+
+
+def test_pointer_returns_the_before_position_for_a_large_nudge():
+    before = _frame((120, 400))
+    after = _frame((200, 400))  # moved right by 0.20 of the frame width
+
+    found = pointer(before, after, near=(0.30, 0.50), shift=0.20, reach=(0.30, 0.30))
+
+    assert found is not None
+    assert abs(found[0] - 0.30) < 0.03
+    assert abs(found[1] - 0.50) < 0.03

@@ -194,9 +194,11 @@ def pointer(
 
     xs = [x for x, _ in hits]
     ys = [y for _, y in hits]
-    if (
-        max(xs) - min(xs) > 0.15 * width or max(ys) - min(ys) > 0.07 * height
-    ):  # not one compact spot
+    # The two pointer positions are `shift` apart; their bbox is wider than one
+    # pointer. Small nudges keep the old 15% bound; large nudges get a bound that
+    # scales with the distance the pointer actually travelled.
+    max_x_spread = max(0.15, 2 * abs(shift) + 0.05)
+    if max(xs) - min(xs) > max_x_spread * width or max(ys) - min(ys) > 0.07 * height:
         return None
 
     center_x = sum(xs) / len(xs) + left
