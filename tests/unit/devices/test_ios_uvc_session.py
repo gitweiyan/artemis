@@ -29,3 +29,22 @@ def test_builds_a_standard_session_with_uvc_and_hid_capabilities():
     assert session.capabilities.requires_pointer_precheck is True
     assert session.capabilities.supports_ui_tree is False
     assert asyncio.run(session.snapshot()).health == "ok"
+
+
+class OcrEngine:
+    def recognize(self, image, *, width, height):
+        from artemis.perception.base import TextBox
+
+        return [TextBox("闪购", (0.3, 0.1, 0.4, 0.2), 0.99)]
+
+
+def test_ocr_engine_is_available_through_ios_session():
+    from artemis.perception.base import Target
+
+    session = build_ios_uvc_session(Capture(), Control(), ocr_engine=OcrEngine())
+    source = session.perception[0]
+    frame = asyncio.run(session.snapshot())
+    target = asyncio.run(source.locate(frame, Target("闪购", (0, 0, 0, 0), 0, "ocr")))
+
+    assert target is not None
+    assert target.box == (0.3, 0.1, 0.4, 0.2)

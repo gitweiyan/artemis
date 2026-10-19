@@ -28,6 +28,7 @@ def build_ios_uvc_session(
     screen_size: tuple[int, int] = (1080, 2400),
     pointer_gain: tuple[float, float] = (1.8, 1.8),
     detector=None,
+    ocr_engine=None,
 ) -> DeviceSession:
     pointer = PointerSession(control, frame_size=frame_size, gain=pointer_gain)
     controller = SessionTapController(
@@ -36,7 +37,7 @@ def build_ios_uvc_session(
         detector=detector or RedPointerDetector(),
     )
     return DeviceSession(
-        perception=[UvcSource(capture)],
+        perception=[UvcSource(capture, ocr_engine=ocr_engine)],
         control=[HidControlSink(pointer, controller)],
         geometry=ScreenGeometry(frame_size, screen_size),
     )
