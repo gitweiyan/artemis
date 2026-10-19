@@ -70,3 +70,8 @@ def test_two_frame_locate_ignores_the_menu_box_and_returns_confidence():
     assert abs(found.y - 0.50) < 0.03
     assert found.confidence > 0.5
     assert found.method == "diff"
+
+
+def test_has_template_reports_whether_single_frame_detection_is_possible():
+    assert PointerTracker().has_template is False
+    assert PointerTracker(template=_template()).has_template is True

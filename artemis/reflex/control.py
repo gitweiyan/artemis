@@ -438,6 +438,10 @@ class Esp32HidControl(Control):
         """Move the pointer by a relative ``(dx, dy)`` — iOS assistive-touch style."""
         return self._timed(f"move {int(dx)} {int(dy)}")
 
+    def mouse_home(self) -> float:
+        """Slam the pointer to the top-left corner (firmware-paced, one command)."""
+        return self._timed("home")
+
     def mouse_click(self) -> float:
         return self._timed("click")
 

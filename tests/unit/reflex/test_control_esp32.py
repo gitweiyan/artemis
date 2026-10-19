@@ -192,3 +192,9 @@ def test_long_type_text_is_split_into_bounded_commands(esp32):
     assert all(len(line) <= 126 for line in recorder.lines)
     typed = "".join(line[len("type ") :].rstrip("\n") for line in recorder.lines)
     assert typed == text
+
+
+def test_home_sends_the_firmware_home_command(esp32):
+    control, recorder = esp32()
+    control.mouse_home()
+    assert recorder.lines == ["home\n"]

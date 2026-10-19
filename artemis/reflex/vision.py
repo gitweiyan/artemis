@@ -65,6 +65,10 @@ class PointerTracker:
                 raise ValueError("pointer template is not a decodable image")
             self._template = decoded
 
+    @property
+    def has_template(self) -> bool:
+        return self._template is not None
+
     def _mask_menu(self, image):
         height, width = image.shape[:2]
         left, top, right, bottom = self.menu_box
@@ -200,4 +204,25 @@ def pointer(
     return center_x / width - shift / 2, center_y / height
 
 
-__all__ = ["Pointer", "PointerTracker", "pointer"]
+def changed(
+    before: bytes,
+    after: bytes,
+    *,
+    ignore_top: float = 0.06,
+    threshold: int = 15,
+    min_pixels: int = 30,
+) -> bool:
+    """Whether the content changed, ignoring the status-bar clock area."""
+    a, b = _gray(before), _gray(after)
+    if a.size != b.size:
+        return True
+    width, height = a.size
+    start_row = int(ignore_top * height)
+    diff = ImageChops.difference(a, b).tobytes()
+    count = sum(
+        1 for index, value in enumerate(diff) if value > threshold and index // width >= start_row
+    )
+    return count >= min_pixels
+
+
+__all__ = ["Pointer", "PointerTracker", "changed", "pointer"]
