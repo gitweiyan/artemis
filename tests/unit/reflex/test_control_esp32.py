@@ -181,3 +181,14 @@ def test_keyboard_and_mouse_go_through_the_same_lazy_port(esp32):
     control, _ = esp32()
     control.type_text("x")
     assert control._fd is None
+
+
+def test_long_type_text_is_split_into_bounded_commands(esp32):
+    control, recorder = esp32()
+    text = "a" * 300
+
+    control.type_text(text)
+
+    assert all(len(line) <= 126 for line in recorder.lines)
+    typed = "".join(line[len("type ") :].rstrip("\n") for line in recorder.lines)
+    assert typed == text

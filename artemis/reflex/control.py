@@ -118,6 +118,8 @@ class AdbInputControl(Control):
 
 #: The board's UART USB-C console speed (the reference firmware's monitor default).
 DEFAULT_ESP32_BAUDRATE = 115200
+#: Firmware line buffer is 128 bytes; the host never sends a line (with newline) above this.
+MAX_ESP32_LINE = 126
 #: The firmware's reference touch frame (its ``TOUCH_REF_WIDTH/HEIGHT``). The host states
 #: phone pixels in this frame and the board rescales them to HID's 0..65535, so only the
 #: aspect has to match the phone — the phone's real resolution does not matter.
@@ -289,6 +291,11 @@ class Esp32HidControl(Control):
         the fix for the 2026-10-19 overrun that turned ``move`` into ``ove``.
         """
         line = command + "\n"
+        if len(line.encode("ascii")) > MAX_ESP32_LINE:
+            raise ValueError(
+                f"ESP32 command is too long ({len(line) - 1} bytes); "
+                f"the firmware line limit is {MAX_ESP32_LINE - 1}"
+            )
         if self._writer is not None:
             self._writer(line)
             return ""
@@ -411,7 +418,10 @@ class Esp32HidControl(Control):
             if line:
                 if not line.isascii():
                     raise ValueError(f"the board types ASCII only: {line!r}")
-                self._send(f"type {line}")
+                # "type " + text + newline must fit the firmware's 126-byte line.
+                chunk_size = MAX_ESP32_LINE - len("type \n")
+                for start in range(0, len(line), chunk_size):
+                    self._send(f"type {line[start : start + chunk_size]}")
         return (time.monotonic() - started) * 1000.0
 
     def press_key(self, usage: int) -> float:

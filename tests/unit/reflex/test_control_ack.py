@@ -86,12 +86,23 @@ def test_an_err_response_is_a_failure_even_though_it_ends_with_ok():
     control = Esp32HidControl("FAKE", ack_timeout_s=1.0)
     control._fd = host.fileno()
     seen: list[bytes] = []
-    thread = _responder(firmware, b"ERR line too long\r\nOK\r\n", seen)
+    thread = _responder(firmware, b"ERR mouse not ready\r\nOK\r\n", seen)
     try:
-        with pytest.raises(RuntimeError, match="line too long"):
-            control._send_with_response("type " + "x" * 200)
+        with pytest.raises(RuntimeError, match="mouse not ready"):
+            control._send_with_response("move 1 2")
     finally:
         thread.join(timeout=1.0)
         control._fd = None
         host.close()
         firmware.close()
+
+
+def test_an_overlong_command_is_rejected_before_it_reaches_the_transport():
+    control = Esp32HidControl("FAKE")
+    seen: list[str] = []
+    control._writer = lambda line: seen.append(line)
+
+    with pytest.raises(ValueError, match="too long"):
+        control._send_with_response("type " + "x" * 200)
+
+    assert seen == [], "the UART must never see an overlong line"
