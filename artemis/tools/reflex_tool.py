@@ -60,7 +60,11 @@ class PlayReflexArgs(BaseModel):
     )
     capture: str = Field(
         default="helper",
-        description="'helper' (helper loopback, lowest latency) or 'screencap' (always available).",
+        description=(
+            "'helper' (loopback, lowest latency), 'screencap' (adb), "
+            "'uvc' (HDMI capture card), or 'airplay' "
+            "(macOS AirPlay receiver region; slow iPhone fallback)."
+        ),
     )
 
 

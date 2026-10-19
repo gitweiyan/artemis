@@ -17,8 +17,10 @@ from __future__ import annotations
 from typing import Any
 
 import base64
+import os
 import subprocess
 import time
+from io import BytesIO
 
 from artemis.reflex.attach import AttachTimeout, attach_client
 from artemis.reflex.contract import Capture, CaptureError, Frame
@@ -255,17 +257,116 @@ class UvcCapture(Capture):
         return None
 
 
+#: macOS screen rectangle of the AirPlay receiver window, ``left,top,right,bottom``.
+#: Unset means the whole screen. Only used by ``prefer='airplay'``.
+ENV_AIRPLAY_REGION = "ARTEMIS_AIRPLAY_REGION"
+
+
+def airplay_region() -> tuple[int, int, int, int] | None:
+    """The configured AirPlay receiver rectangle, or ``None`` for the whole screen."""
+    raw = os.environ.get(ENV_AIRPLAY_REGION)
+    if not raw or not raw.strip():
+        return None
+    try:
+        parts = tuple(int(part.strip()) for part in raw.split(","))
+    except ValueError as exc:
+        raise ValueError(f"{ENV_AIRPLAY_REGION} must be 'left,top,right,bottom'") from exc
+    if len(parts) != 4:
+        raise ValueError(f"{ENV_AIRPLAY_REGION} must have four integers, got {raw!r}")
+    left, top, right, bottom = parts
+    if left >= right or top >= bottom:
+        raise ValueError(f"{ENV_AIRPLAY_REGION} rectangle is empty: {raw!r}")
+    return parts
+
+
+class AirPlayCapture(Capture):
+    """Frames from an AirPlay receiver window on the Mac (iPhone fallback).
+
+    AirPlay mirrors the phone into a window (UxPlay or the macOS AirPlay receiver);
+    this adapter grabs that screen region. It needs macOS Screen Recording
+    permission. AirPlay adds 1–2s latency, so it is a fallback for tasks that can
+    tolerate it, not a high-speed inner loop; UVC + AssistiveTouch remains the
+    first choice when the pointer is visible.
+
+    ``grabber(region)`` is a test seam (and a different screen-capture transport):
+    it returns a ``PIL.Image`` for the region.
+    """
+
+    def __init__(
+        self,
+        region: tuple[int, int, int, int] | None = None,
+        *,
+        grabber=None,
+    ):
+        if region is not None:
+            if len(region) != 4:
+                raise ValueError("airplay region must be left,top,right,bottom")
+            left, top, right, bottom = (int(value) for value in region)
+            if left >= right or top >= bottom:
+                raise ValueError(f"airplay region is empty: {region!r}")
+            self.region: tuple[int, int, int, int] | None = (left, top, right, bottom)
+        else:
+            self.region = None
+        self._grabber = grabber
+
+    def grab(self) -> Frame:
+        started = time.monotonic()
+        grabber = self._grabber if self._grabber is not None else _grab_screen
+        try:
+            image = grabber(self.region)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise CaptureError(f"airplay capture failed: {exc}") from exc
+        if image is None:
+            raise CaptureError("airplay capture returned no image")
+        out = BytesIO()
+        try:
+            image.save(out, "PNG")
+        except (OSError, ValueError) as exc:
+            raise CaptureError(f"airplay capture could not encode the frame: {exc}") from exc
+        return Frame(
+            image=out.getvalue(),
+            captured_at=time.monotonic(),
+            capture_ms=(time.monotonic() - started) * 1000.0,
+            width=image.width,
+            height=image.height,
+        )
+
+    def close(self) -> None:
+        return None
+
+
+def _grab_screen(region: tuple[int, int, int, int] | None):
+    from PIL import ImageGrab
+
+    return ImageGrab.grab(bbox=region)
+
+
 def default_capture(serial: str, *, prefer: str = "helper") -> Capture:
     """The capture path for ``serial``.
 
     ``prefer='screencap'`` forces the slow adb path; ``prefer='uvc'`` uses the capture
     card and treats ``serial`` as its **device name** (a UVC card has no adb serial).
+    ``prefer='airplay'`` grabs the macOS AirPlay receiver window region configured by
+    ``ARTEMIS_AIRPLAY_REGION`` (the slow iPhone fallback; UVC remains first choice).
     """
     if prefer == "uvc":
         return UvcCapture(serial)
+    if prefer == "airplay":
+        return AirPlayCapture(airplay_region())
     if prefer == "screencap":
         return ScreencapCapture(serial)
     return HelperCapture(serial)
+
+
+__all__ = [
+    "ENV_AIRPLAY_REGION",
+    "AirPlayCapture",
+    "HelperCapture",
+    "ScreencapCapture",
+    "UvcCapture",
+    "airplay_region",
+    "default_capture",
+]
 
 
 __all__ = ["HelperCapture", "ScreencapCapture", "UvcCapture", "default_capture"]
