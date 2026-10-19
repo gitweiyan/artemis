@@ -38,18 +38,20 @@ class Pointer:
 class PointerTracker:
     """Find the AssistiveTouch pointer without confusing it with its menu button.
 
-    The menu button and the pointer are both gray circles near the top-left; a raw
-    template match confidently returns the menu button. ``menu_box`` is masked out
-    (pixel coordinates of the captured frame) before matching. Single-frame
-    detection needs a pointer template; ``locate()`` is the two-frame nudge/diff
-    path and needs no template. Low confidence is a valid "do not click" answer.
+    The menu button and the pointer are both gray circles; a raw template match
+    can confidently return the menu button. ``menu_box`` (pixel coordinates in the
+    captured frame) masks the actual button before matching; it is configurable
+    because AssistiveTouch lets the user drag the button. The empty default means
+    "no mask", so a caller that knows the button position should pass it. Single-
+    frame detection needs a pointer template; ``locate()`` is the two-frame
+    nudge/diff path and needs no template. Low confidence is a valid "do not click".
     """
 
     def __init__(
         self,
         template: bytes | None = None,
         *,
-        menu_box: tuple[int, int, int, int] = (0, 0, 70, 70),
+        menu_box: tuple[int, int, int, int] = (0, 0, 0, 0),
         threshold: float = 0.7,
     ):
         self.menu_box = tuple(int(value) for value in menu_box)
