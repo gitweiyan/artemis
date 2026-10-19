@@ -1,0 +1,30 @@
+import pytest
+
+from artemis.devices.geometry import ScreenGeometry
+
+
+def test_full_frame_maps_center_to_screen_center():
+    geometry = ScreenGeometry((449, 974), (1080, 2400))
+
+    assert geometry.frame_to_normalized(224, 487) == (499, 500)
+    assert geometry.normalized_to_screen(500, 500) == (540, 1200)
+
+
+def test_letterboxed_content_rect_is_honored():
+    geometry = ScreenGeometry(
+        (1920, 1080),
+        (1080, 2400),
+        content_rect=(736, 53, 1185, 1027),
+    )
+
+    assert geometry.normalized_to_frame(0, 0) == (736, 53)
+    assert geometry.normalized_to_screen(1000, 1000) == (1080, 2400)
+    assert geometry.frame_to_normalized(736, 53) == (0, 0)
+
+
+def test_invalid_geometry_is_rejected():
+    with pytest.raises(ValueError):
+        ScreenGeometry((0, 100), (100, 100))
+
+    with pytest.raises(ValueError):
+        ScreenGeometry((100, 100), (100, 100), content_rect=(0, 0, 200, 100))
