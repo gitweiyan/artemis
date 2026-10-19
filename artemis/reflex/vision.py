@@ -152,6 +152,71 @@ def _gray(image: bytes) -> Image.Image:
     return Image.open(io.BytesIO(image)).convert("L")
 
 
+class RedPointerDetector:
+    """Find the saturated red AssistiveTouch ring in one on-demand UVC frame.
+
+    The ring is much larger than red notification badges, so size/area filters do
+    most of the work. ``near`` (normalized) breaks ties between multiple red blobs
+    and keeps a servo loop locked to the last known pointer.
+    """
+
+    def __init__(
+        self,
+        *,
+        size_range: tuple[int, int] = (28, 50),
+        area_range: tuple[int, int] = (500, 1600),
+        hue_ranges: tuple[tuple[int, int, int, int], ...] = (
+            (0, 120, 80, 12),
+            (168, 120, 80, 180),
+        ),
+        min_confidence: float = 0.5,
+    ):
+        self.size_range = size_range
+        self.area_range = area_range
+        self.hue_ranges = hue_ranges
+        self.min_confidence = min_confidence
+
+    def detect(self, image: bytes, near: tuple[float, float] | None = None) -> Pointer | None:
+        cv2 = _cv2()
+        np = _numpy()
+        decoded = cv2.imdecode(np.frombuffer(image, np.uint8), cv2.IMREAD_COLOR)
+        if decoded is None:
+            return None
+        hsv = cv2.cvtColor(decoded, cv2.COLOR_BGR2HSV)
+        mask = None
+        for low_h, low_s, low_v, high_h in self.hue_ranges:
+            part = cv2.inRange(hsv, (low_h, low_s, low_v), (high_h, 255, 255))
+            mask = part if mask is None else cv2.bitwise_or(mask, part)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+        count, _labels, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
+        height, width = mask.shape[:2]
+        candidates = []
+        for index in range(1, count):
+            x, y, w, h, area = (int(v) for v in stats[index])
+            if not (self.area_range[0] <= area <= self.area_range[1]):
+                continue
+            if not (self.size_range[0] <= w <= self.size_range[1]):
+                continue
+            if not (self.size_range[0] <= h <= self.size_range[1]):
+                continue
+            if not 0.7 <= w / max(1, h) <= 1.4:
+                continue
+            cx, cy = centroids[index]
+            candidates.append((float(cx) / width, float(cy) / height, area))
+        if not candidates:
+            return None
+        if near is not None:
+            nx, ny = near
+            candidates.sort(key=lambda item: (item[0] - nx) ** 2 + (item[1] - ny) ** 2)
+        else:
+            candidates.sort(key=lambda item: item[2], reverse=True)
+        x, y, area = candidates[0]
+        confidence = min(1.0, 0.5 + area / 2000.0)
+        if confidence < self.min_confidence:
+            return None
+        return Pointer(x, y, confidence, "red-ring")
+
+
 def pointer(
     before: bytes,
     after: bytes,
@@ -227,4 +292,4 @@ def changed(
     return count >= min_pixels
 
 
-__all__ = ["Pointer", "PointerTracker", "changed", "pointer"]
+__all__ = ["Pointer", "PointerTracker", "RedPointerDetector", "changed", "pointer"]
