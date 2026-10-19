@@ -1,0 +1,1 @@
+"""Control sinks and contracts."""
