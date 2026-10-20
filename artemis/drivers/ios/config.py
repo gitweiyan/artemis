@@ -28,8 +28,11 @@ DEFAULT_UVC_CROP = (736, 53, 1185, 1027)
 DEFAULT_UVC_SIZE = (1920, 1080)
 #: iPhone 14 Pro Max logical pixels, the rig's device frame.
 DEFAULT_SCREEN_SIZE = (1080, 2400)
-#: Device pixels travelled per HID pointer unit (calibrated on the live rig).
-DEFAULT_POINTER_GAIN = (1.8, 1.8)
+#: Device pixels travelled per HID pointer unit. Measured on the live rig with
+#: ``artemis ios-calibrate`` (2026-10-21): 1.48 for small moves, 1.78 for large ones
+#: (acceleration ×1.20). The tap loop estimates the ratio online, so this is only the
+#: starting value; the measured number costs fewer correction steps.
+DEFAULT_POINTER_GAIN = (1.48, 1.48)
 
 #: The ESP32-S3 board's UART port. The only required setting.
 ENV_ESP32_PORT = "ARTEMIS_ESP32_PORT"

@@ -21,6 +21,7 @@ from artemis.interfaces.cli.commands.batch import batch_command
 from artemis.interfaces.cli.commands.doctor import doctor_command
 from artemis.interfaces.cli.commands.helper import helper_app
 from artemis.interfaces.cli.commands.init import init_command
+from artemis.interfaces.cli.commands.ios_calibrate import ios_calibrate_command
 from artemis.interfaces.cli.commands.ios_smoke import ios_smoke_command
 from artemis.interfaces.cli.commands.mcp import mcp_command
 from artemis.interfaces.cli.commands.reflex import reflex_app
@@ -60,6 +61,10 @@ app.command(
     name="ios-smoke",
     help="Smoke-test the iOS UVC + ESP32 HID rig (no LLM, no plan).",
 )(ios_smoke_command)
+app.command(
+    name="ios-calibrate",
+    help="Measure this rig's pointer gain (small vs large moves) and print the env line.",
+)(ios_calibrate_command)
 app.command(name="init", help="Interactive quickstart wizard to configure API keys & device.")(
     init_command
 )

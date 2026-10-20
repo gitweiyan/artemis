@@ -65,3 +65,12 @@ def test_the_playbook_states_the_promotion_rule():
     text = PLAYBOOK.read_text(encoding="utf-8")
     assert "prose-only" in text
     assert "唯一事实源" in text, "one canonical source, or it drifts again"
+
+
+def test_the_calibration_lesson_is_backed_by_a_command():
+    """§6 used to be prose-only debt; it is now a command with acceptance numbers."""
+    playbook = PLAYBOOK.read_text(encoding="utf-8")
+    assert "artemis ios-calibrate" in playbook
+    assert "验收数字" in playbook
+    assert (ROOT / "artemis/drivers/ios/calibration.py").is_file()
+    assert (ROOT / "artemis/interfaces/cli/commands/ios_calibrate.py").is_file()

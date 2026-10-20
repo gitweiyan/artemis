@@ -1,0 +1,98 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""``artemis ios-calibrate``: measure this rig's pointer gain instead of guessing it.
+
+Prints the per-band gains (small moves vs large moves, i.e. how hard the rig accelerates)
+and the ``ARTEMIS_IOS_POINTER_GAIN`` line to put in the environment. The tap loop estimates
+the ratio online either way; a measured starting value simply costs fewer correction steps.
+"""
+
+import asyncio
+import json
+from typing import Annotated
+
+from rich.console import Console
+import typer
+
+from artemis.devices.ios_uvc import build_ios_uvc_session
+from artemis.drivers.ios.calibration import calibrate_pointer
+from artemis.drivers.ios.config import IosConfigError, IosRuntimeConfig
+from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
+from artemis.perception.ocr_engine import default_ocr_engine
+from artemis.reflex.capture import UvcCapture, UvcStream
+from artemis.reflex.control import Esp32HidControl
+from third_party.mobile_use.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def ios_calibrate_command(
+    repeat: Annotated[
+        int,
+        typer.Option("--repeat", min=1, max=5, help="Probes per move size (more = steadier)."),
+    ] = 2,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the measurement as JSON.")] = False,
+) -> None:
+    """Measure the iOS pointer gain (two bands) and print the env line to use."""
+    console = Console()
+    try:
+        config = IosRuntimeConfig.from_env()
+    except IosConfigError as exc:
+        console.print(f"[bold red]✖ iOS rig is not configured:[/bold red] {exc}")
+        raise SystemExit(2)
+
+    capture_factory = UvcStream if config.capture_mode == "stream" else UvcCapture
+    capture = capture_factory(
+        config.uvc_device,
+        size=config.uvc_size,
+        framerate=30,
+        crop=config.uvc_crop,
+        timeout_s=3.0 if config.capture_mode == "stream" else 12.0,
+    )
+    control = Esp32HidControl(config.esp32_port, ack_timeout_s=3.0)
+    session = build_ios_uvc_session(
+        capture,
+        control,
+        frame_size=config.frame_size,
+        screen_size=config.screen_size,
+        pointer_gain=config.pointer_gain,
+        ocr_engine=default_ocr_engine() if config.enable_ocr else None,
+    )
+    driver = IOSUvcHidDriver(session)
+    controller = driver._relative_sink().controller
+
+    console.print(f"[dim]{config.describe()}[/dim]")
+    result = asyncio.run(calibrate_pointer(controller, repeats=repeat))
+
+    if as_json:
+        console.print_json(
+            json.dumps(
+                {
+                    "suggested": list(result.suggested) if result.suggested else None,
+                    "small_gain": result.small_gain,
+                    "large_gain": result.large_gain,
+                    "acceleration_ratio": result.acceleration_ratio,
+                    "notes": list(result.notes),
+                    "env": result.env_line(),
+                },
+                ensure_ascii=False,
+            )
+        )
+    else:
+        for line in result.describe().splitlines():
+            console.print(line)
+
+    if result.suggested is None:
+        raise SystemExit(1)

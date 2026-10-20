@@ -32,7 +32,7 @@ def test_defaults_reproduce_the_measured_rig():
     assert config.uvc_crop == (736, 53, 1185, 1027)
     assert config.frame_size == (449, 974), "the cropped frame is what skills calibrate against"
     assert config.screen_size == (1080, 2400)
-    assert config.pointer_gain == (1.8, 1.8)
+    assert config.pointer_gain == (1.48, 1.48), "measured with artemis ios-calibrate"
     assert config.enable_ocr is True
     assert config.capture_mode == "frame", (
         "one-shot grabs stay live on this card; a persistent AVFoundation session"
@@ -93,7 +93,7 @@ def test_describe_lists_the_runtime_facts_without_secrets():
     assert "/dev/fake" in text
     assert "449x974" in text
     assert "1080x2400" in text
-    assert "1.8" in text
+    assert "1.48" in text
 
 
 def test_the_capture_mode_can_be_pinned_to_a_persistent_stream():

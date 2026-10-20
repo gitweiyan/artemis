@@ -24,9 +24,14 @@ __all__ = ["icon_above_label"]
 _ICON_LABEL_RATIO = 3.0
 #: The icon's bottom edge sits this many label-heights above the label's top.
 _GAP_LABEL_HEIGHTS = 0.15
-#: Edge density an icon must show, both absolutely and relative to the whole frame.
-_MIN_EDGE_DENSITY = 0.05
-_FRAME_EDGE_FACTOR = 2.5
+#: Edge density an icon must show absolutely, and relative to the calmer of its two
+#: neighbours at the same height (grid neighbours alternate with wallpaper gaps, so the
+#: calmer side is the background — a global frame ratio fails on a textured wallpaper).
+_MIN_EDGE_DENSITY = 0.06
+_NEIGHBOUR_DENSITY_FACTOR = 1.8
+#: The interior must be busy too: a flat coloured plate has edges only on its border.
+_MIN_INNER_DENSITY = 0.03
+_INNER_FRACTION = 0.6
 
 
 def _decode(image: bytes):
@@ -77,8 +82,33 @@ def icon_above_label(image: bytes, box: tuple[float, float, float, float]) -> Ta
     edges = cv2.Canny(gray, 60, 160)
     candidate = (icon_left, icon_top, icon_right, icon_bottom)
     density = _edge_density(edges, candidate)
-    frame_density = float((edges > 0).mean())
-    if density < max(_MIN_EDGE_DENSITY, _FRAME_EDGE_FACTOR * frame_density):
+    if density < _MIN_EDGE_DENSITY:
+        return None
+
+    inset_x = int((icon_right - icon_left) * (1 - _INNER_FRACTION) / 2)
+    inset_y = int((icon_bottom - icon_top) * (1 - _INNER_FRACTION) / 2)
+    inner = (
+        icon_left + inset_x,
+        icon_top + inset_y,
+        icon_right - inset_x,
+        icon_bottom - inset_y,
+    )
+    if _edge_density(edges, inner) < _MIN_INNER_DENSITY:
+        return None  # a flat plate, not an icon with details
+
+    # Compare with the calmer neighbour on the same row: one side is normally wallpaper.
+    side_width = int(size * 0.6)
+    gap = max(2, int(size * 0.15))
+    neighbours = [
+        _edge_density(
+            edges, (icon_left - gap - side_width, icon_top, icon_left - gap, icon_bottom)
+        ),
+        _edge_density(
+            edges, (icon_right + gap, icon_top, icon_right + gap + side_width, icon_bottom)
+        ),
+    ]
+    background = min(neighbours)
+    if density < _NEIGHBOUR_DENSITY_FACTOR * background:
         return None
 
     return Target(

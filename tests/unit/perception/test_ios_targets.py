@@ -113,3 +113,23 @@ def test_the_adjusted_target_is_above_the_original():
 
     assert icon is not None
     assert icon.box[3] < box[1], "the icon sits entirely above the label"
+
+
+def test_a_busy_neighbour_on_one_side_does_not_hide_the_icon():
+    """App grids put another icon next to this one; the *calmer* side is the background.
+
+    Measured live: comparing against the whole frame (textured wallpaper) or against the
+    busier neighbour both rejected a perfectly clear WeChat icon.
+    """
+
+    def draw(image):
+        _draw_icon(image, 60, 320)  # the neighbouring app icon
+        _draw_icon(image, 150, 320)  # our icon
+        cv2.rectangle(image, (162, 370), (190, 386), (90, 90, 90), -1)  # its label
+
+    box = (162 / 449, 370 / 974, 190 / 449, 386 / 974)
+
+    icon = icon_above_label(_png(draw), box)
+
+    assert icon is not None
+    assert icon.box[0] < box[0], "the icon box is centred on the label"

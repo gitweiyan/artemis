@@ -24,7 +24,7 @@
 |---|---|---|
 | 指针在画面上不动 | iOS 隐藏指针；小位移唤不醒 | `SessionTapController` 首次观测为空时用 60 单位唤醒；smoke `pointer_motion` |
 | 指针位置“看着对”，点击没反应 | **点的是标签不是图标**（桌面文字在图标下方，只有图标可点） | `perception/ios_targets.py::icon_above_label` + `UvcSource.locate`；smoke 报告的 `source=` |
-| 闭环总差一点、点在目标左侧 | 指针有**加速度**（实测 1.2–2.1 px/单位），固定 gain 会短走 | `SessionTapController` 在线估计 gain（EMA，钳制 0.3–4.0） |
+| 闭环总差一点、点在目标左侧 | 指针有**加速度**（实测小位移 1.48、大位移 1.78 px/单位），固定 gain 会短走 | `SessionTapController` 在线估计 gain（EMA，钳制 0.3–4.0）；起点值用 `artemis ios-calibrate` 实测 |
 | 大位移后指针反向跳 | 固件把 `move` 每轴强转 `int8`，>127 回绕 | `Esp32HidControl.mouse_move` 分段（≤127）+ `write_line` 写满 |
 | `home` 之后位置不可预测 | 固件 `home` 2ms 连发 50 报文，被 USB 10ms 轮询丢弃 | `mouse_home()` 走**分段软件 home**；`firmware_home()` 只作诊断 |
 | 抓帧总是同一张 | 常驻 AVFoundation 会话在本采集卡上给冻结帧；或残留 ffmpeg 占卡 | 默认 `ARTEMIS_IOS_CAPTURE=frame`（单帧）；残留时 `pkill -9 -f "USB Video"` |
@@ -33,6 +33,7 @@
 | 重启后“按键全废” | 疑似 iOS 丢了指针设备的按键映射 | 先排除 Spotlight（Esc）；仍不行才插拔 ESP32 OTG 线 |
 | `press_key back` 报 usage 错误 | 键名原样下发，固件只认数字 usage | `press_named_key`（Home→Cmd+H；BACK 明确拒绝并提示点返回箭头） |
 | 中文小字定位不到 | 裁剪帧太小、OCR 引擎置信度口径不同 | `locate_text` 整串精确匹配门槛 0.25、部分匹配 0.5；`ARTEMIS_IOS_OCR` 可关 |
+| 图标明明在，却不肯抬到图标上 | 抬升判据曾用“整帧边缘密度”，纹理壁纸/相邻图标都会否掉 | `icon_above_label` 改判**较安静的那一侧邻居** + 内部细节（`_MIN_INNER_DENSITY`） |
 
 ## 2. 输入模型（为什么 iOS 与 Android 不是同一件事）
 
@@ -76,11 +77,22 @@
 
 经验：**不要**用“连续盲点”去验证点击是否恢复；用 smoke 的 `tap` 阶段（带指针校验与 diff）。
 
-## 6. 校准（待落地）
+## 6. 校准（已落地）
 
-- 现状：gain 由控制器在线估计；`ARTEMIS_IOS_POINTER_GAIN` 是起点值。
-- 计划（A5）：两点校准（home → 已知 move → 检测）→ 把实测 gain 写进 env；
-  换手机/换卡/改灵敏度后必须重做。落地后本节改为“命令 + 验收数字”。
+```bash
+ARTEMIS_ESP32_PORT=/dev/cu.usbmodemXXXX artemis ios-calibrate
+# gain: suggested=1.48,1.49 (small 1.48, large 1.78, acceleration×1.20)
+# env: ARTEMIS_IOS_POINTER_GAIN=1.48,1.49
+```
+
+- 做法：软件 home → 已知相对 move（25 / 75 单位各 2 次）→ 抓帧检测 → 按位移量分两档求
+  每轴比值中位数（丢弃 ±0.2–5.0 之外的误检）。
+- **验收数字**：`suggested` 与 `small` 相差 ≤0.1；`acceleration×` < 1.5 说明这台机加速度温和，
+  ≥1.5 会在 notes 里提示“必须闭环”。
+- 本机实测（2026-10-21）：small 1.48 / large 1.78 / acceleration ×1.20 →
+  `ARTEMIS_IOS_POINTER_GAIN=1.48,1.49`（已成为代码默认值）。
+- 换手机 / 换采集卡 / 改指针速度后**必须重做**；`ARTEMIS_IOS_POINTER_GAIN` 只是起点，
+  控制器仍会在线估计。
 
 ## 7. 沉淀规则（防止知识再次散落/失效）
 
@@ -93,7 +105,7 @@
 | 1 | 代码/测试 | 标签→图标、自适应 gain、int8 分段 |
 | 2 | 检查阶段 | `ios-smoke` 的 `pointer_motion` / `tap` |
 | 3 | 断言/证据字段 | `no_effect` 明细里的“插拔”提示、`action_metrics` |
-| 4 | 散文（`prose-only`，记为欠账） | 校准流程（等 A5） |
+| 4 | 散文（`prose-only`，记为欠账） | 暂无（校准已由 `artemis ios-calibrate` 落地） |
 
 复盘产出的新教训：先在 §1 表里加一行（症状/根因），**同一 PR 内**尽量把它变成 1–3 形态；
 做不到就把 `Enforced by` 写成 `prose-only（原因）`，下次动这块代码时优先还债。
