@@ -194,3 +194,49 @@ def test_a_refused_tap_keeps_its_evidence():
     assert result.ok is False
     assert result.metrics["error_px"] == 30.0
     assert result.metrics["frame_age_s"] == 1.25
+
+
+def test_swipe_presses_moves_and_releases_through_the_control():
+    """An iOS swipe is a mouse drag: the sink hands the delta to the paced swipe."""
+
+    class SwipeControl(FakeControl):
+        def __init__(self):
+            super().__init__()
+            self.swipes = []
+
+        def swipe_mouse(self, dx, dy, *, duration_ms=400):
+            self.swipes.append((dx, dy, duration_ms))
+
+    session = FakeSession()
+    session.control = SwipeControl()
+    sink = HidControlSink(
+        session,
+        FakeController(TapResult(True, 1, None, 0, "ok")),
+        geometry=__import__("artemis.devices.geometry", fromlist=["ScreenGeometry"]).ScreenGeometry(
+            (449, 974), (1080, 2400)
+        ),
+    )
+
+    result = asyncio.run(sink.swipe(540, 2000, 540, 400, duration_ms=300))
+
+    assert result.ok is True
+    # screen pixels -> capture frame pixels, then the drag delta
+    assert session.control.swipes and session.control.swipes[0][0] == 0
+    assert session.control.swipes[0][1] < 0
+    assert session.control.swipes[0][2] == 300
+
+
+def test_a_failed_swipe_is_an_incident_not_an_exception():
+    class BrokenSwipe(FakeControl):
+        def swipe_mouse(self, dx, dy, *, duration_ms=400):
+            raise RuntimeError("serial write failed")
+
+    session = FakeSession()
+    session.control = BrokenSwipe()
+    sink = HidControlSink(session, FakeController(TapResult(True, 1, None, 0, "ok")))
+
+    result = asyncio.run(sink.swipe(10, 10, 10, 200))
+
+    assert result.ok is False
+    assert result.incident == "swipe_failed"
+    assert "serial write failed" in result.detail

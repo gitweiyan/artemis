@@ -26,6 +26,7 @@
 | 指针位置“看着对”，点击没反应 | **点的是标签不是图标**（桌面文字在图标下方，只有图标可点） | `perception/ios_targets.py::icon_above_label` + `UvcSource.locate`；smoke 报告的 `source=` |
 | 闭环总差一点、点在目标左侧 | 指针有**加速度**（实测小位移 1.48、大位移 1.78 px/单位），固定 gain 会短走 | `SessionTapController` 在线估计 gain（EMA，钳制 0.3–4.0）；起点值用 `artemis ios-calibrate` 实测 |
 | 大位移后指针反向跳 | 固件把 `move` 每轴强转 `int8`，>127 回绕 | `Esp32HidControl.mouse_move` 分段（≤127）+ `write_line` 写满 |
+| 滑动/拖拽在 iOS 无效 | 固件的 `swipe` 是**触摸屏**手势，iOS 不消费；iOS 的滑动＝鼠标拖拽 | 固件 `mswipe <dx> <dy> [ms]`（按下→分段插值→松开）；主机 `swipe_mouse()` 在旧固件上用 `mdown`+分段 `move`+`mup` 复现，`dispatch()` 按 `mode=ios`/`touch=0` 路由 |
 | `home` 之后位置不可预测 | 固件 `home` 2ms 连发 50 报文，被 USB 10ms 轮询丢弃 | `mouse_home()` 走**分段软件 home**；`firmware_home()` 只作诊断 |
 | 抓帧总是同一张 | 常驻 AVFoundation 会话在本采集卡上给冻结帧；或残留 ffmpeg 占卡 | 默认 `ARTEMIS_IOS_CAPTURE=frame`（单帧）；残留时 `pkill -9 -f "USB Video"` |
 | 黑帧/超时/帧太旧 | 采集卡无信号、设备没了、抓帧进程卡死 | `uvc_no_signal` / `capture_timeout` / `stale_frame` incident（见 §4） |
@@ -55,6 +56,7 @@
 | 切 App | `app_switch` → `keymod 8 43`（Cmd+Tab） | |
 | 关闭当前弹窗/页面 | `close` → `keymod 8 26`（Cmd+W） | 不适用于所有 App |
 | 光标/翻页 | `down/up/left/right` → `key 81/82/80/79` | Spotlight 选中首条结果要 `down` 再 `enter` |
+| 滑动/拖拽（iOS） | `mswipe <dx> <dy> [ms]`（固件）或 `mdown` → 分段 `move` → `mup`（主机） | 触摸屏的 `swipe` 在 iOS 构建里被拒绝 |
 
 `type_text` **只支持 ASCII**（固件限制）：中文要输入时用拼音（淘宝 → `taobao`）、或用 App 内搜索框的中文候选。
 

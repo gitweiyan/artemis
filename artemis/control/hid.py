@@ -91,12 +91,29 @@ class HidControlSink:
         end_y: int,
         duration_ms: int = 800,
     ) -> ActionResult:
-        def run():
-            self._control.mouse_down()
-            self._control.mouse_move(end_x - start_x, end_y - start_y)
-            self._control.mouse_up()
+        """An iOS swipe is a drag: the pointer moves through capture-frame space.
 
-        await asyncio.to_thread(run)
+        ``swipe_mouse`` prefers the firmware's paced ``mswipe`` and falls back to a
+        host-driven press/move/release, always releasing the button.
+        """
+        frame_start = self._frame_point(start_x, start_y)
+        frame_end = self._frame_point(end_x, end_y)
+        dx = frame_end[0] - frame_start[0]
+        dy = frame_end[1] - frame_start[1]
+        swipe = getattr(self._control, "swipe_mouse", None)
+        try:
+            if swipe is not None:
+                await asyncio.to_thread(swipe, dx, dy, duration_ms=duration_ms)
+            else:
+
+                def run():
+                    self._control.mouse_down()
+                    self._control.mouse_move(dx, dy)
+                    self._control.mouse_up()
+
+                await asyncio.to_thread(run)
+        except Exception as exc:  # noqa: BLE001 - a device failure is an incident
+            return ActionResult(False, "swipe", "swipe_failed", str(exc))
         return ActionResult(True, "swipe")
 
     async def input_text(self, text: str) -> ActionResult:

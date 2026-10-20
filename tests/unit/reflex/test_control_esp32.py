@@ -50,8 +50,10 @@ def test_a_tap_is_the_firmware_tap_command(esp32):
     assert recorder.lines == ["tap 540 1200\n"]
 
 
-def test_a_swipe_is_the_firmware_swipe_command(esp32):
+def test_a_touchscreen_build_still_uses_the_firmware_swipe(esp32):
+    """A composite board has a real digitizer: keep its absolute gesture."""
     control, recorder = esp32()
+    control._mouse_swipe_mode = False  # board reported mode=composite / touch=1
 
     control.dispatch(Gesture.swipe(100, 200, 300, 400, duration_ms=250))
 
@@ -404,3 +406,94 @@ def test_escape_and_enter_are_plain_usages():
     control.press_named_key("enter")
 
     assert sent == ["key 41", "key 40"]
+
+
+def test_ios_swipe_is_a_mouse_drag_not_a_digitizer_gesture():
+    """iOS ignores the digitizer, so a swipe there must press, move and release."""
+    from artemis.reflex.control import Esp32HidControl
+
+    lines: list[str] = []
+    control = Esp32HidControl("FAKE")
+    control._writer = lambda line: lines.append(line.strip())
+    control._mouse_swipe_mode = True  # board reported mode=ios
+
+    control.swipe_mouse(120, -60, duration_ms=200)
+
+    assert lines[0] == "mswipe 120 -60 200", "the firmware does the interpolation when it can"
+    assert all(not line.startswith("tap") for line in lines), "never the touchscreen command"
+
+
+def test_an_old_firmware_gets_the_same_drag_from_the_host():
+    """A board without `mswipe` must still drag: press, paced int8 moves, release."""
+    from artemis.reflex.control import Esp32HidControl
+
+    lines: list[str] = []
+    control = Esp32HidControl("FAKE")
+    control._writer = lambda line: lines.append(line.strip())
+
+    def send(command, timeout=None):
+        lines.append(command)  # the old firmware simply has no `mswipe`
+        if command.startswith("mswipe"):
+            raise RuntimeError("ESP32 command 'mswipe' failed: unknown command")
+        return "OK"
+
+    control._send = send
+
+    def move(dx, dy):
+        lines.append(f"move {dx} {dy}")
+
+    control.mouse_move = move
+
+    control.swipe_mouse(150, 40, duration_ms=100)
+
+    assert lines[0].startswith("mswipe "), "it tries the firmware first"
+    assert "mdown" in lines
+    assert lines[-1] == "mup"
+    moves = [line for line in lines if line.startswith("move ")]
+    assert sum(int(line.split()[1]) for line in moves) == 150
+    assert sum(int(line.split()[2]) for line in moves) == 40
+    for line in moves:
+        assert abs(int(line.split()[1])) <= 127 and abs(int(line.split()[2])) <= 127
+
+
+def test_the_button_is_released_even_when_a_step_fails():
+    import pytest
+
+    from artemis.reflex.control import Esp32HidControl
+
+    lines: list[str] = []
+    control = Esp32HidControl("FAKE")
+    control._writer = lambda line: lines.append(line.strip())
+
+    def send(command, timeout=None):
+        lines.append(command)
+        if command.startswith("mswipe"):
+            raise RuntimeError("unknown command")
+        return "OK"
+
+    control._send = send
+
+    def explode(dx, dy):
+        raise RuntimeError("serial write failed")
+
+    control.mouse_move = explode
+
+    with pytest.raises(RuntimeError):
+        control.swipe_mouse(100, 100)
+
+    assert lines[-1] == "mup", "the phone must not be left with the button held"
+
+
+def test_dispatch_routes_ios_swipes_through_the_mouse_path():
+    from artemis.reflex.contract import Gesture
+    from artemis.reflex.control import Esp32HidControl
+
+    lines: list[str] = []
+    control = Esp32HidControl("FAKE")
+    control._writer = lambda line: lines.append(line.strip())
+    control._mouse_swipe_mode = True
+
+    control.dispatch(Gesture.swipe(100, 200, 100, 800, duration_ms=300))
+
+    assert lines and lines[0].startswith("mswipe ")
+    assert lines[0].split()[1] == "0" and lines[0].split()[2] == "600"

@@ -99,6 +99,10 @@ class AdbInputControl(Control):
 
     def dispatch(self, gesture: Gesture) -> float:
         started = time.monotonic()
+        if gesture.kind == "swipe" and self.uses_mouse_swipe():
+            (x1, y1), (x2, y2) = gesture.points
+            self.swipe_mouse(int(x2) - int(x1), int(y2) - int(y1), duration_ms=gesture.duration_ms)
+            return (time.monotonic() - started) * 1000.0
         if gesture.kind == "tap":
             ((x, y),) = gesture.points
             self._shell(f"input tap {int(x)} {int(y)}")
@@ -452,6 +456,10 @@ class Esp32HidControl(Control):
 
     def dispatch(self, gesture: Gesture) -> float:
         started = time.monotonic()
+        if gesture.kind == "swipe" and self.uses_mouse_swipe():
+            (x1, y1), (x2, y2) = gesture.points
+            self.swipe_mouse(int(x2) - int(x1), int(y2) - int(y1), duration_ms=gesture.duration_ms)
+            return (time.monotonic() - started) * 1000.0
         if gesture.kind == "tap":
             ((x, y),) = gesture.points
             px, py = self._frame(x, y)
@@ -602,6 +610,61 @@ class Esp32HidControl(Control):
 
     def mouse_click(self) -> float:
         return self._timed("click")
+
+    #: The firmware's `swipe` command is the *touchscreen* gesture, which iOS does not
+    #: consume; there a swipe is a drag. ``True``/``False`` once the board's mode is known.
+    _mouse_swipe_mode: bool | None = None
+
+    def uses_mouse_swipe(self) -> bool:
+        """Whether swipes must be mouse drags (iOS) rather than digitizer gestures."""
+        if self._mouse_swipe_mode is None:
+            try:
+                state = self.preflight()
+            except RuntimeError:
+                return True  # unknown board: the mouse path works on every build
+            self._mouse_swipe_mode = str(state.get("mode") or "") == "ios" or not state.get("touch")
+        return bool(self._mouse_swipe_mode)
+
+    def swipe_mouse(self, dx: int, dy: int, *, duration_ms: int = 400) -> float:
+        """Press, walk the relative pointer, release — an iOS swipe/drag.
+
+        Prefers the firmware's ``mswipe`` (it interpolates and paces on the board); if
+        this firmware predates that command, the same gesture is driven from the host in
+        int8-sized steps, each waiting for ``OK`` so the reports are paced. The button is
+        always released, even when a step fails.
+        """
+        started = time.monotonic()
+        try:
+            self._send(f"mswipe {int(dx)} {int(dy)} {max(0, int(duration_ms))}")
+            return (time.monotonic() - started) * 1000.0
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            if (
+                "unknown" not in message
+                and "usage" not in message
+                and "line too long" not in message
+            ):
+                raise
+            # Old firmware: fall through to the host-driven drag.
+
+        control = self
+        steps = max(1, min(200, int(max(abs(int(dx)), abs(int(dy))) // ESP32_MAX_MOVE) + 1))
+        interval_s = max(0.01, float(duration_ms) / 1000.0 / steps)
+        control._send("mdown")
+        sent_x = sent_y = 0
+        try:
+            for index in range(1, steps + 1):
+                target_x = round(int(dx) * index / steps)
+                target_y = round(int(dy) * index / steps)
+                step_x, step_y = target_x - sent_x, target_y - sent_y
+                if step_x or step_y:
+                    self.mouse_move(step_x, step_y)
+                    sent_x, sent_y = target_x, target_y
+                time.sleep(interval_s)
+        finally:
+            # A failed step must never leave the phone with the button held down.
+            control._send("mup")
+        return (time.monotonic() - started) * 1000.0
 
     def mouse_down(self) -> float:
         return self._timed("mdown")

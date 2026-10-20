@@ -7,6 +7,8 @@
 // The firmware owns the int8 HID range: it splits a large intent into <=127
 // reports, waits for the endpoint to be ready, and leaves 10 ms between reports.
 bool hid_mouse_move(int dx, int dy);
+// Mouse-based swipe/drag: press, walk to (dx,dy) in paced int8 steps, release.
+bool hid_mouse_swipe(int dx, int dy, uint32_t duration_ms);
 bool hid_mouse_home(void);    // slam the pointer to the top-left corner
 void hid_mouse_click(void);   // left button press + release
 void hid_mouse_down(void);

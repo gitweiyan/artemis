@@ -24,7 +24,8 @@ static void print_help(void)
 #else
     printf("Commands (iOS build: keyboard + mouse; touchscreen disabled):\n");
 #endif
-    printf("  home                           # mouse: slam pointer to top-left\n"
+    printf("  mswipe <dx> <dy> [ms]          # mouse: press, move, release (iOS swipe/drag)\n"
+           "  home                           # mouse: slam pointer to top-left\n"
            "  move       <dx> <dy>          # mouse: relative cursor move\n"
            "  click                          # mouse: left click\n"
            "  mdown / mup                    # mouse: press/release left button\n"
@@ -134,6 +135,20 @@ static void handle_line(char *line)
             }
         } else {
             printf("usage: move <dx> <dy> (each -10000..10000)\n");
+        }
+    } else if (strcmp(cmd, "mswipe") == 0) {
+        int parsed = sscanf(line, "%*s %d %d %d", &a, &b, &c);
+        if (parsed >= 2) {
+            int duration = (parsed == 3) ? c : 300;
+            if (duration < 0) {
+                duration = 0;
+            }
+            printf("[cmd] mswipe %d %d %dms\n", a, b, duration);
+            if (!hid_mouse_swipe(a, b, (uint32_t) duration)) {
+                printf("ERR mswipe failed (usb not ready)\n");
+            }
+        } else {
+            printf("usage: mswipe <dx> <dy> [duration_ms]\n");
         }
     } else if (strcmp(cmd, "click") == 0) {
         printf("[cmd] click\n");

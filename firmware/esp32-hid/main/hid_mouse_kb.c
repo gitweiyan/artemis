@@ -98,6 +98,57 @@ void hid_mouse_click(void)
     vTaskDelay(pdMS_TO_TICKS(MOUSE_GAP_MS));
 }
 
+// iOS does not consume the digitizer, so a "swipe" there is a *drag*: hold the left
+// button, move the relative pointer in paced int8 steps, release. The step count is
+// derived from the requested duration so a short flick and a slow scroll differ, and the
+// button is always released, even if a report is refused.
+bool hid_mouse_swipe(int dx, int dy, uint32_t duration_ms)
+{
+    const int interval_ms = MOUSE_GAP_MS * 2;  // >= the ~10 ms host polling interval
+    if (duration_ms < (uint32_t) interval_ms) {
+        duration_ms = (uint32_t) interval_ms;
+    }
+    if (!wait_mouse_ready()) {
+        return false;
+    }
+
+    // One report per interval, plus one so a single step never has to move both axes far.
+    int steps = (int) (duration_ms / (uint32_t) interval_ms);
+    if (steps < 1) {
+        steps = 1;
+    }
+    if (steps > 200) {
+        steps = 200;
+    }
+
+    hid_mouse_down();
+    vTaskDelay(pdMS_TO_TICKS(KEY_TAP_MS));
+
+    int sent_x = 0;
+    int sent_y = 0;
+    bool ok = true;
+    for (int i = 1; i <= steps; i++) {
+        int target_x = (int) ((long) dx * i / steps);
+        int target_y = (int) ((long) dy * i / steps);
+        int step_x = target_x - sent_x;
+        int step_y = target_y - sent_y;
+        if (step_x != 0 || step_y != 0) {
+            if (!hid_mouse_move(step_x, step_y)) {
+                ok = false;
+                break;
+            }
+            sent_x = target_x;
+            sent_y = target_y;
+        }
+        vTaskDelay(pdMS_TO_TICKS(interval_ms));
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(MOUSE_GAP_MS));
+    hid_mouse_up();
+    vTaskDelay(pdMS_TO_TICKS(MOUSE_GAP_MS));
+    return ok;
+}
+
 // ---------------------------------------------------------------------------
 // Keyboard.
 // ---------------------------------------------------------------------------
