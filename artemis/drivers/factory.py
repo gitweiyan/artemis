@@ -46,7 +46,35 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
 
             ctx.ui_adb_client = RemoteUIAutomatorClient(adb_client=ctx.adb_client)
 
-    # 2. Mock mode check
+    # 2. iOS UVC + ESP32 HID
+    if getattr(ctx.device, "mobile_platform", None) == "ios":
+        port = os.environ.get("ARTEMIS_ESP32_PORT")
+        if not port:
+            raise RuntimeError("iOS driver requires ARTEMIS_ESP32_PORT")
+        from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
+        from artemis.devices.ios_uvc import build_ios_uvc_session
+        from artemis.reflex.capture import UvcCapture
+        from artemis.reflex.control import Esp32HidControl
+
+        width = getattr(ctx.device, "device_width", 1080)
+        height = getattr(ctx.device, "device_height", 2400)
+        capture = UvcCapture(
+            os.environ.get("ARTEMIS_UVC_DEVICE", "USB Video"),
+            size=(1920, 1080),
+            framerate=30,
+            crop=tuple(int(v) for v in os.environ.get("ARTEMIS_UVC_CROP", "736,53,1185,1027").split(",")),
+            timeout_s=12,
+        )
+        control = Esp32HidControl(port, ack_timeout_s=3.0)
+        session = build_ios_uvc_session(
+            capture,
+            control,
+            screen_size=(int(width), int(height)),
+            ocr_engine=None,
+        )
+        return IOSUvcHidDriver(session)
+
+    # 3. Mock mode check
     if (
         getattr(ctx.device, "mobile_platform", None) == "mock"
         or os.environ.get("ARTEMIS_MOCK_DRIVER") == "1"
