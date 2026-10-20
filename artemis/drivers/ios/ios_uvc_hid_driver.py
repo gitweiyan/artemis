@@ -99,7 +99,10 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         px, py = pointer.x * frame.width, pointer.y * frame.height
         tx, ty = center_norm[0] * frame.width, center_norm[1] * frame.height
         error = ((px - tx) ** 2 + (py - ty) ** 2) ** 0.5
-        inside = left * frame.width <= px <= right * frame.width and top * frame.height <= py <= bottom * frame.height
+        inside = (
+            left * frame.width <= px <= right * frame.width
+            and top * frame.height <= py <= bottom * frame.height
+        )
         if not inside:
             return PointerValidation(False, "pointer_off_target", error, (px, py))
         if error > tolerance_px:

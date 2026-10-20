@@ -144,9 +144,7 @@ def test_a_blind_pointer_is_reported_and_nothing_is_clicked():
 def test_a_black_frame_stops_before_any_ocr():
     class BlackCapture(Capture):
         def grab(self):
-            return SimpleNamespace(
-                image=_frame((0, 0, 0)), width=449, height=974, captured_at=1.0
-            )
+            return SimpleNamespace(image=_frame((0, 0, 0)), width=449, height=974, captured_at=1.0)
 
     session = build_ios_uvc_session(
         BlackCapture(),
@@ -174,9 +172,7 @@ def test_the_report_is_json_serializable():
 
 @pytest.mark.parametrize("tap", [False])
 def test_tap_stage_can_be_skipped(tap):
-    report = asyncio.run(
-        run_smoke(_driver(Esp32(), CenteredDetector()), target="闪购", tap=tap)
-    )
+    report = asyncio.run(run_smoke(_driver(Esp32(), CenteredDetector()), target="闪购", tap=tap))
 
     assert "tap" not in [step.name for step in report.steps]
 

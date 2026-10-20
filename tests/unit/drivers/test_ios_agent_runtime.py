@@ -96,9 +96,7 @@ def test_no_adb_client_means_no_keyguard_probe():
     from artemis.context import DevicePlatform
     from third_party.mobile_use.context import DeviceContext
 
-    agent = Agent(
-        config=AgentConfigBuilder().for_device(DevicePlatform.IOS, "ios-uvc").build()
-    )
+    agent = Agent(config=AgentConfigBuilder().for_device(DevicePlatform.IOS, "ios-uvc").build())
     agent._adb_client = None
     agent._device_context = DeviceContext(mobile_platform="ios", device_id="ios-uvc")
 

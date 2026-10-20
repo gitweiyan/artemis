@@ -147,9 +147,7 @@ async def execute_task(
 
         return device_pool.select_device()
 
-    target_platform, target_id = resolve_target(
-        platform, target_serial, select=_select_adb_device
-    )
+    target_platform, target_id = resolve_target(platform, target_serial, select=_select_adb_device)
     if target_id:
         config.for_device(target_platform, target_id)
 

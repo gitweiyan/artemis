@@ -63,9 +63,7 @@ def _ints(env: Mapping[str, str], name: str, count: int) -> tuple[int, ...] | No
             f"{name} must be {count} comma-separated integers, got {raw!r}"
         ) from exc
     if len(parts) != count:
-        raise IosConfigError(
-            f"{name} must be {count} comma-separated integers, got {raw!r}"
-        )
+        raise IosConfigError(f"{name} must be {count} comma-separated integers, got {raw!r}")
     return parts
 
 
@@ -145,7 +143,7 @@ class IosRuntimeConfig:
         object.__setattr__(self, "frame_size", (right - left, bottom - top))
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> "IosRuntimeConfig":
+    def from_env(cls, env: Mapping[str, str] | None = None) -> IosRuntimeConfig:
         """Reads the rig description from ``env`` (defaults to ``os.environ``)."""
         env = os.environ if env is None else env
         port = _env(env, ENV_ESP32_PORT)

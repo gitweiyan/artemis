@@ -72,9 +72,7 @@ class ScreenGeometry:
             round(bottom * height),
         )
 
-    def normalized_box_center(
-        self, box: tuple[float, float, float, float]
-    ) -> tuple[int, int]:
+    def normalized_box_center(self, box: tuple[float, float, float, float]) -> tuple[int, int]:
         left, top, right, bottom = self.normalized_box_to_screen(box)
         return (left + right) // 2, (top + bottom) // 2
 

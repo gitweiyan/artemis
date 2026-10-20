@@ -92,9 +92,7 @@ def ios_smoke_command(
     driver = IOSUvcHidDriver(session)
 
     if target and not config.enable_ocr:
-        console.print(
-            "[bold red]✖ --target needs OCR, but ARTEMIS_IOS_OCR=0[/bold red]"
-        )
+        console.print("[bold red]✖ --target needs OCR, but ARTEMIS_IOS_OCR=0[/bold red]")
         raise SystemExit(2)
 
     report = asyncio.run(run_smoke(driver, target=target, tap=not no_tap))

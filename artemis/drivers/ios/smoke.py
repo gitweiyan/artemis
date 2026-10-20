@@ -59,7 +59,9 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
     try:
         await driver.connect()
         report.steps.append(
-            SmokeStep("connect", True, "pointer session connected", (time.monotonic() - started) * 1000)
+            SmokeStep(
+                "connect", True, "pointer session connected", (time.monotonic() - started) * 1000
+            )
         )
     except Exception as exc:  # noqa: BLE001 - a smoke step failure is data
         report.ok = False
@@ -102,15 +104,15 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
         except Exception as exc:  # noqa: BLE001
             report.ok = False
             report.steps.append(
-                SmokeStep("locate", False, f"OCR failed: {exc}", (time.monotonic() - started) * 1000)
+                SmokeStep(
+                    "locate", False, f"OCR failed: {exc}", (time.monotonic() - started) * 1000
+                )
             )
             return report
         elapsed = (time.monotonic() - started) * 1000
         if located is None:
             report.ok = False
-            report.steps.append(
-                SmokeStep("locate", False, f"text {target!r} not found", elapsed)
-            )
+            report.steps.append(SmokeStep("locate", False, f"text {target!r} not found", elapsed))
             return report
         report.steps.append(
             SmokeStep(
@@ -125,9 +127,17 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
         started = time.monotonic()
         validation = await driver.validate_pointer(located)
         elapsed = (time.monotonic() - started) * 1000
-        detail = "pointer verified on target" if validation.ok else (
-            f"incident={validation.incident}"
-            + (f" error_px={validation.error_px:.1f}" if validation.error_px is not None else "")
+        detail = (
+            "pointer verified on target"
+            if validation.ok
+            else (
+                f"incident={validation.incident}"
+                + (
+                    f" error_px={validation.error_px:.1f}"
+                    if validation.error_px is not None
+                    else ""
+                )
+            )
         )
         report.steps.append(SmokeStep("pointer_precheck", validation.ok, detail, elapsed))
         # A pointer that is not on the target is exactly what the tap precheck would
