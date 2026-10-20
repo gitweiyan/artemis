@@ -245,3 +245,29 @@ def test_a_capture_failure_during_a_tap_becomes_an_incident_not_an_exception():
     assert result.ok is False
     assert result.incident == CAPTURE_TIMEOUT
     assert "timed out" in result.detail
+
+
+def test_pointer_control_is_bound_to_the_same_controller_and_geometry():
+    """Reflex skills enter through the same verified tap path the agent uses."""
+    from artemis.control.hid import HidControlSink
+    from artemis.devices.geometry import ScreenGeometry
+    from artemis.reflex.mouse import PointerSession, SessionTapController
+    from artemis.reflex.pointer_control import PointerControl
+
+    session = Session()
+    pointer = PointerSession(
+        SimpleNamespace(mouse_move=lambda dx, dy: None, mouse_click=lambda: None),
+        frame_size=(449, 974),
+    )
+    pointer.connected = True
+    controller = SessionTapController(pointer, capture=None)
+    session.control = [HidControlSink(pointer, controller, geometry=session.geometry)]
+
+    driver = IOSUvcHidDriver(session)
+
+    control = driver.pointer_control()
+
+    assert isinstance(control, PointerControl)
+    assert control.controller is controller
+    assert control.session is pointer
+    assert control.geometry is session.geometry

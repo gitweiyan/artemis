@@ -160,6 +160,18 @@ class IOSUvcHidDriver(BaseDeviceDriver):
                 return sink
         raise RuntimeError("no relative HID control sink")
 
+    def pointer_control(self):
+        """A reflex ``Control`` for this rig: absolute gestures, relative pointer.
+
+        Skills emit device-pixel taps and swipes; this adapter turns them into the same
+        verified pointer path the agent uses, so a skill can run on a phone without a
+        digitizer.
+        """
+        from artemis.reflex.pointer_control import PointerControl
+
+        sink = self._relative_sink()
+        return PointerControl(sink.controller, session=sink.session, geometry=self.session.geometry)
+
     async def validate_pointer(self, target, *, tolerance_px: float = 8.0) -> PointerValidation:
         frame = await self.session.perception[0].snapshot()
         left, top, right, bottom = target.box

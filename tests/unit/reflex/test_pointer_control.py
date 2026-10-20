@@ -42,9 +42,7 @@ class FakeTapController:
 
     def tap(self, x, y):
         self.taps.append((x, y))
-        return SimpleNamespace(
-            ok=self.ok, incident=self.incident, message=self.message, attempts=1
-        )
+        return SimpleNamespace(ok=self.ok, incident=self.incident, message=self.message, attempts=1)
 
     def travel(self, x, y):
         self.travels.append((x, y))
@@ -121,9 +119,7 @@ def test_a_swipe_presses_moves_and_releases():
     control, controller, session = _control()
     controller.remaining = 0.0
 
-    control.dispatch(
-        Gesture.swipe(540, 1800, 540, 400, duration_ms=200, description="drag up")
-    )
+    control.dispatch(Gesture.swipe(540, 1800, 540, 400, duration_ms=200, description="drag up"))
 
     assert controller.travels, "the pointer is positioned before the drag"
     assert session.control.events[0] == "down"

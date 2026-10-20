@@ -75,6 +75,21 @@ class ListSkillsArgs(BaseModel):
     verbose: bool = Field(default=False, description="Include each skill's plan hint.")
 
 
+def _pointer_control_for(driver: Any):
+    """The driver's relative-pointer control, when it cannot do absolute touches.
+
+    Capability-driven: iOS (no digitizer) advertises ``supports_absolute_tap=False`` and
+    hands out a control that travels, verifies and clicks; Android keeps its own path.
+    """
+    factory = getattr(driver, "pointer_control", None)
+    capabilities = getattr(driver, "capabilities", None)
+    if capabilities is None or not callable(factory):
+        return None
+    if getattr(capabilities, "supports_absolute_tap", True):
+        return None
+    return factory()
+
+
 async def _resolve_serial(ctx: Any, driver: Any = None) -> str:
     """The device a reflex session should use."""
     for candidate in (
@@ -133,10 +148,19 @@ class PlayReflexTool(ArtemisTool):
 
         try:
             frame_source = default_capture(serial, prefer=capture)
+            # A device without absolute touch (iOS) can only be driven through its
+            # relative pointer; the driver owns that control and its precheck.
+            pointer = _pointer_control_for(driver)
             # An ESP32-S3 HID board, when one is named, replaces both assisted paths: the
             # board is the touchscreen, so there is no helper and no adb input.
             esp = esp32_port()
-            if esp:
+            if pointer is not None:
+                try:
+                    pointer.preflight()
+                except RuntimeError as exc:
+                    return f"Error: ESP32 HID preflight failed: {exc}"
+                actuator = pointer
+            elif esp:
                 actuator = Esp32HidControl(esp)
                 try:
                     actuator.preflight()

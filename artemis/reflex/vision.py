@@ -202,9 +202,7 @@ class RedPointerDetector:
         candidates = []
         for index in range(1, count):
             x, y, w, h, area = (int(v) for v in stats[index])
-            touches_border = (
-                x <= 1 or y <= 1 or x + w >= width - 1 or y + h >= height - 1
-            )
+            touches_border = x <= 1 or y <= 1 or x + w >= width - 1 or y + h >= height - 1
             if touches_border:
                 if area < self.border_area_min:
                     continue
@@ -359,4 +357,11 @@ def changed(
     return count >= min_pixels
 
 
-__all__ = ["Pointer", "PointerTracker", "RedPointerDetector", "RingShapeDetector", "changed", "pointer"]
+__all__ = [
+    "Pointer",
+    "PointerTracker",
+    "RedPointerDetector",
+    "RingShapeDetector",
+    "changed",
+    "pointer",
+]

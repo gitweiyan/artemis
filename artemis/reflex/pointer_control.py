@@ -74,15 +74,13 @@ class PointerControl:
     # --- gestures ---------------------------------------------------------------
 
     def _tap(self, gesture: Gesture) -> None:
-        (x, y), = gesture.points
+        ((x, y),) = gesture.points
         frame_x, frame_y = self._frame_point(x, y)
         result = self.controller.tap(frame_x, frame_y)
         if not getattr(result, "ok", False):
             incident = getattr(result, "incident", None) or "tap_failed"
             message = getattr(result, "message", "") or ""
-            raise RuntimeError(
-                f"tap at ({x:.0f}, {y:.0f}) refused ({incident}): {message}"
-            )
+            raise RuntimeError(f"tap at ({x:.0f}, {y:.0f}) refused ({incident}): {message}")
 
     def _swipe(self, gesture: Gesture) -> None:
         (start_x, start_y), (end_x, end_y) = gesture.points
