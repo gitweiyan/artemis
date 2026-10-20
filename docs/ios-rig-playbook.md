@@ -1,0 +1,122 @@
+# iOS 机台操作手册（canonical）
+
+> **谁、什么时候读**：任何要动 iOS 机台的人或 agent——UVC 看屏、ESP32 HID 指针、点击、校准、
+> 排障——**动手前先读这里，再跑 `artemis ios-smoke`**。
+>
+> 这是唯一事实源。其他位置（`superpowers/.../knowledge/ios-hid-pointer.md`、
+> `skills/ios-taobao/README.md`）只保留指针与业务专属规则，不再复述本文件内容。
+
+## 0. 30 秒门禁（必须按顺序，禁止跳步）
+
+```text
+1) 板子/系统就绪      → artemis ios-smoke 的 connect + snapshot（或手工 usb 状态）
+2) 指针真的动          → smoke 的 pointer_motion 阶段（HID 有 ACK 但画面不变 = 没在画指针）
+3) 目标看得见          → smoke 的 locate（注意 source=icon-above-label 才是可点的图标）
+4) 一次带验证的点击     → smoke 的 tap（指针 ≤8px + 点击后目标 crop 变化）
+```
+
+四条全绿才允许跑业务任务（`artemis run --platform ios ...`）。任何一条红，先按 §5 排障，
+**不要**用业务任务去“试试看”。
+
+## 1. 触发条件索引（症状 → 根因 → 现在由谁保证）
+
+| 症状 | 根因 | 已自动化的落点（先看这里，再读下文） |
+|---|---|---|
+| 指针在画面上不动 | iOS 隐藏指针；小位移唤不醒 | `SessionTapController` 首次观测为空时用 60 单位唤醒；smoke `pointer_motion` |
+| 指针位置“看着对”，点击没反应 | **点的是标签不是图标**（桌面文字在图标下方，只有图标可点） | `perception/ios_targets.py::icon_above_label` + `UvcSource.locate`；smoke 报告的 `source=` |
+| 闭环总差一点、点在目标左侧 | 指针有**加速度**（实测 1.2–2.1 px/单位），固定 gain 会短走 | `SessionTapController` 在线估计 gain（EMA，钳制 0.3–4.0） |
+| 大位移后指针反向跳 | 固件把 `move` 每轴强转 `int8`，>127 回绕 | `Esp32HidControl.mouse_move` 分段（≤127）+ `write_line` 写满 |
+| `home` 之后位置不可预测 | 固件 `home` 2ms 连发 50 报文，被 USB 10ms 轮询丢弃 | `mouse_home()` 走**分段软件 home**；`firmware_home()` 只作诊断 |
+| 抓帧总是同一张 | 常驻 AVFoundation 会话在本采集卡上给冻结帧；或残留 ffmpeg 占卡 | 默认 `ARTEMIS_IOS_CAPTURE=frame`（单帧）；残留时 `pkill -9 -f "USB Video"` |
+| 黑帧/超时/帧太旧 | 采集卡无信号、设备没了、抓帧进程卡死 | `uvc_no_signal` / `capture_timeout` / `stale_frame` incident（见 §4） |
+| 点击无效，但指针在动、键盘也失灵 | **前台有 Spotlight/搜索层**（`Cmd+Space` 误触），它吞掉点击和 `Cmd+H` | 先按 **Esc** 再看屏幕（§5 第 1 步） |
+| 重启后“按键全废” | 疑似 iOS 丢了指针设备的按键映射 | 先排除 Spotlight（Esc）；仍不行才插拔 ESP32 OTG 线 |
+| `press_key back` 报 usage 错误 | 键名原样下发，固件只认数字 usage | `press_named_key`（Home→Cmd+H；BACK 明确拒绝并提示点返回箭头） |
+| 中文小字定位不到 | 裁剪帧太小、OCR 引擎置信度口径不同 | `locate_text` 整串精确匹配门槛 0.25、部分匹配 0.5；`ARTEMIS_IOS_OCR` 可关 |
+
+## 2. 输入模型（为什么 iOS 与 Android 不是同一件事）
+
+- iOS **不消费外部 HID digitizer**：绝对坐标 `tap` 不产生触摸。只有键盘 + 鼠标（相对指针）。
+- 鼠标指针是 AssistiveTouch 的 overlay：**开辅助触控**且屏幕常亮才看得到；会淡出。
+- 指针有加速度、`move` 是 int8、`home` 是不可靠的连发——这三点决定了“必须闭环 + 分段 + 软件 home”。
+- 键盘：`Enter/Space/Tab/方向键` 可用；没有 Back 键（用屏幕返回箭头或 Cmd+H）。
+- 应用启动只能点图标（没有包名可查）；`manage_app` 在本平台直接失败并提示点图标。
+
+## 3. 点击落点（最贵的一课：2026-10-21）
+
+1. **桌面文字不是可点区域**。OCR 命中的是图标下方的标签；点击标签在 iOS 上完全不生效。
+   目标必须抬到标签上方的“忙碌块”（Canny 边缘密度判据 → 灰色图标也认，壁纸不算）。
+   实现：`artemis/perception/ios_targets.py`，`UvcSource.locate` 默认应用，
+   smoke 的 `locate` 报告里会标 `source=icon-above-label`。
+2. **先闭环再点**：`移动 → 抓帧 → 检测 → 误差 ≤8px → 点击 → 验证目标 crop 变化`；
+   任何一步不满足都**不点**（`pointer_missing` / `pointer_off_target` / `pointer_not_centered` / `no_effect`）。
+3. **gain 靠测量不靠配置**：配置里的 `ARTEMIS_IOS_POINTER_GAIN` 只是起点，控制器在线估计。
+4. 点击后验证优先看**目标 crop**（按压高亮/弹层就在那里），整帧变化作为兜底；
+   状态栏时钟变化不算。
+
+## 4. 采集与健康
+
+- 默认 `ARTEMIS_IOS_CAPTURE=frame`：每次抓帧一个 ffmpeg（~0.9s，帧一定是活的）。
+  `stream` 只在确认采集卡支持常驻会话时用（本卡实测会给冻结帧）。
+- 抓帧失败分类：`uvc_no_signal`（帧到了但全黑：HDMI/HDCP/转接/息屏）、
+  `capture_timeout`（预算内没帧）、`stale_frame`（验证帧超龄）。三者走同一条
+  `ActionResult.incident → Validator category → Operator 提示` 通道。
+- 残留进程会让采集卡“活着但冻结”：`pkill -9 -f "USB Video"` 后重试。
+
+## 5. 排障顺序（照这个顺序，别跳）
+
+```text
+1) 按 Esc            # 关掉 Spotlight/弹层（最常见的“点击无效”假象）
+2) 按 Cmd+H          # 回主屏（键盘能用，说明 HID 键盘通道 OK）
+3) usb 状态          # mounted=1 suspended=0 mouse=1 keyboard=1
+4) 抓一帧 OCR        # 确认现在到底在哪一屏
+5) artemis ios-smoke # 四段门禁，看是哪一段红
+6) 仍红 → 插拔 ESP32 的 OTG 线（不是 Mac 那根 UART），再跑 5)
+```
+
+经验：**不要**用“连续盲点”去验证点击是否恢复；用 smoke 的 `tap` 阶段（带指针校验与 diff）。
+
+## 6. 校准（待落地）
+
+- 现状：gain 由控制器在线估计；`ARTEMIS_IOS_POINTER_GAIN` 是起点值。
+- 计划（A5）：两点校准（home → 已知 move → 检测）→ 把实测 gain 写进 env；
+  换手机/换卡/改灵敏度后必须重做。落地后本节改为“命令 + 验收数字”。
+
+## 7. 沉淀规则（防止知识再次散落/失效）
+
+**一事实一文件**：本手册是 iOS 机台事实的唯一来源；其他文档只允许指针 + 业务专属规则。
+
+**每条教训必须有一个落地形态**，按强度排序：
+
+| 强度 | 形态 | 例子 |
+|---|---|---|
+| 1 | 代码/测试 | 标签→图标、自适应 gain、int8 分段 |
+| 2 | 检查阶段 | `ios-smoke` 的 `pointer_motion` / `tap` |
+| 3 | 断言/证据字段 | `no_effect` 明细里的“插拔”提示、`action_metrics` |
+| 4 | 散文（`prose-only`，记为欠账） | 校准流程（等 A5） |
+
+复盘产出的新教训：先在 §1 表里加一行（症状/根因），**同一 PR 内**尽量把它变成 1–3 形态；
+做不到就把 `Enforced by` 写成 `prose-only（原因）`，下次动这块代码时优先还债。
+
+**触发索引优先于主题目录**：写新知识时先问“什么症状会让人需要它”，把这一行加进 §1；
+按主题建目录会因为没有人按主题浏览而失效。
+
+## 8. 速查
+
+```bash
+# 机台自检（四段门禁）
+ARTEMIS_ESP32_PORT=/dev/cu.usbmodemXXXX artemis ios-smoke --target 设置
+# 业务任务（iOS 强制 standalone，不进 ADB daemon 队列）
+ARTEMIS_ESP32_PORT=/dev/cu.usbmodemXXXX artemis run --platform ios --profile flash "打开微信"
+# 清残卡进程
+pkill -9 -f "USB Video"
+```
+
+| 环境变量 | 作用 |
+|---|---|
+| `ARTEMIS_ESP32_PORT` | ESP32 板的 UART 串口（必填） |
+| `ARTEMIS_UVC_DEVICE` / `ARTEMIS_UVC_CROP` | 采集卡名 / 手机在卡中的裁剪框 |
+| `ARTEMIS_IOS_SCREEN_SIZE` | 手机屏幕像素（默认 1080x2400） |
+| `ARTEMIS_IOS_POINTER_GAIN` | 指针 gain 起点（控制器会在线修正） |
+| `ARTEMIS_IOS_CAPTURE` | `frame`（默认）/ `stream` |
+| `ARTEMIS_IOS_OCR` | `1`/`0`，关闭 OCR（无文本目标时） |
