@@ -194,10 +194,16 @@ def test_long_type_text_is_split_into_bounded_commands(esp32):
     assert typed == text
 
 
-def test_home_sends_the_firmware_home_command(esp32):
+def test_software_home_walks_back_in_segments(esp32):
+    """Contract change (2026-10-21): the firmware's 2 ms burst loses reports, so the
+    anchor is a paced walk. The raw `home` command is covered separately."""
+    from artemis.reflex.control import ESP32_HOME_SPAN
+
     control, recorder = esp32()
     control.mouse_home()
-    assert recorder.lines == ["home\n"]
+    moves = [line for line in recorder.lines if line.startswith("move ")]
+    assert moves, "the walk goes out as relative moves"
+    assert sum(int(line.split()[1]) for line in moves) == -ESP32_HOME_SPAN
 
 
 def test_ios_home_sends_cmd_h(esp32):
@@ -333,3 +339,37 @@ def test_named_keys_map_to_hid_usages_and_home_is_cmd_h():
 
     with pytest.raises(ValueError, match="no Back key"):
         control.press_named_key("back")
+
+
+def test_home_is_sent_as_paced_relative_moves_not_one_burst():
+    """The firmware's `home` blasts 50 reports at 2 ms while USB polls at ~10 ms, so the
+    pointer lands somewhere unpredictable (project knowledge note). Software home walks
+    back in ACK-paced int8 segments instead."""
+    from artemis.reflex.control import ESP32_HOME_SPAN, Esp32HidControl
+
+    lines = []
+    control = Esp32HidControl("/dev/fake")
+    control._writer = lambda line: lines.append(line.strip())
+
+    control.mouse_home()
+
+    assert "home" not in lines, "the firmware burst is not used for anchoring"
+    moves = [line for line in lines if line.startswith("move ")]
+    assert len(moves) >= 2, "the walk back is paced by the ack channel"
+    assert sum(int(line.split()[1]) for line in moves) == -ESP32_HOME_SPAN
+    assert sum(int(line.split()[2]) for line in moves) == -ESP32_HOME_SPAN
+    for line in moves:
+        _cmd, dx, dy = line.split()
+        assert abs(int(dx)) <= 127 and abs(int(dy)) <= 127
+
+
+def test_the_firmware_home_command_is_still_available_for_diagnostics():
+    from artemis.reflex.control import Esp32HidControl
+
+    lines = []
+    control = Esp32HidControl("/dev/fake")
+    control._writer = lambda line: lines.append(line.strip())
+
+    control.firmware_home()
+
+    assert lines == ["home"]

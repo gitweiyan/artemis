@@ -140,6 +140,10 @@ KEY_UP = 82
 #: the opposite direction (a 200-unit move becomes a backwards jump). The host segments.
 ESP32_MAX_MOVE = 127
 
+#: How far a software ``home`` walks back: larger than any phone's pointer grid, so the
+#: cursor clamps at the top-left corner whatever the gain is.
+ESP32_HOME_SPAN = 2400
+
 #: When set, gestures go through the ESP32-S3 HID board on this serial port (its UART
 #: USB-C console) instead of the assisted paths. Unset keeps the previous choice.
 ENV_ESP32_PORT = "ARTEMIS_ESP32_PORT"
@@ -554,7 +558,20 @@ class Esp32HidControl(Control):
         return (time.monotonic() - started) * 1000.0
 
     def mouse_home(self) -> float:
-        """Slam the pointer to the top-left corner (firmware-paced, one command)."""
+        """Walk the pointer back to the top-left corner, paced by the ack channel.
+
+        The firmware's ``home`` sends ~50 reports 2 ms apart while the USB HID host polls
+        every ~10 ms, so most of that burst is dropped and the landing spot is
+        unpredictable (project knowledge note, 2026-10-19). Relative moves in int8-sized
+        segments each wait for ``OK``, which is what paces the reports; the pointer
+        clamps at the corner regardless of the pointer gain.
+        """
+        started = time.monotonic()
+        self.mouse_move(-ESP32_HOME_SPAN, -ESP32_HOME_SPAN)
+        return (time.monotonic() - started) * 1000.0
+
+    def firmware_home(self) -> float:
+        """The firmware's one-shot ``home`` burst — kept for diagnostics only."""
         return self._timed("home")
 
     def ios_home(self) -> float:
@@ -587,6 +604,7 @@ __all__ = [
     "AdbInputControl",
     "Esp32HidControl",
     "HelperControl",
+    "ESP32_HOME_SPAN",
     "ESP32_MAX_MOVE",
     "esp32_port",
     "parse_usb_state",
