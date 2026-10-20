@@ -23,6 +23,7 @@ import base64
 import json
 from pathlib import Path
 
+from artemis.agents.validator.categories import ValidationErrorCategory
 from artemis.context import ArtemisContext
 from artemis.graph.state import State
 from artemis.mcp.action_names import to_canonical_call
@@ -30,6 +31,21 @@ from artemis.mcp.action_session import ActionSession
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+#: Driver incident codes (relative-pointer platforms) and the Validator category each one
+#: maps to. A driver reports *why* a tap failed; the safety net reports the same facts as
+#: categories so the Operator gets one taxonomy regardless of how the failure was found.
+_INCIDENT_CATEGORIES: dict[str, ValidationErrorCategory] = {
+    "pointer_missing": ValidationErrorCategory.POINTER_MISSING,
+    "pointer_off_target": ValidationErrorCategory.POINTER_OFF_TARGET,
+    "pointer_not_centered": ValidationErrorCategory.POINTER_NOT_CENTERED,
+    "no_effect": ValidationErrorCategory.NO_EFFECT,
+}
+
+
+def incident_category(incident: str | None) -> ValidationErrorCategory:
+    """The Validator category for a driver incident code (``GENERAL`` if unknown)."""
+    return _INCIDENT_CATEGORIES.get(str(incident or ""), ValidationErrorCategory.GENERAL)
 
 
 def parse_decisions(structured_decisions: str) -> tuple[list[dict] | None, str | None]:
@@ -94,5 +110,18 @@ async def exec_action(
         res = await session.call(tool_name, wire_args)
     except Exception as e:
         return False, f"MCP call failed: {e}"
+
+    # A driver that knows why a tap failed (relative pointer platforms) returns a
+    # structured incident. Record it on the action item so the execution loop can open
+    # the matching incident and the trace keeps the evidence. Platforms that report
+    # nothing leave the action item byte-identical to before.
+    if getattr(res, "incident", None):
+        action_item["incident"] = res.incident
+        action_item["action_result"] = {
+            "ok": bool(res.ok),
+            "action": tool_name,
+            "incident": res.incident,
+            "detail": getattr(res, "detail", None),
+        }
 
     return (True, "") if res.ok else (False, res.message)

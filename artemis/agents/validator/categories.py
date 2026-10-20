@@ -30,4 +30,12 @@ class ValidationErrorCategory(StrEnum):
     PIXEL_TARGET_DISAPPEARED = "pixel_target_disappeared"
     PIXEL_BYPASSED = "pixel_bypassed"
     XML_BYPASSED = "xml_bypassed"
+    #: A relative-pointer driver reported that no pointer was visible, so no click ran.
+    POINTER_MISSING = "pointer_missing"
+    #: The pointer was visible but outside the target box.
+    POINTER_OFF_TARGET = "pointer_off_target"
+    #: The pointer was inside the target but never within the click tolerance.
+    POINTER_NOT_CENTERED = "pointer_not_centered"
+    #: The click was dispatched on a verified target and the screen did not change.
+    NO_EFFECT = "no_effect"
     GENERAL = "general"

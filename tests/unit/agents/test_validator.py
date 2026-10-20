@@ -22,6 +22,7 @@ feeds the safety-net XML validation.
 """
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from langchain_core.messages import AIMessage
@@ -886,3 +887,65 @@ async def test_validator_failure_screenshot_mcp_error_handled_safely(
     assert report["status"] == "failed"
     assert len(report["execution"]) == 1
     assert report["execution"][0]["action"] == "tap"
+
+
+# --- Structured driver incidents (iOS UVC + HID) -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_exec_action_records_a_driver_incident():
+    from artemis.agents.validator.action_execution import exec_action, incident_category
+    from artemis.agents.validator.categories import ValidationErrorCategory
+    from artemis.control.base import ActionResult as DriverResult
+
+    class _Session:
+        async def call(self, name, args):
+            return ActionResult(
+                ok=False,
+                code=ActionCode.DEVICE_ERROR,
+                action=name,
+                message="Error executing click: Tap failed at (540, 1200)",
+                detail="pointer not detected before click; refusing to click",
+                incident="pointer_missing",
+            )
+
+    ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
+    action_item = {"action": "tap", "normalized_coordinates": [500, 500], "coordinates": [540, 1200]}
+
+    ok, error = await exec_action(ctx, _Session(), action_item)
+
+    assert ok is False
+    assert "Tap failed" in error
+    assert action_item["incident"] == "pointer_missing"
+    assert action_item["action_result"] == {
+        "ok": False,
+        "action": "click",
+        "incident": "pointer_missing",
+        "detail": "pointer not detected before click; refusing to click",
+    }
+    assert incident_category("pointer_missing") is ValidationErrorCategory.POINTER_MISSING
+    assert incident_category("pointer_not_centered") is (
+        ValidationErrorCategory.POINTER_NOT_CENTERED
+    )
+    assert incident_category("no_effect") is ValidationErrorCategory.NO_EFFECT
+    assert incident_category("something_new") is ValidationErrorCategory.GENERAL
+    assert incident_category(None) is ValidationErrorCategory.GENERAL
+    assert DriverResult(False, "tap_abs", "no_effect").incident == "no_effect"
+
+
+@pytest.mark.asyncio
+async def test_exec_action_leaves_android_results_untouched():
+    from artemis.agents.validator.action_execution import exec_action
+
+    class _Session:
+        async def call(self, name, args):
+            return ActionResult(ok=True, code=ActionCode.OK, action=name, message="Tapped.")
+
+    ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
+    action_item = {"action": "tap", "normalized_coordinates": [500, 500]}
+
+    ok, _error = await exec_action(ctx, _Session(), action_item)
+
+    assert ok is True
+    assert "incident" not in action_item
+    assert "action_result" not in action_item
