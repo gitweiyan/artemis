@@ -166,6 +166,20 @@ f7e54b9 feat: add shape-only pointer fallback and immediate capture
 `PointerTracker.locate()` 报的是**第一帧**里的位置，所以兜底路径会把 nudge 的位移加回去，
 再交给 belief 校正（否则每次兜底都会少算一段位移）。
 
+### 2.5.3 reflex skill 接入（P11，2026-10-21，离线）
+
+iOS 没有 digitizer，skill 的绝对手势以前在 iOS 上等于空操作。现在：
+
+- `artemis/reflex/pointer_control.py::PointerControl`：实现 reflex 的 `Control` 协议
+  - `tap` → 设备像素→采集帧像素 → 走 `SessionTapController.tap`（移动+预检+点击+验证），
+    被拒绝时抛 `RuntimeError`（runtime 的连续失败计数会接管）；
+  - `swipe` → 先 `travel` 到起点（偏差 >24px 拒绝按下）→ `mdown` → int8 分段移动 → `mup`（`finally` 保证释放）；
+- `IOSUvcHidDriver.pointer_control()` 把适配器绑到自己的 controller+geometry；
+- `play_reflex` 按能力选择：`capabilities.supports_absolute_tap is False` 时用指针控制，
+  Android 保持原路径；指针路径同样先 `preflight` 板子。
+
+Tetris 等 skill 因此可以在 iOS 上跑（仍需真机确认帧率与手势成功率）。
+
 ### 2.6 真机 flash / pro（P7 / P8，2026-10-21）
 
 真实机台（iPhone + `USB Video` 采集卡 + ESP32-S3，`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461`）：
