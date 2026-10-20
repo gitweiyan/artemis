@@ -26,6 +26,13 @@ class TapOutput(BaseModel):
 
     error: str | None = Field(default=None, description="Error message if tap failed")
     success: bool = Field(default=True, description="Whether the tap was successfully dispatched")
+    incident: str | None = Field(
+        default=None,
+        description=(
+            "Machine-readable failure reason from a driver that reports one "
+            "(e.g. pointer_missing, pointer_not_centered, no_effect)"
+        ),
+    )
 
 
 class ElementQuery(BaseModel):

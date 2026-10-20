@@ -55,10 +55,25 @@ class UnifiedMobileControllerBase:
         try:
             if long_press:
                 success = await self._driver.long_press(x, y, duration_ms=long_press_duration)
-            else:
-                success = await self._driver.tap(
-                    x, y, duration_ms=100, times=times, delay_ms=delay_ms
+                return TapOutput(error=None if success else f"Tap failed at ({x}, {y})")
+
+            # A driver implementing ``tap_with_result`` knows *why* a tap failed
+            # (pointer precheck refused, click had no effect). Its structured
+            # ActionResult rides out as ``TapOutput.incident`` so the action layer and
+            # the Validator can report an incident instead of a bare bool.
+            tap_with_result = getattr(self._driver, "tap_with_result", None)
+            if callable(tap_with_result):
+                result = await tap_with_result(x, y)
+                if result.ok:
+                    return TapOutput()
+                return TapOutput(
+                    error=f"Tap failed at ({x}, {y})",
+                    incident=getattr(result, "incident", None),
                 )
+
+            success = await self._driver.tap(
+                x, y, duration_ms=100, times=times, delay_ms=delay_ms
+            )
             return TapOutput(error=None if success else f"Tap failed at ({x}, {y})")
         except Exception as e:
             return TapOutput(error=str(e))

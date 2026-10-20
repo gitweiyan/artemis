@@ -140,3 +140,66 @@ async def test_observation_primitives(actuator):
     assert isinstance(shot, str) and len(shot) > 0
     data = await actuator.get_screen_data()
     assert data.width == 1000 and data.height == 2000
+
+
+class _StructuredTapDriver:
+    """A driver that reports why a tap failed (the iOS UVC + HID contract)."""
+
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    async def tap(self, x, y, duration_ms=100, times=1, delay_ms=100):
+        self.calls.append((x, y, "tap"))
+        return self.result.ok
+
+    async def tap_with_result(self, x, y):
+        self.calls.append((x, y, "tap_with_result"))
+        return self.result
+
+    async def long_press(self, x, y, duration_ms=1000):
+        self.calls.append((x, y, "long_press"))
+        return self.result.ok
+
+
+@pytest.mark.asyncio
+async def test_tap_at_uses_the_structured_driver_result():
+    from types import SimpleNamespace
+
+    from artemis.control.base import ActionResult as DriverActionResult
+    from third_party.mobile_use.controllers.unified_controller import UnifiedMobileControllerBase
+
+    driver = _StructuredTapDriver(
+        DriverActionResult(False, "tap_abs", "pointer_missing", "no pointer in frame")
+    )
+    controller = UnifiedMobileControllerBase(SimpleNamespace(), driver)
+
+    out = await controller.tap_at(10, 20)
+
+    assert out.error
+    assert out.incident == "pointer_missing"
+    assert driver.calls == [(10, 20, "tap_with_result")]
+
+
+@pytest.mark.asyncio
+async def test_tap_at_still_uses_plain_tap_when_no_structured_result_exists():
+    from types import SimpleNamespace
+
+    from third_party.mobile_use.controllers.unified_controller import UnifiedMobileControllerBase
+
+    class _PlainDriver:
+        def __init__(self):
+            self.calls = []
+
+        async def tap(self, x, y, duration_ms=100, times=1, delay_ms=100):
+            self.calls.append((x, y))
+            return True
+
+    driver = _PlainDriver()
+    controller = UnifiedMobileControllerBase(SimpleNamespace(), driver)
+
+    out = await controller.tap_at(10, 20)
+
+    assert out.error is None
+    assert out.incident is None
+    assert driver.calls == [(10, 20)]
