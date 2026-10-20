@@ -136,6 +136,45 @@ f7e54b9 feat: add shape-only pointer fallback and immediate capture
 
 ## 3. 未完成
 
+### 3.0 真机验证记录（2026-10-21，iPhone + USB Video 采集卡 + ESP32）
+
+机台：`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461`，采集卡 `USB Video`，
+crop `736,53,1185,1027` → frame 449x974，screen 1080x2400，gain 1.8。
+
+已通过（`artemis ios-smoke --target 设置`）：
+
+| 阶段 | 实测 |
+|---|---|
+| connect（`home` 锚定指针） | 306–338 ms |
+| snapshot（UVC 单帧） | 首帧 0.6–1.1 s（含 ffmpeg 启动），warm ≈ 50 ms |
+| locate（macOS Vision OCR） | 0.26–2.1 s（首帧冷启动 1.4 s，warm 0.3 s）；`设置` conf 1.00/0.30 |
+| pointer precheck | 指针可见即通过（离目标 451 px 属正常，由 tap 驱动） |
+| tap | 驱动指针到 screen (911, 739) → 偏差 ≤8 px → click → **画面变化验证通过** |
+
+真机暴露并修掉的问题（都有单测锁定）：
+
+1. `UvcStream.grab_latest()` 在持续 30 fps 流上永不返回（一直"drain 到没有数据"）→ 加 drain 预算；
+2. 单帧 ffmpeg ≈0.87 s，指针环已淡出 → iOS session 默认改用常驻流
+   （`ARTEMIS_IOS_CAPTURE=frame` 可退回）；
+3. 指针淡出后 15 单位移动唤不醒，60 单位可唤醒 → 控制器在首次观测为空时先唤醒再判定；
+4. 控制器在"移动之前"的旧帧上重新检测指针 → 自我追赶、永不收敛（`pointer_not_centered`）→
+   移动后先等一帧反映该移动（有界），再检测；
+5. `locate_text` 用 0.5 门槛丢掉了 Vision 的 `设置`（conf 0.30，完全正确）→
+   整串精确匹配门槛降到 0.25，部分匹配仍要求 0.5；
+6. `os.write` 短写丢掉换行 → 固件后续命令回 `ERR line too long`（真机上出现过一次）→
+   `write_line` 循环写满；
+7. PaddleOCR 本机未安装 → 新增 macOS Vision OCR 引擎与能力感知选择器
+   （无引擎时 `supports_ocr=False`，不抛异常）。
+
+已知环境约束（非代码问题）：
+
+- 手机锁屏会让 iOS 挂起 HID：`usb mounted=1 suspended=1 mouse=0 keyboard=0`，
+  UVC 同时变黑帧；`wake` 命令唤不醒，必须手动解锁。跑任务前把
+  **设置 → 显示与亮度 → 自动锁定 = 永不**；
+- `tests/unit/mcp/test_mcp_stdio_lifecycle.py::test_mcp_stdio_handshake_immediate_input`
+  在本机失败（MCP server 启动约 8.3 s > 测试的 6 s 预算），在 `9e3cee6` 基线上同样失败，
+  与 iOS 改动无关。
+
 ### 3.1 真机 flash/pro 未闭环（P7/P8）
 
 iOS driver、runtime config、incident 链路都已离线验证通过，机台冒烟也有独立入口，
