@@ -32,6 +32,16 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _is_ios(ctx: "ArtemisContext") -> bool:
+    platform = getattr(getattr(ctx, "device", None), "mobile_platform", None)
+    return str(platform or "").lower() == "ios"
+
+
+def _describe_capabilities(capabilities) -> str:
+    """The capability flags that decide perception/control composition, for the log."""
+    return ", ".join(f"{name}={getattr(capabilities, name)}" for name in capabilities.__dataclass_fields__)
+
+
 def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
     """Instantiates the appropriate BaseDeviceDriver based on the runtime context."""
     # 1. Cloud mode check. Cloud devices are reached through the gateway's
@@ -47,33 +57,38 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
 
             ctx.ui_adb_client = RemoteUIAutomatorClient(adb_client=ctx.adb_client)
 
-    # 2. iOS UVC + ESP32 HID
-    if getattr(ctx.device, "mobile_platform", None) == "ios":
-        port = os.environ.get("ARTEMIS_ESP32_PORT")
-        if not port:
-            raise RuntimeError("iOS driver requires ARTEMIS_ESP32_PORT")
-        from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
+    # 2. iOS UVC + ESP32 HID. The rig is described entirely by validated config: a
+    # missing port is a configuration error, never a silent fall through to ADB.
+    if _is_ios(ctx):
         from artemis.devices.ios_uvc import build_ios_uvc_session
+        from artemis.drivers.ios.config import IosRuntimeConfig
+        from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
         from artemis.reflex.capture import UvcCapture
         from artemis.reflex.control import Esp32HidControl
 
-        width = getattr(ctx.device, "device_width", 1080)
-        height = getattr(ctx.device, "device_height", 2400)
+        ios = IosRuntimeConfig.from_env()
         capture = UvcCapture(
-            os.environ.get("ARTEMIS_UVC_DEVICE", "USB Video"),
-            size=(1920, 1080),
+            ios.uvc_device,
+            size=ios.uvc_size,
             framerate=30,
-            crop=tuple(int(v) for v in os.environ.get("ARTEMIS_UVC_CROP", "736,53,1185,1027").split(",")),
+            crop=ios.uvc_crop,
             timeout_s=12,
         )
-        control = Esp32HidControl(port, ack_timeout_s=3.0)
+        control = Esp32HidControl(ios.esp32_port, ack_timeout_s=3.0)
         session = build_ios_uvc_session(
             capture,
             control,
-            screen_size=(int(width), int(height)),
-            ocr_engine=PaddleOcrEngine(),
+            frame_size=ios.frame_size,
+            screen_size=ios.screen_size,
+            pointer_gain=ios.pointer_gain,
+            ocr_engine=PaddleOcrEngine() if ios.enable_ocr else None,
         )
-        return IOSUvcHidDriver(session)
+        driver = IOSUvcHidDriver(session)
+        logger.info(
+            f"Device driver: {driver.device_id} ({ios.describe()}); "
+            f"capabilities: {_describe_capabilities(driver.capabilities)}"
+        )
+        return driver
 
     # 3. Mock mode check
     if (
