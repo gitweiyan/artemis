@@ -134,6 +134,28 @@ a830843 feat: validate iOS pointer against target
 f7e54b9 feat: add shape-only pointer fallback and immediate capture
 ```
 
+### 2.5.1 采集异常与帧龄（P10，2026-10-21）
+
+“画面不可用”以前只有一句 `capture failed`，现在有三个具名 incident，走同一条
+`ActionResult.incident → Validator category → Operator 提示` 通道：
+
+| 代码 | 含义 | 触发点 |
+|---|---|---|
+| `uvc_no_signal` | 帧到了但没画面（HDMI/HDCP/转接、手机息屏） | `UvcSource` health=`black`/`decode_error` |
+| `capture_timeout` | 预算内没有任何帧（进程卡住、设备掉了、别的进程占卡） | 抓帧异常且信息含 timeout/no frame |
+| `stale_frame` | 验证点击用的帧已超过新鲜度预算 | `SessionTapController.max_frame_age_s`（默认 3s） |
+
+落点与约束：
+
+- `artemis/perception/incidents.py`：`UVC_NO_SIGNAL / CAPTURE_TIMEOUT / UVC_DECODE_ERROR`、
+  `incident_for_health()`、`incident_for_error()`、`UnhealthyFrame(incident, detail)`；
+- `IOSUvcHidDriver.snapshot_frame()`：走 `DeviceSession.snapshot()`（多源+健康门控），
+  黑帧/超时抛 `UnhealthyFrame`；`get_screen_data()` 与 `tap_with_result()` 都用它，
+  **黑帧不再被当作“成功截图”**，抓帧失败也不再以异常穿过控制器；
+- `ValidationErrorCategory` 增加 `UVC_NO_SIGNAL / CAPTURE_TIMEOUT / STALE_FRAME`，
+  Operator prompt 对三类各给处置建议（查 HDMI/转接/息屏、查卡住的抓帧进程、重新观察）；
+- 指针闭环拒绝用过期帧验证点击（无时间戳的帧不受限，测试替身不受影响）。
+
 ### 2.6 真机 flash / pro（P7 / P8，2026-10-21）
 
 真实机台（iPhone + `USB Video` 采集卡 + ESP32-S3，`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461`）：
