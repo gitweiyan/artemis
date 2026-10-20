@@ -92,9 +92,12 @@ class IOSUvcHidDriver(BaseDeviceDriver):
             return PointerValidation(False, "pointer_not_centered", error, (px, py))
         return PointerValidation(True, None, error, (px, py))
 
+    async def tap_with_result(self, x, y) -> ActionResult:
+        """Return the structured precheck/click result for Validator incidents."""
+        return await self._relative_sink().tap_abs(int(x), int(y))
+
     async def tap(self, x, y, duration_ms=100, times=1, delay_ms=100) -> bool:
-        result = await self._relative_sink().tap_abs(int(x), int(y))
-        return result.ok
+        return (await self.tap_with_result(x, y)).ok
 
     async def long_press(self, x, y, duration_ms=1000) -> bool:
         return await self.tap(x, y, duration_ms=duration_ms)
