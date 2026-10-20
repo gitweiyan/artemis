@@ -151,7 +151,30 @@ def to_canonical_call(
         # bare key word for the common keys. Anything else keeps its original spelling
         # so the driver can forward it verbatim (arbitrary KEYCODE_* / numeric codes).
         bare = keycode.removeprefix("KEYCODE_").lower() if keycode else ""
-        known = {"home", "back", "enter", "delete", "tab", "search", "menu", "app_switch"}
+        # Android's DPAD_* names are the arrow keys; the rig presses them by name.
+        if bare.startswith("dpad_"):
+            bare = bare.removeprefix("dpad_")
+        # Names the canonical press_key tool understands across platforms. ``search``
+        # opens Spotlight on iOS (Cmd+Space) and the search UI on Android; the arrows let
+        # a model pick a Spotlight result before pressing enter.
+        known = {
+            "home",
+            "back",
+            "enter",
+            "delete",
+            "tab",
+            "search",
+            "menu",
+            "app_switch",
+            "escape",
+            "esc",
+            "space",
+            "up",
+            "down",
+            "left",
+            "right",
+            "close",
+        }
         return "press_key", {"key": bare if bare in known else keycode}
 
     if verb == "back":

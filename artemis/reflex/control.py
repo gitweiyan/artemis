@@ -507,6 +507,11 @@ class Esp32HidControl(Control):
         "down": KEY_DOWN,
         "delete": 42,
         "backspace": 42,
+        # Android-style names the Operator may emit for the same keys.
+        "dpad_up": KEY_UP,
+        "dpad_down": KEY_DOWN,
+        "dpad_left": KEY_LEFT,
+        "dpad_right": KEY_RIGHT,
     }
 
     #: Named shortcuts that need Cmd (left GUI, HID usage 8). Verified on the rig
