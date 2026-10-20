@@ -594,6 +594,25 @@ def render_execution_incident(incident: dict, steps: list) -> str:
             " control (self-drawn widgets), or the control may need a different gesture."
         )
 
+    elif category == "uvc_no_signal":
+        lines.append(
+            "Evidence: the capture card delivered a frame with no picture, so nothing was"
+            " clicked. Check the HDMI dongle/adapter and that the phone's screen is on and"
+            " unlocked; a locked or sleeping phone also yields a black frame."
+        )
+    elif category == "capture_timeout":
+        lines.append(
+            "Evidence: no frame arrived within the capture budget, so nothing was clicked."
+            " The capture process is stuck or the device is gone; a stray capture process"
+            " holding the card does this too."
+        )
+    elif category == "stale_frame":
+        lines.append(
+            "Evidence: the frame used to verify the tap was already too old, so the click"
+            " was withheld. The capture path is lagging (or frozen); re-observe before"
+            " acting rather than retrying blindly."
+        )
+
     driver_incident = evidence.get("driver_incident")
     if driver_incident:
         lines.append(f"Driver-reported incident code: `{driver_incident}`.")

@@ -38,4 +38,10 @@ class ValidationErrorCategory(StrEnum):
     POINTER_NOT_CENTERED = "pointer_not_centered"
     #: The click was dispatched on a verified target and the screen did not change.
     NO_EFFECT = "no_effect"
+    #: The capture card delivered a frame with no picture (HDMI/HDCP, screen off).
+    UVC_NO_SIGNAL = "uvc_no_signal"
+    #: No frame arrived within the capture budget (no process output, device gone).
+    CAPTURE_TIMEOUT = "capture_timeout"
+    #: The verification frame was already older than the freshness budget.
+    STALE_FRAME = "stale_frame"
     GENERAL = "general"

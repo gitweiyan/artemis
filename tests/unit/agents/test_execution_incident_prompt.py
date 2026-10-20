@@ -263,3 +263,18 @@ def test_render_pointer_incident_quoting_the_driver_code():
     )
 
     assert "pointer_missing" in text
+
+
+@pytest.mark.parametrize(
+    "category,needle",
+    [
+        ("uvc_no_signal", "no picture"),
+        ("capture_timeout", "no frame arrived"),
+        ("stale_frame", "already too old"),
+    ],
+)
+def test_render_explains_a_capture_incident(category, needle):
+    text = render_execution_incident(_pointer_incident(category), STEPS)
+
+    assert needle in text
+    assert "no longer on screen" not in text, "the XML evidence must not leak in here"

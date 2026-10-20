@@ -949,3 +949,13 @@ async def test_exec_action_leaves_android_results_untouched():
     assert ok is True
     assert "incident" not in action_item
     assert "action_result" not in action_item
+
+
+def test_capture_failures_map_to_their_own_categories():
+    from artemis.agents.validator.action_execution import incident_category
+    from artemis.agents.validator.categories import ValidationErrorCategory
+
+    assert incident_category("uvc_no_signal") is ValidationErrorCategory.UVC_NO_SIGNAL
+    assert incident_category("uvc_decode_error") is ValidationErrorCategory.UVC_NO_SIGNAL
+    assert incident_category("capture_timeout") is ValidationErrorCategory.CAPTURE_TIMEOUT
+    assert incident_category("stale_frame") is ValidationErrorCategory.STALE_FRAME

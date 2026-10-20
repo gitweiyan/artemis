@@ -40,6 +40,10 @@ _INCIDENT_CATEGORIES: dict[str, ValidationErrorCategory] = {
     "pointer_off_target": ValidationErrorCategory.POINTER_OFF_TARGET,
     "pointer_not_centered": ValidationErrorCategory.POINTER_NOT_CENTERED,
     "no_effect": ValidationErrorCategory.NO_EFFECT,
+    "uvc_no_signal": ValidationErrorCategory.UVC_NO_SIGNAL,
+    "uvc_decode_error": ValidationErrorCategory.UVC_NO_SIGNAL,
+    "capture_timeout": ValidationErrorCategory.CAPTURE_TIMEOUT,
+    "stale_frame": ValidationErrorCategory.STALE_FRAME,
 }
 
 
