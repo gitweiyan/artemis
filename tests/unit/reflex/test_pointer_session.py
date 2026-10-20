@@ -585,3 +585,63 @@ def test_the_frame_used_after_a_move_reflects_that_move():
 
     assert result.ok is True, result.message
     assert control.clicks == 1
+
+
+def test_an_old_frame_is_never_used_to_verify_a_click():
+    """A frozen capture path used to look like a slow pointer; a stale frame is a stop.
+
+    Measured live 2026-10-21: a leftover ffmpeg held the capture card, every "frame"
+    was the same frozen image, and the loop happily verified a pointer that had not
+    been seen for seconds.
+    """
+    import time
+
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class OldFrameCapture:
+        def __init__(self):
+            self.image = _png((120, 120, 120))
+
+        def grab_latest(self):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                image=self.image, captured_at=time.monotonic() - 30.0
+            )
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session,
+        capture=OldFrameCapture(),
+        detector=FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")] * 5),
+        settle_timeout_s=0.0,
+        max_frame_age_s=3.0,
+    )
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is False
+    assert result.incident == "stale_frame"
+    assert control.clicks == 0
+
+
+def test_a_frame_without_a_timestamp_is_accepted():
+    """A source that cannot date its frames must not be blocked by the freshness gate."""
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120))] * 10, control=control)
+    controller = SessionTapController(
+        session,
+        capture=capture,
+        detector=FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")] * 5),
+        settle_timeout_s=0.0,
+    )
+
+    assert controller.tap(100, 100).ok is True

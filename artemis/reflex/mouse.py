@@ -167,6 +167,7 @@ class SessionTapController:
         observe_attempts: int = 3,
         wake_step: int = 60,
         settle_timeout_s: float = 0.6,
+        max_frame_age_s: float = 3.0,
     ):
         if detector is not None and capture is None:
             raise ValueError("pre-click pointer verification needs a capture")
@@ -189,6 +190,25 @@ class SessionTapController:
         #: UVC pipeline) lags the pointer by a frame or two; re-detecting on the pre-move
         #: frame makes the correction loop chase its own tail.
         self.settle_timeout_s = max(0.0, float(settle_timeout_s))
+        #: How old a verification frame may be before the tap is refused. A capture path
+        #: that froze (a stray process holding the card) otherwise looks like a pointer
+        #: that will not move; refusing keeps "no verified pointer, no click" true.
+        self.max_frame_age_s = max(0.0, float(max_frame_age_s))
+
+    def _frame_age_s(self, frame) -> float | None:
+        """Seconds between capture and now, when the frame can be dated."""
+        captured_at = getattr(frame, "captured_at", None)
+        if not isinstance(captured_at, (int, float)):
+            return None
+        return max(0.0, time.monotonic() - float(captured_at))
+
+    def _stale_reason(self, frame) -> str | None:
+        age = self._frame_age_s(frame)
+        if age is None or self.max_frame_age_s <= 0:
+            return None
+        if age <= self.max_frame_age_s:
+            return None
+        return f"verification frame is {age:.1f}s old (budget {self.max_frame_age_s:.1f}s)"
 
     def _frame_after(self, previous: bytes):
         """A frame that is not the one captured before the last move (bounded wait)."""
@@ -267,6 +287,16 @@ class SessionTapController:
                     None,
                     "pointer not detected before click; refusing to click",
                     "pointer_missing",
+                )
+            stale = self._stale_reason(frame)
+            if stale is not None:
+                return TapResult(
+                    False,
+                    attempt,
+                    pointer,
+                    None,
+                    f"{stale}; refusing to click on a frame we cannot trust",
+                    "stale_frame",
                 )
             last_pointer = pointer
             self.session.observe(pointer.x * width, pointer.y * height)
