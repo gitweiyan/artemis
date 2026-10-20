@@ -309,3 +309,27 @@ def test_a_large_move_is_segmented_to_fit_the_firmware_int8():
         assert abs(int(dy)) <= ESP32_MAX_MOVE
     assert sum(int(line.split()[1]) for line in moves) == 200
     assert sum(int(line.split()[2]) for line in moves) == -300
+
+
+def test_named_keys_map_to_hid_usages_and_home_is_cmd_h():
+    """The firmware only understands numeric usages; iOS has no Back key at all.
+
+    Live (2026-10-21): the Operator pressed BACK on iOS, the name reached the firmware
+    verbatim, and it answered `usage: key <usage 0-255>`.
+    """
+    import pytest
+
+    from artemis.reflex.control import Esp32HidControl
+
+    sent = []
+    control = Esp32HidControl("/dev/fake", writer=lambda line: sent.append(line.strip()))
+    control._writer = lambda line: sent.append(line.strip())  # no OK ack needed
+
+    control.press_named_key("enter")
+    control.press_named_key("delete")
+    control.press_named_key("home")
+
+    assert sent == ["key 40", "key 42", "keymod 8 11"]
+
+    with pytest.raises(ValueError, match="no Back key"):
+        control.press_named_key("back")

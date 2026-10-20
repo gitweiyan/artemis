@@ -136,3 +136,28 @@ def test_tap_abs_without_geometry_passes_the_target_through():
     asyncio.run(sink.tap_abs(540, 1200))
 
     assert controller.calls == [(540, 1200)]
+
+
+def test_press_key_uses_the_named_key_map_and_reports_unsupported_keys():
+    class NamedControl(FakeControl):
+        def __init__(self):
+            super().__init__()
+            self.named = []
+
+        def press_named_key(self, name):
+            if name == "back":
+                raise ValueError("iOS has no Back key: tap the on-screen back arrow instead")
+            self.named.append(name)
+
+    session = FakeSession()
+    session.control = NamedControl()
+    sink = HidControlSink(session, FakeController(TapResult(True, 1, None, 0, "ok")))
+
+    ok = asyncio.run(sink.press_key("enter"))
+    failed = asyncio.run(sink.press_key("back"))
+
+    assert ok.ok is True
+    assert session.control.named == ["enter"]
+    assert failed.ok is False
+    assert failed.incident == "unsupported_key"
+    assert "back arrow" in failed.detail

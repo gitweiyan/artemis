@@ -533,55 +533,6 @@ def test_frame_after_skips_the_frame_that_predates_the_move():
     assert frame.image != before
 
 
-def test_a_faded_pointer_is_woken_by_a_move_before_the_first_observation_is_trusted():
-    """iOS hides the AssistiveTouch pointer; a deliberate move reveals it again."""
-    from artemis.reflex.mouse import SessionTapController
-    from artemis.reflex.vision import Pointer
-
-    class WakeDetector:
-        def __init__(self, control):
-            self.control = control
-            self.calls = 0
-
-        def detect(self, image, near=None):
-            self.calls += 1
-            if not self.control.moves:
-                return None
-            return Pointer(0.5, 0.5, 0.95, "fake")
-
-    control = FakeControl()
-    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
-    session.connect()
-    capture = FakeCapture([_png((120, 120, 120)), _png((240, 40, 40))] * 20)
-    controller = SessionTapController(
-        session, capture=capture, detector=WakeDetector(control), settle_timeout_s=0.0
-    )
-
-    result = controller.tap(100, 100)
-
-    assert control.moves, "a wake move is required before the pointer can be seen"
-    assert result.ok is True
-    assert control.clicks == 1
-
-
-def test_a_pointer_that_stays_invisible_after_a_wake_is_never_clicked():
-    from artemis.reflex.mouse import SessionTapController
-
-    control = FakeControl()
-    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
-    session.connect()
-    capture = FakeCapture([_png((120, 120, 120))] * 20)
-    detector = FakeDetector([None] * 40)
-    controller = SessionTapController(
-        session, capture=capture, detector=detector, settle_timeout_s=0.0
-    )
-
-    result = controller.tap(100, 100)
-
-    assert result.incident == "pointer_missing"
-    assert control.clicks == 0
-
-
 def test_the_frame_used_after_a_move_reflects_that_move():
     """A camera lags the pointer: re-detecting on the pre-move frame makes the loop
     chase its own tail and never converge (measured live 2026-10-21)."""

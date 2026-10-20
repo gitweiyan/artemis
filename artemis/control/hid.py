@@ -76,5 +76,12 @@ class HidControlSink:
         return ActionResult(True, "input_text")
 
     async def press_key(self, key) -> ActionResult:
-        await asyncio.to_thread(self._control._send_with_response, f"key {key}")
+        press = getattr(self._control, "press_named_key", None)
+        if press is None:
+            await asyncio.to_thread(self._control._send_with_response, f"key {key}")
+            return ActionResult(True, "press_key")
+        try:
+            await asyncio.to_thread(press, key)
+        except ValueError as exc:
+            return ActionResult(False, "press_key", "unsupported_key", str(exc))
         return ActionResult(True, "press_key")

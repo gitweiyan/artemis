@@ -488,6 +488,47 @@ class Esp32HidControl(Control):
         """Press and release one HID key by its decimal usage code (e.g. 40 = Enter)."""
         return self._timed(f"key {int(usage)}")
 
+    #: Key names the agent layer uses, mapped to HID usages. ``home`` is special: iOS has
+    #: no Home *key*, the shortcut is Cmd+H (modifier 8, usage 11).
+    KEY_NAMES: dict[str, int] = {
+        "enter": KEY_ENTER,
+        "return": KEY_ENTER,
+        "space": KEY_SPACE,
+        "tab": KEY_TAB,
+        "escape": KEY_ESCAPE,
+        "esc": KEY_ESCAPE,
+        "left": KEY_LEFT,
+        "right": KEY_RIGHT,
+        "up": KEY_UP,
+        "down": KEY_DOWN,
+        "delete": 42,
+        "backspace": 42,
+    }
+
+    def press_named_key(self, name: str) -> float:
+        """Press a key by name (``enter``, ``home``, ``delete`` ...) on the phone.
+
+        The firmware only understands numeric HID usages, so an unmapped name used to
+        reach it verbatim and come back as ``usage: key <usage 0-255>`` — observed live
+        when the Operator pressed BACK on iOS. ``home`` becomes Cmd+H; a real BACK key
+        does not exist on iOS and is refused here with that explanation.
+        """
+        key = str(name or "").strip().lower()
+        if key in ("home", "app_switch"):
+            self.ios_home()
+            return 0.0
+        if key == "back":
+            raise ValueError(
+                "iOS has no Back key: tap the on-screen back arrow instead"
+                " (Cmd+H goes to the Home screen)"
+            )
+        usage = self.KEY_NAMES.get(key)
+        if usage is None and key.isdigit():
+            usage = int(key)
+        if usage is None:
+            raise ValueError(f"unsupported key {name!r} for the HID keyboard")
+        return self.press_key(usage)
+
     def key_down(self, usage: int) -> float:
         return self._timed(f"kdown {int(usage)}")
 

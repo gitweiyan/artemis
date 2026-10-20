@@ -62,12 +62,34 @@ def test_send_times_out_when_the_firmware_never_acknowledges():
         firmware.close()
 
 
-def test_mouse_move_goes_through_the_ack_channel_without_host_side_splitting():
+def _responder_per_command(sock: socket.socket, count: int, seen: list[bytes]) -> threading.Thread:
+    """Answer ``count`` commands one at a time, like the firmware's ack loop."""
+
+    def run() -> None:
+        for _ in range(count):
+            data = sock.recv(4096)
+            if not data:
+                return
+            seen.append(data)
+            sock.sendall(b"OK\r\n")
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread
+
+
+def test_mouse_move_goes_through_the_ack_channel_in_int8_sized_segments():
+    """The firmware casts each axis through int8, so the host segments and paces.
+
+    A single `move 300 -300` would wrap to a *backwards* jump of a few pixels; every
+    segment must therefore fit int8 and wait for its own `OK` (the ACK channel is what
+    paces USB HID reports, per the project's ios-hid-pointer note).
+    """
     host, firmware = _socketpair()
     control = Esp32HidControl("FAKE", ack_timeout_s=1.0)
     control._fd = host.fileno()
     seen: list[bytes] = []
-    thread = _responder(firmware, b"[cmd] move 300 -300\r\nOK\r\n", seen)
+    thread = _responder_per_command(firmware, 3, seen)
     try:
         control.mouse_move(300, -300)
     finally:
@@ -76,9 +98,7 @@ def test_mouse_move_goes_through_the_ack_channel_without_host_side_splitting():
         host.close()
         firmware.close()
 
-    assert seen == [b"move 300 -300\n"], (
-        "the firmware owns int8 splitting; the host sends the intent once"
-    )
+    assert seen == [b"move 127 -127\n", b"move 127 -127\n", b"move 46 -46\n"]
 
 
 def test_an_err_response_is_a_failure_even_though_it_ends_with_ok():
