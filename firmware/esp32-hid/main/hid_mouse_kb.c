@@ -132,6 +132,20 @@ bool hid_mouse_swipe(int dx, int dy, uint32_t duration_ms)
         int target_y = (int) ((long) dy * i / steps);
         int step_x = target_x - sent_x;
         int step_y = target_y - sent_y;
+
+        if (step_x > 127) {
+            step_x = 127;
+        }
+        if (step_x < -127) {
+            step_x = -127;
+        }
+        if (step_y > 127) {
+            step_y = 127;
+        }
+        if (step_y < -127) {
+            step_y = -127;
+        }
+
         if (step_x != 0 || step_y != 0) {
             if (!hid_mouse_move(step_x, step_y)) {
                 ok = false;

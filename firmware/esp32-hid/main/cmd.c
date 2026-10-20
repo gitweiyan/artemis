@@ -160,15 +160,27 @@ static void handle_line(char *line)
         printf("[cmd] mup\n");
         hid_mouse_up();
     } else if (strcmp(cmd, "key") == 0) {
-        if (sscanf(line, "%*s %d", &a) == 1 && a > 0 && a <= 255) {
+        // `key` takes exactly one usage. A second number used to be ignored silently, so
+        // `key 8 11` (meant as Cmd+H) pressed the letter 'e' and looked like a dead
+        // keyboard. Reject it and point at the right command instead.
+        int extra = 0;
+        int parsed = sscanf(line, "%*s %d %d", &a, &extra);
+        if (parsed == 2) {
+            printf("usage: key <usage> takes one number; for a shortcut use"
+                   " keymod <modifier> <usage> (e.g. keymod 8 11 = Cmd+H)\n");
+        } else if (parsed == 1 && a > 0 && a <= 255) {
             printf("[cmd] key 0x%02X\n", a);
             hid_keyboard_tap((uint8_t) a);
         } else {
             printf("usage: key <usage 0-255>\n");
         }
     } else if (strcmp(cmd, "keymod") == 0) {
-        if (sscanf(line, "%*s %d %d", &a, &b) == 2 && a >= 0 && a <= 255 &&
-            b > 0 && b <= 255) {
+        int extra = 0;
+        int parsed = sscanf(line, "%*s %d %d %d", &a, &b, &extra);
+        if (parsed > 2) {
+            printf("usage: keymod <modifier> <usage> takes two numbers"
+                   " (modifier 8 = Cmd, e.g. keymod 8 11 = Cmd+H)\n");
+        } else if (parsed == 2 && a >= 0 && a <= 255 && b > 0 && b <= 255) {
             printf("[cmd] keymod 0x%02X 0x%02X\n", a, b);
             hid_keyboard_press((uint8_t) a, (uint8_t) b);
             vTaskDelay(pdMS_TO_TICKS(30));
