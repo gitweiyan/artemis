@@ -74,9 +74,7 @@ def changed_fraction(
     diff = ImageChops.difference(a, b).tobytes()
     total = max(1, (height - start_row) * width)
     changed = sum(
-        1
-        for index, value in enumerate(diff)
-        if value > threshold and index // width >= start_row
+        1 for index, value in enumerate(diff) if value > threshold and index // width >= start_row
     )
     return changed / total
 
