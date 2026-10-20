@@ -295,6 +295,18 @@ class SessionTapController:
                 return
             self.session.move(dx, dy)
 
+    def travel(self, x: float, y: float) -> float:
+        """Move the pointer to a frame-pixel target without clicking.
+
+        Used where a click is not the gesture (a drag, a hover, a skill positioning the
+        pointer before its own button presses). Returns the remaining error in frame
+        pixels; the caller decides whether that is close enough.
+        """
+        if not self.session.connected:
+            self.session.connect()
+        self._travel_on_belief(x, y)
+        return math.hypot(x - self.session.position[0], y - self.session.position[1])
+
     def _verified_tap(self, x: float, y: float) -> TapResult:
         width, height = self.session.frame_size
         last_pointer: Pointer | None = None

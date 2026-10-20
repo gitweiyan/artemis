@@ -718,3 +718,18 @@ def test_a_pointer_the_colour_detector_cannot_see_is_found_by_the_nudge_diff():
     assert pointer.method == "diff"
     assert abs(pointer.x * 360 - (start[0] + nudge * gain)) < 25
     assert abs(pointer.y * 640 - start[1]) < 25
+
+
+def test_travel_moves_on_the_belief_without_clicking():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(session, capture=FakeCapture([_png((9, 9, 9))]))
+
+    remaining = controller.travel(100, 100)
+
+    assert control.moves, "travel is dead reckoning"
+    assert control.clicks == 0, "travel is not a tap"
+    assert remaining <= 8.0, "the pointer belief lands on the target"
