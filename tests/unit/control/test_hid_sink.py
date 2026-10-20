@@ -107,3 +107,32 @@ def test_failed_tap_without_an_incident_still_reports_no_effect():
     result = asyncio.run(sink.tap_abs(100, 200))
 
     assert result.incident == "no_effect"
+
+
+def test_tap_abs_converts_screen_pixels_into_capture_frame_pixels():
+    """The controller compares against the pointer it sees *in the frame*.
+
+    Callers speak device pixels (the normalized 0-1000 boundary times the screen size),
+    while the UVC frame is the cropped phone picture — a different pixel grid.
+    """
+    from artemis.devices.geometry import ScreenGeometry
+
+    controller = FakeController(TapResult(True, 1, None, 0, "ok"))
+    sink = HidControlSink(
+        FakeSession(),
+        controller,
+        geometry=ScreenGeometry((449, 974), (1080, 2400)),
+    )
+
+    asyncio.run(sink.tap_abs(540, 1200))
+
+    assert controller.calls == [(224, 487)], "540x1200 on a 1080x2400 screen is the frame center"
+
+
+def test_tap_abs_without_geometry_passes_the_target_through():
+    controller = FakeController(TapResult(True, 1, None, 0, "ok"))
+    sink = HidControlSink(FakeSession(), controller)
+
+    asyncio.run(sink.tap_abs(540, 1200))
+
+    assert controller.calls == [(540, 1200)]

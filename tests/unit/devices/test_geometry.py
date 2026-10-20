@@ -39,3 +39,23 @@ def test_normalized_box_maps_to_screen_center():
 
     assert px == (320, 173, 426, 229)
     assert center == (373, 201)
+
+
+def test_screen_pixels_round_trip_through_the_capture_frame():
+    from artemis.devices.geometry import ScreenGeometry
+
+    geometry = ScreenGeometry((449, 974), (1080, 2400))
+
+    assert geometry.screen_to_frame(540, 1200) == (224, 487)
+    assert geometry.screen_to_normalized(540, 1200) == (500, 500)
+    assert geometry.screen_to_frame(0, 0) == (0, 0)
+    assert geometry.screen_to_frame(1080, 2400) == (449, 974)
+
+
+def test_screen_conversion_honours_the_content_rect():
+    from artemis.devices.geometry import ScreenGeometry
+
+    geometry = ScreenGeometry((600, 1000), (1080, 2400), (100, 10, 500, 990))
+
+    assert geometry.screen_to_normalized(540, 1200) == (500, 500)
+    assert geometry.screen_to_frame(540, 1200) == (300, 500)

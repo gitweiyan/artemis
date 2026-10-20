@@ -77,3 +77,20 @@ class ScreenGeometry:
     ) -> tuple[int, int]:
         left, top, right, bottom = self.normalized_box_to_screen(box)
         return (left + right) // 2, (top + bottom) // 2
+
+    def screen_to_normalized(self, x: int, y: int) -> tuple[int, int]:
+        """Convert device pixels back into the agent-facing 0–1000 space."""
+        width, height = self.screen_size
+        nx = round(int(x) * 1000 / width)
+        ny = round(int(y) * 1000 / height)
+        return max(0, min(1000, nx)), max(0, min(1000, ny))
+
+    def screen_to_frame(self, x: int, y: int) -> tuple[int, int]:
+        """Convert device pixels into captured-frame pixels.
+
+        The pointer is detected in the frame, so a screen-space target (what the
+        action layer speaks) must be re-expressed in the frame's pixel grid before
+        the relative-pointer controller can compare the two.
+        """
+        nx, ny = self.screen_to_normalized(x, y)
+        return self.normalized_to_frame(nx, ny)

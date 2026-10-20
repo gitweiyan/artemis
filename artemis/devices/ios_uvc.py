@@ -38,10 +38,11 @@ def build_ios_uvc_session(
         capture=_GrabLatest(capture),
         detector=detector or RedPointerDetector(),
     )
+    geometry = ScreenGeometry(frame_size, screen_size)
     return DeviceSession(
         perception=[UvcSource(capture, ocr_engine=ocr_engine)],
-        control=[HidControlSink(pointer, controller)],
-        geometry=ScreenGeometry(frame_size, screen_size),
+        control=[HidControlSink(pointer, controller, geometry=geometry)],
+        geometry=geometry,
     )
 
 
