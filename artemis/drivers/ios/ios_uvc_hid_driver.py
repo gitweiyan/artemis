@@ -178,8 +178,20 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         return PointerValidation(True, None, error, (px, py))
 
     async def tap_with_result(self, x, y) -> ActionResult:
-        """Return the structured precheck/click result for Validator incidents."""
-        return await self._relative_sink().tap_abs(int(x), int(y))
+        """Return the structured precheck/click result for Validator incidents.
+
+        The pointer loop cannot verify anything without frames, so a capture failure is
+        reported as the tap's incident (``capture_timeout`` / ``uvc_no_signal``) instead
+        of raising through the controller and losing the reason.
+        """
+        try:
+            return await self._relative_sink().tap_abs(int(x), int(y))
+        except UnhealthyFrame as exc:
+            return ActionResult(False, "tap_abs", exc.incident, str(exc))
+        except DeviceSessionError as exc:
+            return ActionResult(False, "tap_abs", UVC_NO_SIGNAL, str(exc))
+        except Exception as exc:  # noqa: BLE001 - a device failure is an incident
+            return ActionResult(False, "tap_abs", incident_for_error(exc), str(exc))
 
     async def tap(self, x, y, duration_ms=100, times=1, delay_ms=100) -> bool:
         return (await self.tap_with_result(x, y)).ok

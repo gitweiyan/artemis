@@ -201,3 +201,47 @@ def test_a_healthy_frame_still_returns_screen_data():
 
     assert (data.width, data.height) == (1080, 2400)
     assert data.screenshot_bytes == b"png"
+
+
+def test_a_capture_failure_during_a_tap_becomes_an_incident_not_an_exception():
+    """The pointer loop needs frames; if none arrive, the tap fails with a code."""
+    from artemis.perception.incidents import CAPTURE_TIMEOUT
+    from artemis.reflex.contract import CaptureError
+
+    class FailingCapture:
+        def __init__(self):
+            from artemis.devices.geometry import ScreenGeometry
+
+            from artemis.control.hid import HidControlSink
+            from artemis.reflex.mouse import PointerSession, SessionTapController
+
+            control = SimpleNamespace(
+                preflight=lambda: {},
+                mouse_home=lambda: None,
+                mouse_move=lambda dx, dy: None,
+                mouse_click=lambda: None,
+            )
+            pointer = PointerSession(control, frame_size=(449, 974), gain=(1.8, 1.8))
+            pointer.connected = True
+            controller = SessionTapController(pointer, capture=self, detector=_Never())
+            self.session = SimpleNamespace(
+                perception=[Source()],
+                control=[HidControlSink(pointer, controller)],
+                geometry=ScreenGeometry((449, 974), (1080, 2400)),
+                pointer=pointer,
+            )
+
+        def grab_latest(self):
+            raise CaptureError("uvc capture failed: Command ... timed out after 12.0 seconds")
+
+    class _Never:
+        def detect(self, image, near=None):
+            return None
+
+    driver = IOSUvcHidDriver(FailingCapture().session)
+
+    result = asyncio.run(driver.tap_with_result(500, 500))
+
+    assert result.ok is False
+    assert result.incident == CAPTURE_TIMEOUT
+    assert "timed out" in result.detail
