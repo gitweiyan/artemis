@@ -188,7 +188,7 @@ def test_stateful_tap_clicks_without_pointer_detection_and_verifies():
     session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
     session.connect()
     capture = FakeCapture([_png((120, 120, 120)), _png((240, 40, 40))])
-    controller = SessionTapController(session, capture=capture)
+    controller = SessionTapController(session, capture=capture, settle_timeout_s=0.0)
 
     result = controller.tap(200, 100)
 
@@ -204,7 +204,9 @@ def test_failed_click_reanchors_and_retries():
     session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
     session.connect()
     capture = FakeCapture([_png((120, 120, 120))] * 10)
-    controller = SessionTapController(session, capture=capture, max_attempts=2)
+    controller = SessionTapController(
+        session, capture=capture, max_attempts=2, settle_timeout_s=0.0
+    )
 
     result = controller.tap(200, 100)
 
@@ -261,7 +263,9 @@ def test_verified_tap_clicks_only_after_pointer_is_at_the_target():
     session.connect()
     capture = FakeCapture([_png((120, 120, 120)), _png((240, 40, 40))])
     detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")])
-    controller = SessionTapController(session, capture=capture, detector=detector)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
 
     result = controller.tap(100, 100)
 
@@ -279,7 +283,9 @@ def test_verified_tap_corrects_an_offset_pointer_before_clicking():
     session.connect()
     capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120)), _png((240, 40, 40))])
     detector = FakeDetector([Pointer(0.25, 0.25, 0.95, "fake"), Pointer(0.5, 0.5, 0.95, "fake")])
-    controller = SessionTapController(session, capture=capture, detector=detector)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
 
     result = controller.tap(100, 100)
 
@@ -296,7 +302,9 @@ def test_verified_tap_refuses_to_click_when_pointer_is_not_detected():
     session.connect()
     capture = FakeCapture([_png((120, 120, 120))])
     detector = FakeDetector([None])
-    controller = SessionTapController(session, capture=capture, detector=detector)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
 
     result = controller.tap(100, 100)
 
@@ -314,7 +322,9 @@ def test_verified_tap_fails_when_click_does_not_change_the_screen():
     session.connect()
     capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120))])
     detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")])
-    controller = SessionTapController(session, capture=capture, detector=detector)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
 
     result = controller.tap(100, 100)
 
@@ -331,7 +341,9 @@ def test_verified_tap_reports_pointer_missing_incident():
     session.connect()
     capture = FakeCapture([_png((120, 120, 120))])
     detector = FakeDetector([None])
-    controller = SessionTapController(session, capture=capture, detector=detector)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
 
     result = controller.tap(100, 100)
 
@@ -349,7 +361,9 @@ def test_verified_tap_reports_no_effect_incident():
     session.connect()
     capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120))])
     detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")])
-    controller = SessionTapController(session, capture=capture, detector=detector)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
 
     result = controller.tap(100, 100)
 
@@ -367,7 +381,12 @@ def test_verified_tap_reports_not_centered_incident_when_pointer_never_converges
     capture = FakeCapture([_png((120, 120, 120))] * 50)
     detector = FakeDetector([Pointer(0.1, 0.1, 0.95, "fake")] * 50)
     controller = SessionTapController(
-        session, capture=capture, detector=detector, max_attempts=1, max_steps=2
+        session,
+        capture=capture,
+        detector=detector,
+        max_attempts=1,
+        max_steps=2,
+        settle_timeout_s=0.0,
     )
 
     result = controller.tap(100, 100)
@@ -387,7 +406,9 @@ def test_a_transient_miss_is_retried_before_declaring_pointer_missing():
     session.connect()
     capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120)), _png((240, 40, 40))])
     detector = FakeDetector([None, Pointer(0.5, 0.5, 0.95, "fake")])
-    controller = SessionTapController(session, capture=capture, detector=detector)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
 
     result = controller.tap(100, 100)
 
@@ -405,11 +426,120 @@ def test_pointer_missing_only_after_every_observation_attempt():
     capture = FakeCapture([_png((120, 120, 120))] * 5)
     detector = FakeDetector([None, None, None, None])
     controller = SessionTapController(
-        session, capture=capture, detector=detector, observe_attempts=3
+        session,
+        capture=capture,
+        detector=detector,
+        observe_attempts=3,
+        settle_timeout_s=0.0,
     )
 
     result = controller.tap(100, 100)
 
-    assert detector.calls == 3
+    # Two rounds of observe_attempts: the initial look, then the look after a wake move.
+    assert detector.calls == 6
+    assert control.moves, "the wake move happened before giving up"
     assert result.incident == "pointer_missing"
     assert control.clicks == 0
+
+
+def test_a_faded_pointer_is_woken_by_a_move_before_the_first_observation_is_trusted():
+    """iOS hides the AssistiveTouch pointer; a deliberate move reveals it again."""
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class WakeDetector:
+        def __init__(self, control):
+            self.control = control
+            self.calls = 0
+
+        def detect(self, image, near=None):
+            self.calls += 1
+            if not self.control.moves:
+                return None
+            return Pointer(0.5, 0.5, 0.95, "fake")
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120)), _png((240, 40, 40))] * 20)
+    controller = SessionTapController(
+        session, capture=capture, detector=WakeDetector(control), settle_timeout_s=0.0
+    )
+
+    result = controller.tap(100, 100)
+
+    assert control.moves, "a wake move is required before the pointer can be seen"
+    assert result.ok is True
+    assert control.clicks == 1
+
+
+def test_a_pointer_that_stays_invisible_after_a_wake_is_never_clicked():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120))] * 20)
+    detector = FakeDetector([None] * 40)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
+
+    result = controller.tap(100, 100)
+
+    assert result.incident == "pointer_missing"
+    assert control.clicks == 0
+
+
+def test_the_frame_used_after_a_move_reflects_that_move():
+    """A camera lags the pointer: re-detecting on the pre-move frame makes the loop
+    chase its own tail and never converge (measured live 2026-10-21)."""
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    frames = [_png((120, 120, 120)), _png((130, 120, 120)), _png((150, 120, 120))]
+
+    class LaggingCapture:
+        """Some frames still show the state from before the last move."""
+
+        def __init__(self, control):
+            self.control = control
+            self.index = 0
+            self.frames = frames + [_png((200, 200, 200))] * 20
+
+        def grab_latest(self):
+            from types import SimpleNamespace
+
+            # After the click the screen changed (a tapped app pushes a new page).
+            if self.control.clicks:
+                return SimpleNamespace(image=_png((40, 200, 40)))
+            frame = self.frames[min(self.index, len(self.frames) - 1)]
+            self.index += 1
+            return SimpleNamespace(image=frame)
+
+    class ConvergingDetector:
+        def __init__(self):
+            self.calls = 0
+
+        def detect(self, image, near=None):
+            self.calls += 1
+            # Only once the frame has changed after a move is the pointer "arrived".
+            if self.calls == 1:
+                return Pointer(0.0, 0.0, 0.95, "fake")
+            return Pointer(0.5, 0.5, 0.95, "fake")
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session,
+        capture=LaggingCapture(control),
+        detector=ConvergingDetector(),
+        max_steps=3,
+        settle_timeout_s=0.2,
+    )
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is True, result.message
+    assert control.clicks == 1

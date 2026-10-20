@@ -13,6 +13,8 @@ snapshot -> health -> OCR locate -> pointer precheck -> tap -> (controller's own
 from __future__ import annotations
 
 import time
+
+from artemis.perception.text_locator import locate_text
 from dataclasses import asdict, dataclass, field
 
 __all__ = ["SmokeReport", "SmokeStep", "run_smoke"]
@@ -46,7 +48,9 @@ class SmokeReport:
         return "\n".join(lines)
 
 
-async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> SmokeReport:
+async def run_smoke(
+    driver, *, target: str | None = None, tap: bool = True, settle_s: float = 0.4
+) -> SmokeReport:
     """Runs the rig smoke against ``driver`` (an ``IOSUvcHidDriver``).
 
     Continues after a failed *optional* stage (OCR, pointer, tap) so one report shows
@@ -54,6 +58,10 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
     """
     report = SmokeReport(ok=True)
     session = driver.session
+    if settle_s > 0:
+        # The screen settles (page transitions, the pointer slam from home); a frame
+        # taken mid-animation makes OCR read glyphs that are not there.
+        await __import__("asyncio").sleep(settle_s)
 
     started = time.monotonic()
     try:
@@ -99,8 +107,21 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
         from artemis.perception.base import Target
 
         source = session.perception[0]
+        boxes = None
+        attempts = 0
         try:
-            located = await source.locate(frame, Target(target, (0, 0, 0, 0), 0.0, "ocr"))
+            # A buffered frame can predate the screen settling (a move, a fade, a page
+            # transition); OCR an unreadable frame is a retry, not a verdict.
+            for attempts in range(1, 4):
+                boxes = await source.ocr(frame)
+                if boxes:
+                    located = locate_text(boxes, target)
+                    if located is not None:
+                        break
+                # A retry must read a *new* frame: an identical buffered one would give
+                # the identical misread.
+                await __import__("asyncio").sleep(0.35)
+                frame = await session.snapshot()
         except Exception as exc:  # noqa: BLE001
             report.ok = False
             report.steps.append(
@@ -112,14 +133,24 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
         elapsed = (time.monotonic() - started) * 1000
         if located is None:
             report.ok = False
-            report.steps.append(SmokeStep("locate", False, f"text {target!r} not found", elapsed))
+            seen = ", ".join(box.text for box in sorted(boxes or [], key=lambda b: b.box[1])[:8])
+            report.steps.append(
+                SmokeStep(
+                    "locate",
+                    False,
+                    f"text {target!r} not found in {len(boxes or [])} OCR boxes"
+                    f" after {attempts} frame(s); saw: {seen}",
+                    elapsed,
+                )
+            )
             return report
         report.steps.append(
             SmokeStep(
                 "locate",
                 True,
                 f"{located.label!r} box={tuple(round(v, 3) for v in located.box)}"
-                f" confidence={located.confidence:.2f}",
+                f" confidence={located.confidence:.2f}"
+                + (f" (frame {attempts})" if attempts > 1 else ""),
                 elapsed,
             )
         )
@@ -132,7 +163,7 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
             # exactly what the pointer loop does before every tap. Never a click.
             pointer = getattr(session, "pointer", None)
             if pointer is not None:
-                await __import__("asyncio").to_thread(pointer.move, 20, 20)
+                await __import__("asyncio").to_thread(pointer.move, 60, 60)
                 nudged = True
                 validation = await driver.validate_pointer(located)
         elapsed = (time.monotonic() - started) * 1000
@@ -152,7 +183,7 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
         else:
             detail = "pointer not visible after a wake nudge (pointer_missing)"
         if nudged:
-            detail += " [woken by a 20-unit nudge]"
+            detail += " [woken by a 60-unit nudge]"
         report.steps.append(SmokeStep("pointer_precheck", visible, detail, elapsed))
         report.ok = report.ok and visible
 

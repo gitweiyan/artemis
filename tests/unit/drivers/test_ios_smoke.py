@@ -125,6 +125,7 @@ def test_a_missing_label_fails_the_locate_stage_and_stops():
     assert report.ok is False
     assert [step.name for step in report.steps] == ["connect", "snapshot", "locate"]
     assert report.steps[-1].ok is False
+    assert "OCR boxes" in report.steps[-1].detail, "the failure must say what OCR did see"
     assert control.clicks == 0
 
 
@@ -236,3 +237,30 @@ def test_a_visible_pointer_away_from_the_target_is_not_a_rig_failure():
     assert steps["pointer_precheck"].ok is True
     assert "the tap will drive it" in steps["pointer_precheck"].detail
     assert report.ok is True
+
+
+def test_locate_retries_on_a_frame_the_ocr_could_not_read():
+    class FlakyOcr:
+        def __init__(self):
+            self.calls = 0
+
+        def recognize(self, image, *, width, height):
+            self.calls += 1
+            if self.calls == 1:
+                return []  # a blurred frame right after a pointer move
+            return [TextBox("闪购", (0.3, 0.1, 0.4, 0.2), 0.99)]
+
+    session = build_ios_uvc_session(
+        ClickCapture(Esp32()),
+        Esp32(),
+        frame_size=(449, 974),
+        screen_size=(1080, 2400),
+        detector=CenteredDetector(),
+        ocr_engine=FlakyOcr(),
+    )
+
+    report = asyncio.run(run_smoke(IOSUvcHidDriver(session), target="闪购", tap=False))
+
+    steps = {step.name: step for step in report.steps}
+    assert steps["locate"].ok is True, report.summary()
+    assert "frame 2" in steps["locate"].detail

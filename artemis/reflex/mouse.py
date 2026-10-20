@@ -165,6 +165,8 @@ class SessionTapController:
         max_steps: int = 6,
         max_step: int = 50,
         observe_attempts: int = 3,
+        wake_step: int = 60,
+        settle_timeout_s: float = 0.6,
     ):
         if detector is not None and capture is None:
             raise ValueError("pre-click pointer verification needs a capture")
@@ -179,14 +181,35 @@ class SessionTapController:
         #: fades in and out and a frame can predate the move that woke it. Re-observe a
         #: bounded number of times before refusing to click.
         self.observe_attempts = max(1, int(observe_attempts))
+        #: iOS hides the AssistiveTouch pointer after a moment of inactivity; a move of
+        #: at least this many HID units reveals it again (measured 2026-10-21: 15 units
+        #: is too small, 60 is reliable). The correction loop compensates the offset.
+        self.wake_step = max(1, int(wake_step))
+        #: How long to wait for a frame that reflects the last move. A camera (and the
+        #: UVC pipeline) lags the pointer by a frame or two; re-detecting on the pre-move
+        #: frame makes the correction loop chase its own tail.
+        self.settle_timeout_s = max(0.0, float(settle_timeout_s))
 
-    def _observe(self):
-        """Grab frames until a pointer is detected, or ``observe_attempts`` run out."""
+    def _frame_after(self, previous: bytes):
+        """A frame that is not the one captured before the last move (bounded wait)."""
+        deadline = time.monotonic() + self.settle_timeout_s
+        frame = self.capture.grab_latest()
+        while not changed(previous, frame.image) and time.monotonic() < deadline:
+            frame = self.capture.grab_latest()
+        return frame
+
+    def _observe(self, after: bytes | None = None):
+        """Grab frames until a pointer is detected, or ``observe_attempts`` run out.
+
+        ``after`` is the image from before the last move: the first frame is then taken
+        only once the picture reflects that move.
+        """
         width, height = self.session.frame_size
         near = (self.session.position[0] / width, self.session.position[1] / height)
-        frame = None
-        for _ in range(self.observe_attempts):
-            frame = self.capture.grab_latest()
+        frame = self._frame_after(after) if after is not None else None
+        for index in range(self.observe_attempts):
+            if frame is None or index > 0:
+                frame = self.capture.grab_latest()
             pointer = self.detector.detect(frame.image, near=near)
             if pointer is not None:
                 return frame, pointer
@@ -196,9 +219,14 @@ class SessionTapController:
         width, height = self.session.frame_size
         last_pointer: Pointer | None = None
         last_error: float | None = None
+        after: bytes | None = None
         for attempt in range(1, self.max_attempts + 1):
             for _step in range(self.max_steps):
-                frame, pointer = self._observe()
+                frame, pointer = self._observe(after)
+                if pointer is None and after is None:
+                    # Wake the faded pointer with a deliberate move, then look again.
+                    self.session.move(self.wake_step, self.wake_step)
+                    frame, pointer = self._observe()
                 if pointer is None:
                     return TapResult(
                         False,
@@ -239,6 +267,7 @@ class SessionTapController:
                 if dx == 0 and dy == 0:
                     break
                 self.session.move(dx, dy)
+                after = frame.image
             # No click happened if the pointer never reached the target.
         return TapResult(
             False,
