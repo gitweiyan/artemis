@@ -20,6 +20,7 @@ from typing import Annotated
 
 from langchain_core.callbacks.base import Callbacks
 from artemis.config import checker_overrides_for_level, settings
+from artemis.runtime.device_pool import resolve_target
 from artemis.utils.startup_progress import publish_startup_progress
 from third_party.mobile_use.main import (
     GoalArgument,
@@ -140,8 +141,6 @@ async def execute_task(
     target_serial = (
         device_serial or settings.ADB_DEVICE_SERIAL or os.environ.get("ADB_DEVICE_SERIAL")
     )
-
-    from artemis.runtime.device_pool import resolve_target
 
     def _select_adb_device():
         from artemis.runtime import device_pool
@@ -313,7 +312,7 @@ def run_command(
         ),
     ] = False,
 ) -> None:
-    """Run an autonomous UI automation task on the connected Android device."""
+    """Run an autonomous UI automation task on the connected device."""
     ensure_video_recording_available(with_video_recording_tools)
 
     console = Console()
@@ -323,6 +322,14 @@ def run_command(
         or os.environ.get("ARTEMIS_DEVICE_QUEUE_TICKET") is not None
     )
     is_standalone = standalone or os.environ.get("ARTEMIS_STANDALONE") == "1"
+
+    # The daemon scheduler is an ADB device-pool concept (it queues on device serials and
+    # holds a per-serial execution lock), so a non-ADB rig runs in-process.
+    from artemis.context import DevicePlatform
+
+    requested_platform, _ = resolve_target(platform, device_serial, select=None)
+    if requested_platform is DevicePlatform.IOS:
+        is_standalone = True
 
     # All platforms route through unified Artemis Daemon unless specifically configured as standalone
     if not is_worker and not is_standalone:
@@ -407,8 +414,8 @@ def run_command(
                 f"[yellow]Daemon routing notice: {exc}. Falling back to local execution...[/yellow]"
             )
 
-    display_local_device_status(console, host=settings.ADB_HOST, port=settings.ADB_PORT)
-
+    if requested_platform is not DevicePlatform.IOS:
+        display_local_device_status(console, host=settings.ADB_HOST, port=settings.ADB_PORT)
     cancelled = False
     original_sigterm = None
     try:
