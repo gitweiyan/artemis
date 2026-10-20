@@ -180,6 +180,19 @@ iOS 没有 digitizer，skill 的绝对手势以前在 iOS 上等于空操作。�
 
 Tetris 等 skill 因此可以在 iOS 上跑（仍需真机确认帧率与手势成功率）。
 
+### 2.5.4 架构落位与遥测（2026-10-21，离线）
+
+| 项 | 现状 |
+|---|---|
+| `artemis/safety/pointer.py` | 「指针可见 + 在目标框内 + 距中心 ≤ 容差」的唯一定义；driver 的 `validate_pointer` 与点击控制器共用，incident 名不再各写一份 |
+| `artemis/skills/manifest.py` | `skill.json` 的 schema/校验唯一来源；reflex registry 只负责导入入口。顺手修掉一个真漏洞：声明 `screenshot:true` 会短路 `api_key_env` 检查，导致缺 key 的技能先加载、后失败 |
+| 动作遥测 | `ActionResult.metrics`：指针坐标/置信度、`error_px`、`frame_age_s`、`attempts`、目标在两个坐标系的点；一路经 `TapOutput → MCP ActionResult → action_item["action_metrics"] → incident evidence`，trace 可直接回答“当时指针在哪、差多少、帧多旧” |
+
+仍未落位（B 组剩余）：`control/app_control.py`（Android 绝对控制做成 ControlSink）、
+`control/composite.py`（绝对优先/HID 兜底）、`perception/app_automation.py`（Android UI 树源）、
+`perception/camera.py` + `composite.py`（黑屏降级）、`orchestration/{profiles,selector}.py`
+（能力驱动组合，目前硬编码在 factory）、`safety/{pixel,xml}.py`（逻辑仍在 validator 里）。
+
 ### 2.6 真机 flash / pro（P7 / P8，2026-10-21）
 
 真实机台（iPhone + `USB Video` 采集卡 + ESP32-S3，`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461`）：
