@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from artemis.control.base import ActionResult
 from artemis.devices.capabilities import CapabilitySet
@@ -54,7 +54,14 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         # so a log or a caller never has to guess whether OCR is actually available.
         session_capabilities = getattr(session, "capabilities", None)
         if session_capabilities is not None:
-            self.capabilities = session_capabilities
+            # The session aggregates its sources/sinks; driver-only affordances (no app
+            # package list, no UI tree) stay the driver's own declaration.
+            declared = type(self).capabilities
+            self.capabilities = replace(
+                session_capabilities,
+                supports_app_launch=declared.supports_app_launch,
+                supports_ui_tree=declared.supports_ui_tree,
+            )
         self._screen_size = session.geometry.screen_size if session.geometry else (1080, 2400)
 
     @property
@@ -77,13 +84,22 @@ class IOSUvcHidDriver(BaseDeviceDriver):
             pointer.connected = False
 
     async def get_screen_data(self, skip_settling: bool = False) -> ScreenData:
+        """The phone's screen, captured through the card.
+
+        ``width``/``height`` must be the **device screen** size, not the cropped frame
+        size: the observation layer writes them back onto ``ctx.device`` and every
+        normalized (0–1000) coordinate is converted against them. Reporting the frame
+        (449x974) shrank that grid by 2.4x and sent every tap to the top-left corner
+        (measured live 2026-10-21: a tap meant for 微信 landed on 日历).
+        """
         frame = await self.session.perception[0].snapshot()
+        width, height = self._screen_size
         return ScreenData(
             screenshot_bytes=frame.image,
             screenshot_base64=base64.b64encode(frame.image).decode("ascii"),
             ui_elements=[],
-            width=frame.width,
-            height=frame.height,
+            width=width,
+            height=height,
             timestamp=getattr(frame, "captured_at", time.time()),
             platform="ios",
         )

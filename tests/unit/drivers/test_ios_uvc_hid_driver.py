@@ -65,7 +65,7 @@ def test_screenshot_and_tap_go_through_session():
     ok = asyncio.run(driver.tap(100, 200))
 
     assert data.platform == "ios"
-    assert data.width == 449
+    assert data.width == 1080, "device pixels, not the cropped frame"
     assert ok is True
     assert session.control[0].calls == [(100, 200)]
     assert session.pointer.connected is True
@@ -115,3 +115,24 @@ def test_validate_pointer_off_target():
     )
     assert result.ok is False
     assert result.incident == "pointer_off_target"
+
+
+def test_screen_data_reports_the_device_screen_not_the_capture_frame():
+    """The observation layer writes this size onto ctx.device and converts every
+    normalized coordinate with it; the cropped frame is 2.4x smaller on this rig."""
+    session = Session()
+    driver = IOSUvcHidDriver(session)
+
+    data = asyncio.run(driver.get_screen_data())
+
+    assert (data.width, data.height) == (1080, 2400)
+    assert len(data.screenshot_bytes) > 0, "the image itself is still the frame"
+
+
+def test_the_driver_instance_keeps_its_own_no_app_launch_declaration():
+    session = Session()
+    driver = IOSUvcHidDriver(session)
+
+    assert driver.capabilities.supports_app_launch is False
+    assert driver.capabilities.supports_ui_tree is False
+    assert driver.capabilities.requires_pointer_precheck is True
