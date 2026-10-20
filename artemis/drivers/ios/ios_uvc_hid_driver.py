@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import base64
 import time
+from dataclasses import dataclass
 
 from artemis.control.base import ActionResult
 from artemis.devices.capabilities import CapabilitySet
 from artemis.drivers.base import BaseDeviceDriver, ScreenData
+from artemis.reflex.vision import RedPointerDetector
+
+
+@dataclass(frozen=True)
+class PointerValidation:
+    ok: bool
+    incident: str | None
+    error_px: float | None
+    pointer: tuple[float, float] | None
 
 
 class IOSUvcHidDriver(BaseDeviceDriver):
@@ -19,9 +29,10 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         supports_text_input=True,
     )
 
-    def __init__(self, session, *, device_id: str = "ios-uvc-hid"):
+    def __init__(self, session, *, device_id: str = "ios-uvc-hid", detector=None):
         self.session = session
         self._device_id = device_id
+        self.detector = detector or RedPointerDetector()
         self._screen_size = session.geometry.screen_size if session.geometry else (1080, 2400)
 
     @property
@@ -63,6 +74,23 @@ class IOSUvcHidDriver(BaseDeviceDriver):
             if sink.capabilities.supports_relative_pointer:
                 return sink
         raise RuntimeError("no relative HID control sink")
+
+    async def validate_pointer(self, target, *, tolerance_px: float = 8.0) -> PointerValidation:
+        frame = await self.session.perception[0].snapshot()
+        left, top, right, bottom = target.box
+        center_norm = ((left + right) / 2, (top + bottom) / 2)
+        pointer = self.detector.detect(frame.image, near=center_norm)
+        if pointer is None:
+            return PointerValidation(False, "pointer_missing", None, None)
+        px, py = pointer.x * frame.width, pointer.y * frame.height
+        tx, ty = center_norm[0] * frame.width, center_norm[1] * frame.height
+        error = ((px - tx) ** 2 + (py - ty) ** 2) ** 0.5
+        inside = left * frame.width <= px <= right * frame.width and top * frame.height <= py <= bottom * frame.height
+        if not inside:
+            return PointerValidation(False, "pointer_off_target", error, (px, py))
+        if error > tolerance_px:
+            return PointerValidation(False, "pointer_not_centered", error, (px, py))
+        return PointerValidation(True, None, error, (px, py))
 
     async def tap(self, x, y, duration_ms=100, times=1, delay_ms=100) -> bool:
         result = await self._relative_sink().tap_abs(int(x), int(y))

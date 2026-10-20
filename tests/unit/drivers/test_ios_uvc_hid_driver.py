@@ -55,3 +55,31 @@ def test_screenshot_and_tap_go_through_session():
     assert session.control[0].calls == [(100, 200)]
     assert session.pointer.connected is True
     assert session.pointer.homed == 1
+
+
+def _ring_png():
+    import cv2
+    import numpy as np
+    image = np.full((200, 200, 3), 180, dtype=np.uint8)
+    cv2.circle(image, (100, 100), 20, (0, 0, 255), 4)
+    return cv2.imencode('.png', image)[1].tobytes()
+
+
+def test_validate_pointer_inside_target():
+    from artemis.perception.base import Target
+    session = Session()
+    session.perception[0].snapshot = lambda: __import__('asyncio').sleep(0, result=SimpleNamespace(image=_ring_png(), width=200, height=200, health='ok', captured_at=1.0))
+    driver = IOSUvcHidDriver(session)
+    result = asyncio.run(driver.validate_pointer(Target('target', (0.4, 0.4, 0.6, 0.6), 0.9, 'ocr')))
+    assert result.ok is True
+    assert result.incident is None
+
+
+def test_validate_pointer_off_target():
+    from artemis.perception.base import Target
+    session = Session()
+    session.perception[0].snapshot = lambda: __import__('asyncio').sleep(0, result=SimpleNamespace(image=_ring_png(), width=200, height=200, health='ok', captured_at=1.0))
+    driver = IOSUvcHidDriver(session)
+    result = asyncio.run(driver.validate_pointer(Target('target', (0.0, 0.0, 0.2, 0.2), 0.9, 'ocr')))
+    assert result.ok is False
+    assert result.incident == 'pointer_off_target'
