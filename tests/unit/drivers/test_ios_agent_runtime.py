@@ -159,3 +159,23 @@ def test_artemis_run_platform_ios_configures_the_agent(monkeypatch):
 
     assert captured["config"].device_platform is DevicePlatform.IOS
     assert captured["config"].device_id == "ios-uvc"
+
+
+def test_artemis_run_logs_the_execution_profile_it_chose(monkeypatch, caplog):
+    import logging
+
+    from artemis.interfaces.cli.commands import run as run_module
+
+    async def fake_run_automation(config, goal, **kwargs):
+        return None
+
+    monkeypatch.setattr(run_module, "run_automation", fake_run_automation)
+
+    with caplog.at_level(logging.INFO):
+        import asyncio
+
+        asyncio.run(run_module.execute_task(goal="open Settings", platform="ios", profile="flash"))
+
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Execution profile: flash" in logged
+    assert "asked for the flash profile" in logged

@@ -138,6 +138,14 @@ async def execute_task(
             pro_mode=explorer_pro_mode,
         )
 
+    # The profile decides the shape of the run (and its Explorer tier) before anything
+    # captures a frame; the decision is logged with its reason.
+    from artemis.orchestration.profiles import select_profile
+
+    plan = select_profile(profile)
+    profile = plan.kind
+    logger.info(f"Execution profile: {plan.kind} (explorer={plan.explorer_tier}) — {plan.reason}")
+
     target_serial = (
         device_serial or settings.ADB_DEVICE_SERIAL or os.environ.get("ADB_DEVICE_SERIAL")
     )
