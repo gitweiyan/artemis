@@ -30,7 +30,7 @@ from artemis.devices.ios_uvc import build_ios_uvc_session
 from artemis.drivers.ios.config import IosConfigError, IosRuntimeConfig
 from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
 from artemis.drivers.ios.smoke import run_smoke
-from artemis.perception.paddle_ocr import PaddleOcrEngine
+from artemis.perception.ocr_engine import default_ocr_engine
 from artemis.reflex.capture import UvcCapture
 from artemis.reflex.control import Esp32HidControl
 from third_party.mobile_use.utils.logger import get_logger
@@ -87,12 +87,16 @@ def ios_smoke_command(
         frame_size=config.frame_size,
         screen_size=config.screen_size,
         pointer_gain=config.pointer_gain,
-        ocr_engine=PaddleOcrEngine() if config.enable_ocr else None,
+        ocr_engine=default_ocr_engine() if config.enable_ocr else None,
     )
     driver = IOSUvcHidDriver(session)
 
-    if target and not config.enable_ocr:
-        console.print("[bold red]✖ --target needs OCR, but ARTEMIS_IOS_OCR=0[/bold red]")
+    if target and not session.capabilities.supports_ocr:
+        console.print(
+            "[bold red]✖ --target needs an OCR engine, but none is available[/bold red]"
+            " (install paddleocr, or run on a Mac with Vision; ARTEMIS_IOS_OCR=0 also"
+            " disables it)"
+        )
         raise SystemExit(2)
 
     report = asyncio.run(run_smoke(driver, target=target, tap=not no_tap))

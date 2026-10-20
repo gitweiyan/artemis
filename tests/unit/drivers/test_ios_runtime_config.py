@@ -34,6 +34,9 @@ def test_defaults_reproduce_the_measured_rig():
     assert config.screen_size == (1080, 2400)
     assert config.pointer_gain == (1.8, 1.8)
     assert config.enable_ocr is True
+    assert config.capture_mode == "stream", (
+        "a per-frame ffmpeg costs ~0.87 s and the pointer ring is gone by then"
+    )
 
 
 def test_a_missing_port_names_the_setting():
@@ -90,3 +93,16 @@ def test_describe_lists_the_runtime_facts_without_secrets():
     assert "449x974" in text
     assert "1080x2400" in text
     assert "1.8" in text
+
+
+def test_the_capture_mode_can_be_pinned_to_single_frames():
+    config = IosRuntimeConfig.from_env(
+        {"ARTEMIS_ESP32_PORT": "/dev/fake", "ARTEMIS_IOS_CAPTURE": "frame"}
+    )
+    assert config.capture_mode == "frame"
+
+    with pytest.raises(IosConfigError) as excinfo:
+        IosRuntimeConfig.from_env(
+            {"ARTEMIS_ESP32_PORT": "/dev/fake", "ARTEMIS_IOS_CAPTURE": "hologram"}
+        )
+    assert "ARTEMIS_IOS_CAPTURE" in str(excinfo.value)

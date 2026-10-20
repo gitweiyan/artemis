@@ -286,6 +286,7 @@ class UvcStream(Capture):
         timeout_s: float = 2.0,
         process_factory=None,
         pixel_format: str | None = "nv12",
+        drain_budget_s: float = 0.05,
     ):
         self.device = device
         self.size = (int(size[0]), int(size[1]))
@@ -294,6 +295,10 @@ class UvcStream(Capture):
         self.crop = tuple(int(value) for value in crop) if crop else None
         self.ffmpeg = ffmpeg
         self.timeout_s = float(timeout_s)
+        #: How long ``grab_latest`` may drain an already-running stream. A live 30 fps
+        #: camera always has more bytes ready, so "drain until empty" never terminates;
+        #: this bounds the freshness/discard work and guarantees a return.
+        self.drain_budget_s = max(0.0, float(drain_budget_s))
         self._process_factory = process_factory
         self._process = None
         self._buffer = b""
@@ -423,6 +428,7 @@ class UvcStream(Capture):
         started = time.monotonic()
         timeout = self.timeout_s if timeout_s is None else float(timeout_s)
         deadline = started + timeout
+        drain_deadline = started + min(self.drain_budget_s, timeout)
         newest: bytes | None = None
 
         while True:
@@ -440,6 +446,11 @@ class UvcStream(Capture):
                 if len(self._buffer) > self._MAX_BUFFER and newest is None:
                     self._buffer = b""
                     raise CaptureError("uvc stream buffer exceeded its cap without a frame")
+                if newest is not None and time.monotonic() >= drain_deadline:
+                    # A live camera keeps producing; return the newest frame seen so
+                    # far instead of chasing the stream forever. The backlog (if any)
+                    # is consumed first, within the drain budget.
+                    return self._make_frame(newest, started)
                 continue
 
             # No complete frame yet; pull a partial frame out of the buffer.

@@ -43,9 +43,9 @@ def test_ios_platform_builds_the_uvc_hid_driver(monkeypatch):
     monkeypatch.delenv("ARTEMIS_IOS_SCREEN_SIZE", raising=False)
 
     with (
-        patch("artemis.reflex.capture.UvcCapture") as capture,
+        patch("artemis.reflex.capture.UvcStream") as capture,
         patch("artemis.reflex.control.Esp32HidControl") as control,
-        patch("artemis.drivers.factory.PaddleOcrEngine") as ocr,
+        patch("artemis.drivers.factory.default_ocr_engine") as ocr,
     ):
         driver = create_driver(_ios_ctx())
 
@@ -81,7 +81,7 @@ def test_the_descriptor_screen_size_wins_over_the_config(monkeypatch):
     with (
         patch("artemis.reflex.capture.UvcCapture"),
         patch("artemis.reflex.control.Esp32HidControl"),
-        patch("artemis.drivers.factory.PaddleOcrEngine"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
     ):
         driver = create_driver(_ios_ctx(width=1080, height=2400))
 
@@ -95,7 +95,7 @@ def test_a_bare_descriptor_falls_back_to_the_configured_screen_size(monkeypatch)
     with (
         patch("artemis.reflex.capture.UvcCapture"),
         patch("artemis.reflex.control.Esp32HidControl"),
-        patch("artemis.drivers.factory.PaddleOcrEngine"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
     ):
         driver = create_driver(_ios_ctx(width=0, height=0))
 
@@ -108,7 +108,7 @@ def test_the_factory_logs_the_driver_and_its_capabilities(monkeypatch, caplog):
     with (
         patch("artemis.reflex.capture.UvcCapture"),
         patch("artemis.reflex.control.Esp32HidControl"),
-        patch("artemis.drivers.factory.PaddleOcrEngine"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
         caplog.at_level(logging.INFO),
     ):
         create_driver(_ios_ctx())
@@ -126,7 +126,7 @@ def test_the_driver_instance_reports_the_rigs_real_capabilities(monkeypatch):
     with (
         patch("artemis.reflex.capture.UvcCapture"),
         patch("artemis.reflex.control.Esp32HidControl"),
-        patch("artemis.drivers.factory.PaddleOcrEngine"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
     ):
         driver = create_driver(_ios_ctx())
 
@@ -135,3 +135,35 @@ def test_the_driver_instance_reports_the_rigs_real_capabilities(monkeypatch):
     assert driver.capabilities.requires_pointer_precheck is True
     # The class declaration stays the contract; instances report the session's truth.
     assert IOSUvcHidDriver.capabilities.supports_relative_pointer is True
+
+
+def test_the_pointer_path_uses_a_persistent_stream_by_default(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.delenv("ARTEMIS_IOS_CAPTURE", raising=False)
+
+    with (
+        patch("artemis.reflex.capture.UvcStream") as stream,
+        patch("artemis.reflex.capture.UvcCapture") as single,
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+    ):
+        create_driver(_ios_ctx())
+
+    assert stream.called, "a live stream is what makes the pointer observable"
+    assert not single.called
+
+
+def test_the_capture_mode_can_be_pinned_to_single_frames(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_IOS_CAPTURE", "frame")
+
+    with (
+        patch("artemis.reflex.capture.UvcStream") as stream,
+        patch("artemis.reflex.capture.UvcCapture") as single,
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+    ):
+        create_driver(_ios_ctx())
+
+    assert single.called
+    assert not stream.called

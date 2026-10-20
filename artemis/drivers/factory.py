@@ -23,7 +23,7 @@ from artemis.config import settings
 from artemis.drivers.android.adb_driver import AndroidAdbDriver
 from artemis.drivers.base import BaseDeviceDriver
 from artemis.drivers.mock.mock_driver import MockDeviceDriver
-from artemis.perception.paddle_ocr import PaddleOcrEngine
+from artemis.perception.ocr_engine import default_ocr_engine
 from third_party.mobile_use.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -71,16 +71,17 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
         from artemis.devices.ios_uvc import build_ios_uvc_session
         from artemis.drivers.ios.config import IosRuntimeConfig
         from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
-        from artemis.reflex.capture import UvcCapture
+        from artemis.reflex.capture import UvcCapture, UvcStream
         from artemis.reflex.control import Esp32HidControl
 
         ios = IosRuntimeConfig.from_env()
-        capture = UvcCapture(
+        capture_factory = UvcStream if ios.capture_mode == "stream" else UvcCapture
+        capture = capture_factory(
             ios.uvc_device,
             size=ios.uvc_size,
             framerate=30,
             crop=ios.uvc_crop,
-            timeout_s=12,
+            timeout_s=3.0 if ios.capture_mode == "stream" else 12.0,
         )
         control = Esp32HidControl(ios.esp32_port, ack_timeout_s=3.0)
         # The action layer converts normalized coordinates against the *device
@@ -99,7 +100,7 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
             frame_size=ios.frame_size,
             screen_size=screen_size,
             pointer_gain=ios.pointer_gain,
-            ocr_engine=PaddleOcrEngine() if ios.enable_ocr else None,
+            ocr_engine=default_ocr_engine() if ios.enable_ocr else None,
         )
         driver = IOSUvcHidDriver(session)
         logger.info(

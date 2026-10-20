@@ -19,6 +19,10 @@ class DeviceSession:
     perception: list[PerceptionSource] = field(default_factory=list)
     control: list[ControlSink] = field(default_factory=list)
     geometry: ScreenGeometry | None = None
+    #: The relative-pointer belief when a control sink drives one (iOS UVC + HID). The
+    #: driver anchors it (`home`) on connect and a caller may nudge it to wake the
+    #: pointer before a precheck. ``None`` for platforms with absolute control.
+    pointer: object | None = None
 
     @property
     def capabilities(self) -> CapabilitySet:

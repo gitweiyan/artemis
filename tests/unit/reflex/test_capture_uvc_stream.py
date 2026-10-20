@@ -151,3 +151,50 @@ def test_grab_latest_extracts_frames_before_enforcing_the_buffer_cap(monkeypatch
 
     assert frame.image == second
     stream.close()
+
+
+class LiveStdout:
+    """A camera that never reaches EOF, like a real 30 fps ffmpeg stream."""
+
+    class Exhausted(Exception):
+        pass
+
+    def __init__(self, frame: bytes, max_reads: int = 5000, read_delay_s: float = 0.001):
+        self.frame = frame
+        self.reads = 0
+        self.max_reads = max_reads
+        self.read_delay_s = read_delay_s
+
+    def fileno(self):
+        raise AttributeError("the fake has no fd; the reader falls back to read()")
+
+    def read(self, size: int = -1) -> bytes:
+        import time
+
+        self.reads += 1
+        if self.reads > self.max_reads:
+            raise self.Exhausted("grab_latest kept draining a live stream forever")
+        time.sleep(self.read_delay_s)
+        return self.frame
+
+
+def test_grab_latest_returns_on_a_live_stream_that_never_reaches_eof():
+    """A real camera always has more bytes ready: draining "until empty" never ends."""
+    frame = _jpeg((10, 200, 10))
+    process = FakeProcess(b"")
+    process.stdout = LiveStdout(frame)
+    stream = UvcStream(
+        "USB Video",
+        size=(50, 100),
+        process_factory=lambda cmd: process,
+        drain_budget_s=0.05,
+    )
+
+    started = __import__("time").monotonic()
+    got = stream.grab_latest(timeout_s=2.0)
+    elapsed = __import__("time").monotonic() - started
+
+    assert got.image == frame
+    assert elapsed < 0.5, "a live stream must not be drained for the whole timeout"
+    assert process.stdout.reads < 200
+    stream.close()

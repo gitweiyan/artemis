@@ -38,6 +38,7 @@ ENV_UVC_CROP = "ARTEMIS_UVC_CROP"
 ENV_SCREEN_SIZE = "ARTEMIS_IOS_SCREEN_SIZE"
 ENV_POINTER_GAIN = "ARTEMIS_IOS_POINTER_GAIN"
 ENV_OCR = "ARTEMIS_IOS_OCR"
+ENV_CAPTURE = "ARTEMIS_IOS_CAPTURE"
 
 
 class IosConfigError(RuntimeError):
@@ -135,6 +136,9 @@ class IosRuntimeConfig:
     screen_size: tuple[int, int] = DEFAULT_SCREEN_SIZE
     pointer_gain: tuple[float, float] = DEFAULT_POINTER_GAIN
     enable_ocr: bool = True
+    #: ``stream`` keeps one ffmpeg alive (a pointer nudge is observable ~120 ms later);
+    #: ``frame`` spawns one ffmpeg per grab (~870 ms, and the pointer ring has faded).
+    capture_mode: str = "stream"
     #: The cropped capture size a skill's coordinates are expressed in.
     frame_size: tuple[int, int] = field(init=False)
 
@@ -154,6 +158,9 @@ class IosRuntimeConfig:
                 " fall back to Android ADB, which cannot drive this rig."
             )
         gain = _floats(env, ENV_POINTER_GAIN) or DEFAULT_POINTER_GAIN
+        mode = (_env(env, ENV_CAPTURE) or "stream").lower()
+        if mode not in ("stream", "frame"):
+            raise IosConfigError(f"{ENV_CAPTURE} must be 'stream' or 'frame', got {mode!r}")
         return cls(
             esp32_port=port,
             uvc_device=_env(env, ENV_UVC_DEVICE) or "USB Video",
@@ -161,6 +168,7 @@ class IosRuntimeConfig:
             screen_size=_size(env, ENV_SCREEN_SIZE) or DEFAULT_SCREEN_SIZE,
             pointer_gain=gain,
             enable_ocr=_flag(env, ENV_OCR, True),
+            capture_mode=mode,
         )
 
     def describe(self) -> str:
@@ -171,7 +179,7 @@ class IosRuntimeConfig:
             f"iOS UVC+HID port={self.esp32_port} device={self.uvc_device!r}"
             f" crop={crop} frame={self.frame_size[0]}x{self.frame_size[1]}"
             f" screen={self.screen_size[0]}x{self.screen_size[1]} gain={gain}"
-            f" ocr={'on' if self.enable_ocr else 'off'}"
+            f" ocr={'on' if self.enable_ocr else 'off'} capture={self.capture_mode}"
         )
 
 

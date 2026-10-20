@@ -187,3 +187,52 @@ def test_the_cli_exits_two_when_the_rig_is_not_configured(monkeypatch, capsys):
 
     assert result.exit_code == 2
     assert "ARTEMIS_ESP32_PORT" in result.output
+
+
+class WakeOnMoveDetector:
+    """A pointer that is only visible after the board moved it (the real fade/wake)."""
+
+    def __init__(self, control):
+        self.control = control
+
+    def detect(self, image, near=None):
+        from artemis.reflex.vision import Pointer
+
+        if not self.control.moved:
+            return None
+        return Pointer(0.35, 0.15, 0.9, "fake")
+
+
+def test_a_faded_pointer_is_woken_by_a_nudge_before_the_precheck():
+    class MovingEsp32(Esp32):
+        def __init__(self):
+            super().__init__()
+            self.moved = False
+
+        def mouse_move(self, dx, dy):
+            self.moved = True
+
+    control = MovingEsp32()
+    report = asyncio.run(
+        run_smoke(_driver(control, WakeOnMoveDetector(control)), target="闪购", tap=False)
+    )
+
+    steps = {step.name: step for step in report.steps}
+    assert steps["pointer_precheck"].ok is True, report.summary()
+    assert "nudge" in steps["pointer_precheck"].detail
+    assert control.clicks == 0
+
+
+def test_a_visible_pointer_away_from_the_target_is_not_a_rig_failure():
+    class FarDetector:
+        def detect(self, image, near=None):
+            from artemis.reflex.vision import Pointer
+
+            return Pointer(0.05, 0.05, 0.9, "fake")
+
+    report = asyncio.run(run_smoke(_driver(Esp32(), FarDetector()), target="闪购", tap=False))
+
+    steps = {step.name: step for step in report.steps}
+    assert steps["pointer_precheck"].ok is True
+    assert "the tap will drive it" in steps["pointer_precheck"].detail
+    assert report.ok is True

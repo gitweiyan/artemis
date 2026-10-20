@@ -204,3 +204,32 @@ def test_ios_home_sends_cmd_h(esp32):
     control, recorder = esp32()
     control.ios_home()
     assert recorder.lines == ["keymod 8 11\n"]
+
+
+def test_a_partial_serial_write_is_completed():
+    """os.write may accept fewer bytes than asked; a short write loses the newline.
+
+    The firmware only executes a line that ends with '\n' and answers a fragment with
+    `ERR line too long` once the next lines pile up behind it (observed live 2026-10-21).
+    """
+    from artemis.reflex.control import write_line
+
+    written = bytearray()
+
+    def fake_write(_fd, data):
+        chunk = bytes(data[:3])  # a tty that only accepts 3 bytes at a time
+        written.extend(chunk)
+        return len(chunk)
+
+    write_line(7, b"move 26 -5\n", write=fake_write)
+
+    assert bytes(written) == b"move 26 -5\n"
+
+
+def test_a_zero_byte_write_fails_loudly():
+    import pytest
+
+    from artemis.reflex.control import write_line
+
+    with pytest.raises(RuntimeError):
+        write_line(7, b"home\n", write=lambda fd, data: 0)

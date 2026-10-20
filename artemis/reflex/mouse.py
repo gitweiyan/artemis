@@ -164,6 +164,7 @@ class SessionTapController:
         tolerance_px: float = 8.0,
         max_steps: int = 6,
         max_step: int = 50,
+        observe_attempts: int = 3,
     ):
         if detector is not None and capture is None:
             raise ValueError("pre-click pointer verification needs a capture")
@@ -174,6 +175,22 @@ class SessionTapController:
         self.tolerance_px = float(tolerance_px)
         self.max_steps = max(1, int(max_steps))
         self.max_step = max(1, int(max_step))
+        #: One empty frame is not proof the pointer is gone: the AssistiveTouch ring
+        #: fades in and out and a frame can predate the move that woke it. Re-observe a
+        #: bounded number of times before refusing to click.
+        self.observe_attempts = max(1, int(observe_attempts))
+
+    def _observe(self):
+        """Grab frames until a pointer is detected, or ``observe_attempts`` run out."""
+        width, height = self.session.frame_size
+        near = (self.session.position[0] / width, self.session.position[1] / height)
+        frame = None
+        for _ in range(self.observe_attempts):
+            frame = self.capture.grab_latest()
+            pointer = self.detector.detect(frame.image, near=near)
+            if pointer is not None:
+                return frame, pointer
+        return frame, None
 
     def _verified_tap(self, x: float, y: float) -> TapResult:
         width, height = self.session.frame_size
@@ -181,11 +198,7 @@ class SessionTapController:
         last_error: float | None = None
         for attempt in range(1, self.max_attempts + 1):
             for _step in range(self.max_steps):
-                frame = self.capture.grab_latest()
-                pointer = self.detector.detect(
-                    frame.image,
-                    near=(self.session.position[0] / width, self.session.position[1] / height),
-                )
+                frame, pointer = self._observe()
                 if pointer is None:
                     return TapResult(
                         False,

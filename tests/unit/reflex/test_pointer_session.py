@@ -375,3 +375,41 @@ def test_verified_tap_reports_not_centered_incident_when_pointer_never_converges
     assert result.ok is False
     assert result.incident == "pointer_not_centered"
     assert control.clicks == 0
+
+
+def test_a_transient_miss_is_retried_before_declaring_pointer_missing():
+    """The AssistiveTouch ring fades and re-appears; one empty frame is not proof."""
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120)), _png((240, 40, 40))])
+    detector = FakeDetector([None, Pointer(0.5, 0.5, 0.95, "fake")])
+    controller = SessionTapController(session, capture=capture, detector=detector)
+
+    result = controller.tap(100, 100)
+
+    assert detector.calls >= 2, "the controller must re-observe before giving up"
+    assert result.ok is True
+    assert control.clicks == 1
+
+
+def test_pointer_missing_only_after_every_observation_attempt():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120))] * 5)
+    detector = FakeDetector([None, None, None, None])
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, observe_attempts=3
+    )
+
+    result = controller.tap(100, 100)
+
+    assert detector.calls == 3
+    assert result.incident == "pointer_missing"
+    assert control.clicks == 0

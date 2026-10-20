@@ -13,12 +13,20 @@ from artemis.reflex.vision import RedPointerDetector
 
 
 class _GrabLatest:
-    """Adapt the one-shot UVC capture to SessionTapController's grab_latest seam."""
+    """Adapt the UVC capture to SessionTapController's ``grab_latest`` seam.
+
+    A persistent stream can hand over its newest queued frame; a one-shot capture can
+    only grab a fresh one. Preferring ``grab_latest`` is what lets the controller see
+    the pointer right after the move that woke it, instead of a frame that predates it.
+    """
 
     def __init__(self, capture):
         self.capture = capture
 
     def grab_latest(self):
+        latest = getattr(self.capture, "grab_latest", None)
+        if callable(latest):
+            return latest()
         return self.capture.grab()
 
 
@@ -43,6 +51,7 @@ def build_ios_uvc_session(
         perception=[UvcSource(capture, ocr_engine=ocr_engine)],
         control=[HidControlSink(pointer, controller, geometry=geometry)],
         geometry=geometry,
+        pointer=pointer,
     )
 
 

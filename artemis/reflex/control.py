@@ -225,6 +225,25 @@ def parse_usb_state(text: str) -> dict[str, int | str | None]:
     }
 
 
+def write_line(fd: int, data: bytes, *, write=None) -> None:
+    """Write ``data`` completely to ``fd``, looping over short writes.
+
+    ``os.write`` on a tty may accept fewer bytes than asked. The firmware executes only
+    a line terminated by ``'\n'`` and discards a fragment, replying ``ERR line too long``
+    once later commands pile up behind it — so a silently short write turns into a
+    failure several commands later, which is exactly what a live run showed.
+    """
+    writer = write or os.write
+    view = memoryview(data)
+    while view:
+        written = writer(fd, view)
+        if written is None:
+            written = len(view)  # a seam that writes everything by contract
+        if written <= 0:
+            raise RuntimeError(f"ESP32 serial write stalled after {len(data) - len(view)} bytes")
+        view = view[written:]
+
+
 class Esp32HidControl(Control):
     """Tap/swipe through an ESP32-S3 acting as a USB HID touchscreen for the phone.
 
@@ -310,7 +329,7 @@ class Esp32HidControl(Control):
                 break
 
         try:
-            os.write(fd, line.encode("ascii"))
+            write_line(fd, line.encode("ascii"))
         except OSError as exc:
             raise RuntimeError(f"ESP32 serial write to {self.port} failed: {exc}") from exc
 
@@ -474,4 +493,5 @@ __all__ = [
     "HelperControl",
     "esp32_port",
     "parse_usb_state",
+    "write_line",
 ]

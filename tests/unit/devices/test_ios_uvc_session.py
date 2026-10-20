@@ -11,16 +11,21 @@ class Capture:
     def grab(self):
         buffer = BytesIO()
         Image.new("RGB", (10, 10), (200, 200, 200)).save(buffer, "PNG")
-        return SimpleNamespace(
-            image=buffer.getvalue(), width=10, height=10, captured_at=1.0
-        )
+        return SimpleNamespace(image=buffer.getvalue(), width=10, height=10, captured_at=1.0)
 
 
 class Control:
-    def preflight(self): return {}
-    def mouse_home(self): pass
-    def mouse_move(self, dx, dy): pass
-    def mouse_click(self): pass
+    def preflight(self):
+        return {}
+
+    def mouse_home(self):
+        pass
+
+    def mouse_move(self, dx, dy):
+        pass
+
+    def mouse_click(self):
+        pass
 
 
 def test_builds_a_standard_session_with_uvc_and_hid_capabilities():
@@ -61,7 +66,10 @@ def test_tap_target_maps_box_center_to_relative_hid_sink():
 
     class Sink:
         capabilities = CapabilitySet(supports_relative_pointer=True)
-        def __init__(self): self.calls = []
+
+        def __init__(self):
+            self.calls = []
+
         async def tap_abs(self, x, y):
             self.calls.append((x, y))
             return ActionResult(True, "tap_abs")
@@ -74,3 +82,41 @@ def test_tap_target_maps_box_center_to_relative_hid_sink():
 
     assert result.ok is True
     assert sink.calls == [(373, 201)]
+
+
+def test_the_pointer_adapter_prefers_grab_latest_when_the_capture_has_it():
+    from artemis.devices.ios_uvc import _GrabLatest
+
+    class Streaming:
+        def __init__(self):
+            self.latest = 0
+            self.plain = 0
+
+        def grab(self):
+            self.plain += 1
+            return "plain"
+
+        def grab_latest(self):
+            self.latest += 1
+            return "latest"
+
+    capture = Streaming()
+    assert _GrabLatest(capture).grab_latest() == "latest"
+    assert (capture.latest, capture.plain) == (1, 0)
+
+
+def test_the_session_exposes_the_pointer_belief_the_driver_anchors():
+    import asyncio
+
+    from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
+
+    session = build_ios_uvc_session(Capture(), Control())
+    driver = IOSUvcHidDriver(session)
+
+    assert session.pointer is not None
+    assert session.pointer.connected is False
+
+    asyncio.run(driver.connect())
+
+    assert session.pointer.connected is True
+    assert session.pointer.position == (0.0, 0.0), "connect re-anchors the pointer"

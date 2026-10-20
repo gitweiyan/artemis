@@ -126,23 +126,35 @@ async def run_smoke(driver, *, target: str | None = None, tap: bool = True) -> S
 
         started = time.monotonic()
         validation = await driver.validate_pointer(located)
+        nudged = False
+        if not validation.ok and validation.incident == "pointer_missing":
+            # The AssistiveTouch ring fades out; a small relative move wakes it and is
+            # exactly what the pointer loop does before every tap. Never a click.
+            pointer = getattr(session, "pointer", None)
+            if pointer is not None:
+                await __import__("asyncio").to_thread(pointer.move, 20, 20)
+                nudged = True
+                validation = await driver.validate_pointer(located)
         elapsed = (time.monotonic() - started) * 1000
-        detail = (
-            "pointer verified on target"
-            if validation.ok
-            else (
-                f"incident={validation.incident}"
-                + (
-                    f" error_px={validation.error_px:.1f}"
-                    if validation.error_px is not None
-                    else ""
-                )
+        # What the rig needs to prove here is that the pointer is *visible*: a visible
+        # pointer away from the target is the normal starting state, and the tap stage
+        # is what drives it. Only a missing pointer is a rig failure.
+        visible = validation.incident != "pointer_missing"
+        if validation.ok:
+            detail = "pointer verified on target"
+        elif visible:
+            error = (
+                f" {validation.error_px:.0f}px from the target center"
+                if validation.error_px is not None
+                else ""
             )
-        )
-        report.steps.append(SmokeStep("pointer_precheck", validation.ok, detail, elapsed))
-        # A pointer that is not on the target is exactly what the tap precheck would
-        # return; the tap stage below is where the honest answer comes from.
-        report.ok = report.ok and validation.ok
+            detail = f"pointer visible{error} ({validation.incident}); the tap will drive it"
+        else:
+            detail = "pointer not visible after a wake nudge (pointer_missing)"
+        if nudged:
+            detail += " [woken by a 20-unit nudge]"
+        report.steps.append(SmokeStep("pointer_precheck", visible, detail, elapsed))
+        report.ok = report.ok and visible
 
     if tap and located is not None:
         started = time.monotonic()
