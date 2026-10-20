@@ -44,6 +44,7 @@ Safety           = pointer precheck + pixel/diff
 - `locate_text`：精确/包含匹配、置信度门槛
 - `UvcSource.ocr/locate`：OCR 注入
 - `ScreenGeometry.normalized_box_to_screen/center`
+- `ScreenGeometry.screen_to_normalized/screen_to_frame`：屏幕像素 ↔ 采集帧像素
 
 ### 2.3 控制与安全
 
@@ -54,6 +55,8 @@ Safety           = pointer precheck + pixel/diff
 - 移动后立即抓帧，无额外 sleep
 - 点击前检测指针，≤8px 才点击
 - 点击后 diff 验证
+- `HidControlSink(geometry=...)`：屏幕像素目标先换算成采集帧像素，再进入指针闭环
+- `TapResult.incident`：`pointer_missing` / `pointer_not_centered` / `no_effect`
 
 ### 2.4 iOS 组合与运行时
 
@@ -71,18 +74,51 @@ Safety           = pointer precheck + pixel/diff
 - driver factory：`mobile_platform == "ios"` → `IOSUvcHidDriver`
 - factory 注入 `PaddleOcrEngine`
 - `tap_with_result` 暴露结构化 `ActionResult`
+- `DevicePlatform.IOS`；`Agent.init()` 不再把显式 iOS 平台改写为 Android
+- `artemis/drivers/ios/config.py`：`IosRuntimeConfig` / `IosConfigError` / `ios_device_context`
+- `artemis run --platform ios`（`ARTEMIS_DEVICE_PLATFORM` 也可），iOS 不做 adb 预检、
+  不查 ADB 设备池、不进 daemon 队列
 
 ### 2.5 验证
 
-当前相关单测：
+当前相关测试：
 
 ```bash
 pytest tests/unit/devices tests/unit/perception tests/unit/control \
-       tests/unit/drivers/test_ios_uvc_hid_driver.py -q
-# 41 passed
+       tests/unit/drivers tests/unit/reflex tests/unit/mcp -q
+# 719 passed, 1 skipped
+
+pytest tests/integration/ios/test_uvc_flow.py -m integration -q
+# 5 passed（MCP → actuator → controller → driver → HID sink 全链路，假 UVC/假板子）
 ```
 
-已提交：
+P5/P6 验证覆盖：
+
+- 无指针 → `clicks == 0`，incident `pointer_missing`；
+- 指针收敛但画面不变 → `no_effect`；
+- pointer incident 不触发 Validator 重试（一次点击，不会变成多次抓帧）；
+- 屏幕像素目标（1080x2400）在 449x974 采集帧内收敛到 ≤8px 后点击；
+- Android 结果不带 `incident` 时 action item 与旧行为完全一致；
+- iOS 缺 `ARTEMIS_ESP32_PORT` 直接报配置错误，不落 Android。
+
+已提交（P5/P6）：
+
+```text
+feat: report a tap incident code from the pointer controller
+feat: forward pointer incidents through the HID sink
+feat: expose structured tap incidents from the controller
+feat: carry tap incidents in the MCP action result
+feat: record iOS tap incidents on the action item
+feat: open pointer incidents from the Validator execution loop
+feat: explain pointer incidents to the Operator
+feat: add validated iOS runtime config and build the driver from it
+feat: support an iOS device platform in the runtime
+feat: add --platform ios to artemis run
+feat: run ios tasks in-process instead of through the adb daemon scheduler
+fix: convert screen-space taps into capture-frame pixels before the pointer check
+```
+
+更早：
 
 ```text
 18ef62a feat: expose structured iOS tap result
@@ -94,53 +130,26 @@ f7e54b9 feat: add shape-only pointer fallback and immediate capture
 
 ## 3. 未完成
 
-### 3.1 Validator 尚未消费结构化结果
+### 3.1 真机 flash/pro 未闭环（P7/P8）
 
-问题：
-
-```text
-IOSUvcHidDriver.tap_with_result()
-  → ActionResult(incident=...)
-  → action executor 目前只拿 bool
-  → Validator 看不到 pointer_missing / pointer_off_target
-```
-
-需要：
-
-1. action executor 调用 `tap_with_result`；
-2. 写入 `action_item["action_result"]` / `action_item["incident"]`；
-3. Validator 后置读取并分类；
-4. 覆盖 `pointer_missing` / `pointer_off_target` / `no_effect` 测试。
-
-### 3.2 iOS runtime context/config 未验证
-
-`create_driver()` 已有 iOS 分支，但还缺少：
-
-- `ctx.device.mobile_platform == "ios"` 的真实设备描述；
-- `ARTEMIS_ESP32_PORT`、`ARTEMIS_UVC_DEVICE`、crop 配置；
-- iOS 任务启动入口；
-- `flash` / `pro` profile 在 iOS 下的实际运行证据。
-
-### 3.3 真机 flash/pro 未闭环
-
-目前真机验证的是：
-
-- UVC 抓帧；
-- PaddleOCR 定位“闪购”；
-- pointer precheck；
-- HID 点击“闪购”；
-- 点击后 diff。
-
-但还没有：
+iOS driver、runtime config、incident 链路都已离线验证通过，但还没有在真机上跑过：
 
 ```text
-artemis run --profile flash
-artemis run --profile pro
+ARTEMIS_ESP32_PORT=/dev/tty.usbmodemXXXX \
+ARTEMIS_UVC_DEVICE="USB Video" \
+artemis run --platform ios --profile flash "打开设置"
+artemis run --platform ios --profile pro "打开设置"
 ```
 
-在 iOS 真机上的完整执行记录。
+需要在真机上确认：`get_screen_data` 成功、OCR 定位、pointer precheck、点击后 diff、
+trace 里有 observation/decision/control/timestamps、incident 可在日志里追溯。
 
-### 3.4 淘宝下单任务未完成
+### 3.2 真机参数标定
+
+`IosRuntimeConfig` 的默认值来自 2026-10-19/20 的实测机台（crop `736,53,1185,1027`、
+frame 449x974、screen 1080x2400、gain 1.8）。换手机/采集卡/线材后需要重新标定 crop 与 gain。
+
+### 3.3 淘宝下单任务未完成（P9）
 
 - 未完成规格选择、领券、结算、提交订单；
 - 未付款；
@@ -151,26 +160,26 @@ artemis run --profile pro
 
 | 阻塞 | 影响 | 处理 |
 |---|---|---|
-| Validator 未消费 `tap_with_result` | iOS pointer incident 不进安全网 | action executor + Validator 改造 |
-| iOS device context 不存在 | `create_driver` 可能走 Android | 增加 iOS device/config |
-| profile 未真机验证 | 不能声称 flash/pro 可用 | 最小 smoke + 固定用例 |
+| profile 未真机验证 | 不能声称 flash/pro 可用 | P7/P8 固定用例真机跑一遍 |
 | 支付需生物识别 | 无法自动完成最终付款 | 到支付页停止，用户确认 |
 | 淘宝自绘控件/手势不稳定 | 任务易中断 | OCR bbox + 键盘滚动 + 点击后验证 |
+| 指针/采集卡依赖单一机台 | 换设备需重新标定 | crop/gain 走 env，改机台先跑冒烟 |
 
 ## 5. 后续计划
 
 ### P5：Validator 结构化 incident
 
-- [ ] `_exec_action` 使用 `tap_with_result`（如果 driver 支持）
-- [ ] 写入 `action_item["action_result"]`
-- [ ] Validator 后置读取 incident
-- [ ] incident 分类：
+- [x] driver 结构化结果沿 `tap_at → AdbActuator → MCP ActionResult.incident` 上报
+      （Ruling：不在 `_exec_action` 里直接调 `tap_with_result`，保持 MCP 单入口）
+- [x] 写入 `action_item["action_result"]`（仅当 driver 报 incident）
+- [x] Validator 读取 incident 并开对应 category 的 execution incident
+- [x] incident 分类：
   - `pointer_missing`
   - `pointer_off_target`
   - `pointer_not_centered`
   - `no_effect`
-- [ ] fake driver 集成测试
-- [ ] 不改变 Android 行为
+- [x] fake driver 集成测试（`tests/integration/ios/test_uvc_flow.py`）
+- [x] 不改变 Android 行为
 
 验收：
 
@@ -182,16 +191,18 @@ Android 测试全绿。
 
 ### P6：iOS runtime config
 
-- [ ] iOS device descriptor：
+- [x] iOS device descriptor：
   - `mobile_platform=ios`
-  - `device_width/height`
-- [ ] env：
-  - `ARTEMIS_ESP32_PORT`
-  - `ARTEMIS_UVC_DEVICE`
-  - `ARTEMIS_UVC_CROP`
-- [ ] `create_driver(ctx)` 返回 `IOSUvcHidDriver`
-- [ ] 启动日志打印 driver/capabilities
-- [ ] 失败时明确报“iOS 配置缺失”，不落到 Android
+  - `device_width/height`（`ARTEMIS_IOS_SCREEN_SIZE`，默认 1080x2400）
+- [x] env：
+  - `ARTEMIS_ESP32_PORT`（必填）
+  - `ARTEMIS_UVC_DEVICE`（默认 `USB Video`）
+  - `ARTEMIS_UVC_CROP`（默认 `736,53,1185,1027`）
+  - `ARTEMIS_IOS_SCREEN_SIZE` / `ARTEMIS_IOS_POINTER_GAIN` / `ARTEMIS_IOS_OCR`
+- [x] `create_driver(ctx)` 返回 `IOSUvcHidDriver`
+- [x] 启动日志打印 driver/capabilities
+- [x] 失败时明确报 `IosConfigError`（点名 `ARTEMIS_ESP32_PORT`），不落到 Android
+- [x] `artemis run --platform ios`；adb 预检 / 设备池 / daemon 队列都不参与
 
 验收：
 
@@ -203,7 +214,8 @@ capabilities.requires_pointer_precheck == True
 
 ### P7：flash 真机 smoke
 
-- [ ] `flash` profile 创建 iOS driver；
+- [x] driver 选择/能力声明可离线验证（factory 单测）：`flash` 走同一 `create_driver`
+- [ ] `flash` profile 真机创建 iOS driver；
 - [ ] `get_screen_data` 成功；
 - [ ] OCR 定位“设置”/“闪购”；
 - [ ] pointer precheck；
@@ -249,7 +261,9 @@ pointer/incident 可在日志中追溯；
 | iOS driver 选择 | `mobile_platform=ios` 时必为 IOSUvcHidDriver |
 | UI tree | 不支持时不阻塞，走 pixel/pointer |
 | 点击前 | 指针检测到且在目标 8px 内 |
-| 无指针 | `clicks == 0` |
+| 无指针 | `clicks == 0`，incident `pointer_missing` |
+| incident 进入安全网 | Validator category = `pointer_*` / `no_effect` |
+| 屏幕/帧坐标 | 目标在采集帧内收敛 ≤8px 才点击 |
 | 点击后 | diff 验证；无变化返回 `no_effect` |
 | flash | 真机完成一次安全任务 |
 | pro | 真机完成同一任务，incident 可追溯 |
@@ -258,17 +272,20 @@ pointer/incident 可在日志中追溯；
 
 ## 7. 当前结论
 
-- **能力组件、driver、pointer precheck 已完成**；
-- **Validator/runtime/profile 还未闭环**；
-- 现在可以离线验证 `UVC → OCR → Target → HID`；
-- 还不能声称“iOS 真机 flash/pro 已可运行”。
+- **P5（Validator 结构化 incident）已完成**：iOS 的 `pointer_missing` /
+  `pointer_off_target` / `pointer_not_centered` / `no_effect` 会进入 Validator、
+  incident 记录、trace 与 Operator prompt；
+- **P6（iOS runtime config）已完成**：`artemis run --platform ios` 能选中
+  `IOSUvcHidDriver`，缺配置时明确报错；
+- 全链路（MCP → actuator → controller → driver → HID sink）有假 UVC/假板子的集成测试；
+- 过程中修掉一个真实坐标 bug：`tap_abs` 用屏幕像素、指针闭环用采集帧像素，之前会
+  拒绝或点偏；
+- **仍未完成**：`flash` / `pro` 真机运行记录（P7/P8）与淘宝业务闭环（P9）。
 
 下一步优先级：
 
 ```text
-P5 Validator incident
-→ P6 iOS runtime config
-→ P7 flash smoke
-→ P8 pro smoke
+P7 flash 真机 smoke
+→ P8 pro 真机 smoke
 → P9 淘宝业务
 ```
