@@ -1,0 +1,193 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""The rig smoke is the operator's answer to "is it the phone or the agent?"."""
+
+import asyncio
+from io import BytesIO
+from types import SimpleNamespace
+
+from PIL import Image
+import pytest
+
+from artemis.devices.ios_uvc import build_ios_uvc_session
+from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
+from artemis.drivers.ios.smoke import run_smoke
+from artemis.perception.base import TextBox
+
+
+def _frame(color=(120, 120, 120)) -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (449, 974), color).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+class Capture:
+    """A card whose picture changes once the phone receives a click."""
+
+    def __init__(self):
+        self.grabs = 0
+
+    def grab(self):
+        self.grabs += 1
+        return SimpleNamespace(image=_frame(), width=449, height=974, captured_at=1.0)
+
+
+class Esp32:
+    def __init__(self):
+        self.clicks = 0
+
+    def preflight(self):
+        return {}
+
+    def mouse_home(self):
+        pass
+
+    def mouse_move(self, dx, dy):
+        pass
+
+    def mouse_click(self):
+        self.clicks += 1
+
+
+class Ocr:
+    def recognize(self, image, *, width, height):
+        return [TextBox("闪购", (0.3, 0.1, 0.4, 0.2), 0.99)]
+
+
+class CenteredDetector:
+    def detect(self, image, near=None):
+        from artemis.reflex.vision import Pointer
+
+        return Pointer(0.35, 0.15, 0.95, "fake")
+
+
+class BlindDetector:
+    def detect(self, image, near=None):
+        return None
+
+
+class ClickCapture(Capture):
+    def __init__(self, control):
+        super().__init__()
+        self.control = control
+
+    def grab(self):
+        self.grabs += 1
+        color = (200, 40, 40) if self.control.clicks else (120, 120, 120)
+        return SimpleNamespace(image=_frame(color), width=449, height=974, captured_at=1.0)
+
+
+def _driver(control, detector):
+    session = build_ios_uvc_session(
+        ClickCapture(control),
+        control,
+        frame_size=(449, 974),
+        screen_size=(1080, 2400),
+        detector=detector,
+        ocr_engine=Ocr(),
+    )
+    return IOSUvcHidDriver(session)
+
+
+def test_a_healthy_rig_passes_every_stage():
+    control = Esp32()
+    report = asyncio.run(run_smoke(_driver(control, CenteredDetector()), target="闪购"))
+
+    assert [step.name for step in report.steps] == [
+        "connect",
+        "snapshot",
+        "locate",
+        "pointer_precheck",
+        "tap",
+    ]
+    assert all(step.ok for step in report.steps), report.summary()
+    assert report.ok is True
+    assert control.clicks == 1
+    assert "闪购" in report.summary()
+
+
+def test_a_missing_label_fails_the_locate_stage_and_stops():
+    control = Esp32()
+    report = asyncio.run(run_smoke(_driver(control, CenteredDetector()), target="不存在的按钮"))
+
+    assert report.ok is False
+    assert [step.name for step in report.steps] == ["connect", "snapshot", "locate"]
+    assert report.steps[-1].ok is False
+    assert control.clicks == 0
+
+
+def test_a_blind_pointer_is_reported_and_nothing_is_clicked():
+    control = Esp32()
+    report = asyncio.run(run_smoke(_driver(control, BlindDetector()), target="闪购"))
+
+    assert report.ok is False
+    steps = {step.name: step for step in report.steps}
+    assert steps["pointer_precheck"].ok is False
+    assert "pointer_missing" in steps["pointer_precheck"].detail
+    assert steps["tap"].ok is False
+    assert "pointer_missing" in steps["tap"].detail
+    assert control.clicks == 0
+
+
+def test_a_black_frame_stops_before_any_ocr():
+    class BlackCapture(Capture):
+        def grab(self):
+            return SimpleNamespace(
+                image=_frame((0, 0, 0)), width=449, height=974, captured_at=1.0
+            )
+
+    session = build_ios_uvc_session(
+        BlackCapture(),
+        Esp32(),
+        frame_size=(449, 974),
+        screen_size=(1080, 2400),
+        ocr_engine=Ocr(),
+    )
+    report = asyncio.run(run_smoke(IOSUvcHidDriver(session), target="闪购"))
+
+    assert report.ok is False
+    assert [step.name for step in report.steps] == ["connect", "snapshot"]
+    assert "black" in report.steps[-1].detail
+
+
+def test_the_report_is_json_serializable():
+    import json
+
+    report = asyncio.run(run_smoke(_driver(Esp32(), CenteredDetector()), target="闪购"))
+
+    payload = json.loads(json.dumps(report.to_dict()))
+    assert payload["ok"] is True
+    assert payload["steps"][0]["name"] == "connect"
+
+
+@pytest.mark.parametrize("tap", [False])
+def test_tap_stage_can_be_skipped(tap):
+    report = asyncio.run(
+        run_smoke(_driver(Esp32(), CenteredDetector()), target="闪购", tap=tap)
+    )
+
+    assert "tap" not in [step.name for step in report.steps]
+
+
+def test_the_cli_exits_two_when_the_rig_is_not_configured(monkeypatch, capsys):
+    from typer.testing import CliRunner
+
+    from artemis.interfaces.cli.main import app
+
+    monkeypatch.delenv("ARTEMIS_ESP32_PORT", raising=False)
+    result = CliRunner().invoke(app, ["ios-smoke"])
+
+    assert result.exit_code == 2
+    assert "ARTEMIS_ESP32_PORT" in result.output

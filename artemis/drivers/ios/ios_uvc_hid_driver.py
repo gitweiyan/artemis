@@ -20,6 +20,20 @@ class PointerValidation:
     pointer: tuple[float, float] | None
 
 
+def _session_detector(session):
+    """The pointer detector the session already uses, if any.
+
+    One rig has one pointer detector: a second instance in the driver would be a
+    silently different configuration (and a second place to fix when the pointer's
+    appearance changes).
+    """
+    for sink in getattr(session, "control", []) or []:
+        detector = getattr(getattr(sink, "controller", None), "detector", None)
+        if detector is not None:
+            return detector
+    return None
+
+
 class IOSUvcHidDriver(BaseDeviceDriver):
     """iOS perception via UVC, control via relative ESP32 HID."""
 
@@ -32,7 +46,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
     def __init__(self, session, *, device_id: str = "ios-uvc-hid", detector=None):
         self.session = session
         self._device_id = device_id
-        self.detector = detector or RedPointerDetector()
+        self.detector = detector or _session_detector(session) or RedPointerDetector()
         self._screen_size = session.geometry.screen_size if session.geometry else (1080, 2400)
 
     @property
