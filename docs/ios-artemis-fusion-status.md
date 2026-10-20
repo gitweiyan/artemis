@@ -211,6 +211,34 @@ Tetris 等 skill 因此可以在 iOS 上跑（仍需真机确认帧率与手势�
 加一行表 + 一个 builder，不再加平台分支。`orchestration/profiles.py` 仍缺（flash/pro 由
 配置与 CLI 决定，尚未集中到编排层）。
 
+### 2.5.5 真机复盘：点击落点（2026-10-21 晚）
+
+用户现场观察“点在目标左边”，据此揪出三个独立问题（都已在真机复验）：
+
+1. **iOS 桌面要点图标，点标签无效**：OCR 匹配到的是图标**下方**的文字框，
+   而我们直接点了文字中心 —— 对 App 启动完全不生效。新增
+   `artemis/perception/ios_targets.py::icon_above_label()`：向上取“忙碌块”（Canny 边缘密度，
+   所以灰色图标能识别、壁纸不会被误判），`UvcSource.locate` 默认应用；App 内文字
+   （按钮/标签页）上方没有忙碌块，因此不受影响。
+2. **指针增益不是常数**：实测小位移 ≈1.2 px/单位、大位移 ≈2.1，配置固定 1.8 会让闭环
+   “以为到了”而实际短 40–60px。控制器改为从观测中在线估计（EMA，钳制 0.3–4.0）。
+3. **一次 refactor 把“每尝试 6 步”压成了“每尝试 1 步”**，三次修正就耗尽预算。
+
+真机复验结果（同一台机、同一目标）：
+
+```text
+artemis ios-smoke --target 设置
+  locate: '设置' box=(0.797,0.255,0.891,0.298) source=icon-above-label   ← 图标，不是标签
+  tap:    screen=(911, 663) pointer verified at target; click changed the screen
+  → OCR 复核：设置页已打开（飞行模式/无线局域网/蓝牙…）
+
+artemis run --platform ios --profile flash "打开微信"   → PASS（1 轮点击即完成）
+artemis run --platform ios --profile pro   "打开设置"   → PASS（final check 2/2）
+```
+
+排障经验（写进流程）：手机出现“点击无效”时先按 **Esc** 再看屏幕 —— 一次误发的
+`Cmd+Space` 会把 Spotlight 留在前台，它吞掉点击和 Cmd+H，表现得和“HID 按键失效”一模一样。
+
 ### 2.6 真机 flash / pro（P7 / P8，2026-10-21）
 
 真实机台（iPhone + `USB Video` 采集卡 + ESP32-S3，`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461`）：
