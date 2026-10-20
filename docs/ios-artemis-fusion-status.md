@@ -78,6 +78,9 @@ Safety           = pointer precheck + pixel/diff
 - `artemis/drivers/ios/config.py`：`IosRuntimeConfig` / `IosConfigError` / `ios_device_context`
 - `artemis run --platform ios`（`ARTEMIS_DEVICE_PLATFORM` 也可），iOS 不做 adb 预检、
   不查 ADB 设备池、不进 daemon 队列
+- `artemis ios-smoke [--target 闪购] [--no-tap] [--json]`：不开 agent、不走 LLM，
+  按 snapshot → health → OCR → pointer precheck → HID tap → diff 跑一遍机台
+- driver 复用 session 的 pointer detector（一台机只有一个检测配置）
 
 ### 2.5 验证
 
@@ -90,6 +93,9 @@ pytest tests/unit/devices tests/unit/perception tests/unit/control \
 
 pytest tests/integration/ios/test_uvc_flow.py -m integration -q
 # 5 passed（MCP → actuator → controller → driver → HID sink 全链路，假 UVC/假板子）
+
+pytest tests/unit/drivers/test_ios_smoke.py -q
+# 7 passed（机台冒烟的分支：全绿 / 找不到文字 / 指针不可见 / 黑帧 / JSON / 跳过点击 / 缺配置）
 ```
 
 P5/P6 验证覆盖：
@@ -132,12 +138,19 @@ f7e54b9 feat: add shape-only pointer fallback and immediate capture
 
 ### 3.1 真机 flash/pro 未闭环（P7/P8）
 
-iOS driver、runtime config、incident 链路都已离线验证通过，但还没有在真机上跑过：
+iOS driver、runtime config、incident 链路都已离线验证通过，机台冒烟也有独立入口，
+但还没有在真机上跑过：
 
 ```text
+# 1. 先确认机台本身
 ARTEMIS_ESP32_PORT=/dev/tty.usbmodemXXXX \
 ARTEMIS_UVC_DEVICE="USB Video" \
+artemis ios-smoke --target 闪购
+
+# 2. 再跑编排
+ARTEMIS_ESP32_PORT=/dev/tty.usbmodemXXXX \
 artemis run --platform ios --profile flash "打开设置"
+ARTEMIS_ESP32_PORT=/dev/tty.usbmodemXXXX \
 artemis run --platform ios --profile pro "打开设置"
 ```
 
@@ -215,6 +228,7 @@ capabilities.requires_pointer_precheck == True
 ### P7：flash 真机 smoke
 
 - [x] driver 选择/能力声明可离线验证（factory 单测）：`flash` 走同一 `create_driver`
+- [x] `artemis ios-smoke` 覆盖同一链路（UVC → OCR → precheck → HID → diff），无 LLM
 - [ ] `flash` profile 真机创建 iOS driver；
 - [ ] `get_screen_data` 成功；
 - [ ] OCR 定位“设置”/“闪购”；
