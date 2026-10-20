@@ -136,3 +136,68 @@ def test_the_driver_instance_keeps_its_own_no_app_launch_declaration():
     assert driver.capabilities.supports_app_launch is False
     assert driver.capabilities.supports_ui_tree is False
     assert driver.capabilities.requires_pointer_precheck is True
+
+
+# --- frame health: no signal must never look like a successful observation --------------
+
+
+def _session_with_frame(**frame_fields):
+    from types import SimpleNamespace
+
+    session = Session()
+    healthy = SimpleNamespace(
+        image=frame_fields.get("image", b"png"),
+        width=frame_fields.get("width", 449),
+        height=frame_fields.get("height", 974),
+        health=frame_fields.get("health", "ok"),
+        captured_at=1.0,
+    )
+
+    async def snapshot():
+        return healthy
+
+    session.perception[0].snapshot = snapshot
+    return session
+
+
+def test_a_black_frame_is_an_incident_not_a_screenshot():
+    import pytest
+
+    from artemis.perception.incidents import UVC_NO_SIGNAL, UnhealthyFrame
+
+    driver = IOSUvcHidDriver(_session_with_frame(health="black"))
+
+    with pytest.raises(UnhealthyFrame) as excinfo:
+        asyncio.run(driver.get_screen_data())
+
+    assert excinfo.value.incident == UVC_NO_SIGNAL
+    assert "black" in str(excinfo.value)
+
+
+def test_a_capture_that_never_produced_a_frame_is_a_timeout_incident():
+    import pytest
+
+    from artemis.perception.incidents import CAPTURE_TIMEOUT, UnhealthyFrame
+    from artemis.reflex.contract import CaptureError
+
+    session = Session()
+
+    async def explode():
+        raise CaptureError("uvc capture failed: Command ... timed out after 12.0 seconds")
+
+    session.perception[0].snapshot = explode
+    driver = IOSUvcHidDriver(session)
+
+    with pytest.raises(UnhealthyFrame) as excinfo:
+        asyncio.run(driver.get_screen_data())
+
+    assert excinfo.value.incident == CAPTURE_TIMEOUT
+
+
+def test_a_healthy_frame_still_returns_screen_data():
+    driver = IOSUvcHidDriver(_session_with_frame())
+
+    data = asyncio.run(driver.get_screen_data())
+
+    assert (data.width, data.height) == (1080, 2400)
+    assert data.screenshot_bytes == b"png"

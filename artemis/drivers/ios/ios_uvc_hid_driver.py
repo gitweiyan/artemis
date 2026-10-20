@@ -8,7 +8,14 @@ from dataclasses import dataclass, replace
 
 from artemis.control.base import ActionResult
 from artemis.devices.capabilities import CapabilitySet
+from artemis.devices.session import DeviceSessionError
 from artemis.drivers.base import BaseDeviceDriver, ScreenData
+from artemis.perception.incidents import (
+    UVC_NO_SIGNAL,
+    UnhealthyFrame,
+    incident_for_error,
+    incident_for_health,
+)
 from artemis.reflex.vision import RedPointerDetector
 
 
@@ -18,6 +25,16 @@ class PointerValidation:
     incident: str | None
     error_px: float | None
     pointer: tuple[float, float] | None
+
+
+def _health_from_message(message: str) -> str | None:
+    """The ``Frame.health`` value a ``DeviceSessionError`` complained about, if any."""
+    marker = "frame health="
+    index = message.find(marker)
+    if index < 0:
+        return None
+    tail = message[index + len(marker) :].lstrip("=\"'")
+    return tail.split("'")[0].split('"')[0].split(";")[0].strip() or None
 
 
 def _session_detector(session):
@@ -83,6 +100,33 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         if pointer is not None:
             pointer.connected = False
 
+    async def _healthy_frame(self):
+        """The one frame this driver is allowed to act on, or a named failure.
+
+        A ``DeviceSession`` tries its sources and raises ``DeviceSessionError`` when none
+        is healthy; a bare session-like object (tests, a future single-source rig) is
+        gated here instead. Either way a black frame never becomes an "observation".
+        """
+        snapshot = getattr(self.session, "snapshot", None)
+        if callable(snapshot):
+            try:
+                return await snapshot()
+            except DeviceSessionError as exc:
+                health = _health_from_message(str(exc))
+                raise UnhealthyFrame(health or UVC_NO_SIGNAL, str(exc)) from exc
+            except UnhealthyFrame:
+                raise
+            except Exception as exc:  # noqa: BLE001 - a capture failure is data
+                raise UnhealthyFrame(incident_for_error(exc), str(exc)) from exc
+        try:
+            frame = await self.session.perception[0].snapshot()
+        except Exception as exc:  # noqa: BLE001
+            raise UnhealthyFrame(incident_for_error(exc), str(exc)) from exc
+        incident = incident_for_health(getattr(frame, "health", "ok"))
+        if incident:
+            raise UnhealthyFrame(incident, f"frame health={getattr(frame, 'health', None)!r}")
+        return frame
+
     async def get_screen_data(self, skip_settling: bool = False) -> ScreenData:
         """The phone's screen, captured through the card.
 
@@ -92,7 +136,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         (449x974) shrank that grid by 2.4x and sent every tap to the top-left corner
         (measured live 2026-10-21: a tap meant for 微信 landed on 日历).
         """
-        frame = await self.session.perception[0].snapshot()
+        frame = await self._healthy_frame()
         width, height = self._screen_size
         return ScreenData(
             screenshot_bytes=frame.image,
