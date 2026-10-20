@@ -643,3 +643,78 @@ def test_a_frame_without_a_timestamp_is_accepted():
     )
 
     assert controller.tap(100, 100).ok is True
+
+
+def _dot_png(x: int, y: int, size=(360, 640)) -> bytes:
+    """A frame with one small dark dot — stands in for the AssistiveTouch pointer."""
+    import cv2
+    import numpy as np
+
+    image = np.full((size[1], size[0], 3), 235, dtype=np.uint8)
+    cv2.circle(image, (x, y), 12, (90, 90, 90), 4)
+    return cv2.imencode(".png", image)[1].tobytes()
+
+
+def test_a_pointer_the_colour_detector_cannot_see_is_found_by_the_nudge_diff():
+    """Red-ring detection misses a grey pointer; the nudge/diff path still sees it.
+
+    This is the method the project's iOS HID knowledge note prescribes (move, diff the
+    two frames, the moved blob is the pointer), and it needs no colour or shape model.
+    """
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer, PointerTracker
+
+    nudge, gain = 20, 2.0
+    start = (60, 200)
+
+    class MovingCapture:
+        """The dot follows the moves the controller makes, like a real pointer."""
+
+        def __init__(self):
+            self.x, self.y = start
+            self.before = None
+
+        def grab_latest(self):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(image=_dot_png(self.x, self.y))
+
+        def apply_move(self, dx, dy):
+            self.x += int(dx * gain)
+            self.y += int(dy * gain)
+
+    capture = MovingCapture()
+
+    class NoColour:
+        def detect(self, image, near=None):
+            return None
+
+    class MovingControl(FakeControl):
+        def mouse_move(self, dx, dy):
+            super().mouse_move(dx, dy)
+            capture.apply_move(dx, dy)
+
+        def mouse_home(self):
+            super().mouse_home()
+
+    control = MovingControl()
+    session = PointerSession(control, frame_size=(360, 640), gain=(gain, gain))
+    session.connect()
+    # connect() homes the (fake) pointer to the corner; park it at the test's start.
+    capture.x, capture.y = start
+    session.observe(*start)
+    controller = SessionTapController(
+        session,
+        capture=capture,
+        detector=NoColour(),
+        tracker=PointerTracker(),
+        settle_timeout_s=0.0,
+        max_frame_age_s=0.0,
+    )
+
+    frame, pointer = controller._observe()
+
+    assert pointer is not None, "the diff path must find a pointer the colour model misses"
+    assert pointer.method == "diff"
+    assert abs(pointer.x * 360 - (start[0] + nudge * gain)) < 25
+    assert abs(pointer.y * 640 - start[1]) < 25

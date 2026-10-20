@@ -120,3 +120,18 @@ def test_the_session_exposes_the_pointer_belief_the_driver_anchors():
 
     assert session.pointer.connected is True
     assert session.pointer.position == (0.0, 0.0), "connect re-anchors the pointer"
+
+
+def test_the_session_backs_the_colour_detector_with_the_nudge_diff():
+    """A grey or edge-clipped pointer escapes colour/shape detection; the diff path
+    needs no appearance model, so the session always carries it."""
+    session = build_ios_uvc_session(Capture(), Control())
+    sink = session.control[0]
+
+    assert sink.controller.tracker is not None
+    assert sink.controller.tracker.has_template is False, "no template to maintain"
+
+
+def test_the_assistive_button_box_is_forwarded_to_the_tracker():
+    session = build_ios_uvc_session(Capture(), Control(), assistive_button_box=(380, 200, 449, 280))
+    assert session.control[0].controller.tracker.menu_box == (380, 200, 449, 280)

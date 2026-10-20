@@ -168,6 +168,8 @@ class SessionTapController:
         wake_step: int = 60,
         settle_timeout_s: float = 0.6,
         max_frame_age_s: float = 3.0,
+        tracker=None,
+        diff_nudge: int = 20,
     ):
         if detector is not None and capture is None:
             raise ValueError("pre-click pointer verification needs a capture")
@@ -194,6 +196,11 @@ class SessionTapController:
         #: that froze (a stray process holding the card) otherwise looks like a pointer
         #: that will not move; refusing keeps "no verified pointer, no click" true.
         self.max_frame_age_s = max(0.0, float(max_frame_age_s))
+        #: Fallback locator for a pointer the colour/shape model cannot see (a grey
+        #: AssistiveTouch pointer over a busy screen). ``PointerTracker.locate`` diffs
+        #: two frames around a nudge and needs no appearance model at all.
+        self.tracker = tracker
+        self.diff_nudge = max(1, int(diff_nudge))
 
     def _frame_age_s(self, frame) -> float | None:
         """Seconds between capture and now, when the frame can be dated."""
@@ -218,6 +225,28 @@ class SessionTapController:
             frame = self.capture.grab_latest()
         return frame
 
+    def _observe_by_diff(self, frame):
+        """Locate the pointer by nudging it and diffing the two frames.
+
+        Returns ``(frame, pointer)`` or ``(frame, None)``. The nudge is part of the
+        belief's own dead reckoning, so a detection (or a failure) leaves the state
+        consistent.
+        """
+        width, height = self.session.frame_size
+        near = (self.session.position[0] / width, self.session.position[1] / height)
+        if frame is None:
+            frame = self.capture.grab_latest()
+        before = frame.image
+        self.session.move(self.diff_nudge, 0)
+        later = self._frame_after(before)
+        shift = (self.diff_nudge * self.session.gain_x) / max(1, width)
+        found = self.tracker.locate(before, later.image, near, shift)
+        if found is not None:
+            # ``locate`` reports where the pointer was in the *first* frame; the nudge
+            # has already moved it, so report the current position.
+            found = Pointer(min(1.0, found.x + shift), found.y, found.confidence, found.method)
+        return later, found
+
     def _observe(self, after: bytes | None = None):
         """Grab frames until a pointer is detected, or ``observe_attempts`` run out.
 
@@ -239,6 +268,11 @@ class SessionTapController:
             pointer = self.detector.detect(frame.image, near=near)
             if pointer is not None:
                 return frame, pointer
+        if self.tracker is not None:
+            later, found = self._observe_by_diff(frame)
+            if found is not None:
+                return later, found
+            frame = later
         return frame, None
 
     def _travel_on_belief(self, x: float, y: float) -> None:
