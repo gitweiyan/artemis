@@ -292,22 +292,23 @@ artemis/orchestration/
   selector.py    # 已落位：DeviceProfile -> Composition 纯函数
 artemis/perception/
   base.py
-  uvc.py
-  camera.py
-  app_automation.py
-  composite.py
+  uvc.py          # 已落位
+  camera.py       # 已落位（可注入 grabber；黑帧降级）
+  app_automation.py  # 已落位（UI 树源）
+  composite.py    # 已落位（UVC 黑屏落到相机）
 artemis/control/
   base.py
-  hid.py
-  app_control.py
-  composite.py
+  hid.py          # 已落位
+  app_control.py  # 已落位（绝对控制）
+  composite.py    # 已落位（绝对优先，失败不换面重试）
 artemis/safety/
-  xml.py
-  pixel.py
-  pointer.py
+  xml.py          # 仍缺（逻辑在 validator/precondition_xml.py）
+  pixel.py        # 已落位（目标 crop 优先，整帧兜底）
+  pointer.py      # 已落位（指针/目标一致性）
 artemis/devices/
   session.py
   geometry.py
+  app_session.py  # 已落位（app 组合）
 artemis/skills/
   manifest.py
   tetris/

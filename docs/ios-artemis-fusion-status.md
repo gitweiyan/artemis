@@ -190,7 +190,19 @@ Tetris 等 skill 因此可以在 iOS 上跑（仍需真机确认帧率与手势�
 
 仍未落位（B 组剩余）：`control/app_control.py`（Android 绝对控制做成 ControlSink）、
 `control/composite.py`（绝对优先/HID 兜底）、`perception/app_automation.py`（Android UI 树源）、
-`perception/camera.py` + `composite.py`（黑屏降级）、`safety/{pixel,xml}.py`（逻辑仍在 validator 里）。
+`safety/xml.py`（XML 预检逻辑仍在 validator 里，未搬）。
+
+已补齐（2026-10-21 离线）：
+
+| 模块 | 作用 |
+|---|---|
+| `safety/pixel.py` | 「点击后画面有没有反应」：先比目标 crop（点击高亮就在那里），再比整帧（弹层可能开在别处），忽略状态栏时钟；指针闭环用它判定并上报 `crop_change` |
+| `control/app_control.py` | `AppControlSink`：把 driver 的绝对点击/滑动/文本/按键包成 `ControlSink`；相对移动明确返回 `unsupported` |
+| `control/composite.py` | `CompositeControlSink`：按能力选“最精确且能表达该动作”的那一面，失败**不**换面重试（避免半执行两次） |
+| `perception/app_automation.py` | `AppAutomationSource`：UI 树 + 截图作为 `PerceptionSource`（OCR/locate 声明不可用：树里已有文本） |
+| `perception/camera.py` + `composite.py` | `CameraSource`（可注入 grabber，失败记黑帧）与 `CompositePerception`（UVC 黑屏自动落到相机，并报告用的是哪只眼） |
+| `devices/app_session.py` | `build_app_session(driver)`：app 组合也组装成 `DeviceSession`（选择器里的 `app` 现在可构建） |
+| `runtime/action_replay.py` | 用 `action_metrics` 重建 `ReplayPlan` → 重放同一动作 → 比对证据：同 incident 视为“复现成功”，换了 incident 才是需要追查的意外 |
 
 `orchestration/selector.py` 已落位：`DeviceProfile → Composition` 的纯函数决策表
 （app / uvc-hid / camera-hid），factory 现在“先选择、记录理由、再构建”；加新组合 =
