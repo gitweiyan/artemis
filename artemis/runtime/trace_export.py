@@ -283,10 +283,16 @@ def write_step_manifest(ctx: Any, archive_dir: Path) -> dict[str, Any]:
     return {"steps": len(rows), "written": True}
 
 
+def manifest_rows(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Public wrapper: the steps.json row shape, for exports built outside a live run."""
+    return [_manifest_row(step) for step in steps]
+
+
 __all__ = [
     "FRAME_SUFFIX",
     "MANIFEST_NAME",
     "MediaReport",
     "export_step_media",
+    "manifest_rows",
     "write_step_manifest",
 ]

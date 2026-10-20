@@ -86,6 +86,35 @@ def time_to_str(ts: float) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+@trace_app.command("export")
+def export_trace(
+    session: Annotated[
+        str, typer.Argument(help="Session id (or an unambiguous prefix), or 'latest'.")
+    ] = "latest",
+    out: Annotated[
+        Path | None, typer.Option("--out", "-o", help="Directory for the export.")
+    ] = None,
+) -> None:
+    """Rebuild a reviewable evidence package from the trace database.
+
+    Works for runs that were interrupted before the normal archive was written (a killed
+    process, a harness timeout): the database already holds the steps, screenshots and
+    action spans.
+    """
+    from artemis.runtime.session_export import export_session_from_db
+
+    traces_dir = Path(settings.TRACES_PATH)
+    db_path = traces_dir / "data_engine.db"
+    try:
+        export = export_session_from_db(db_path, session, out or (traces_dir / "exports"))
+    except ValueError as exc:
+        typer.secho(f"Export failed: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+    console = Console()
+    console.print(export.summary())
+    console.print(f"timeline: {export.directory / 'evidence.md'}")
+
+
 @trace_app.command("view")
 def view_trace(
     session_name: Annotated[str, typer.Argument(help="Name of the trace session directory.")],

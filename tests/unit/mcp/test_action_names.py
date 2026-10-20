@@ -1,5 +1,3 @@
-
-
 def test_keyboard_shortcut_names_reach_the_canonical_tool():
     """The iOS rig is keyboard-first: these names must survive verbatim."""
     from artemis.mcp.action_names import to_canonical_call

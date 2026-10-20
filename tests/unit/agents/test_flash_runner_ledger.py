@@ -27,6 +27,7 @@ bounded loops, and a no-tool-call turn is nudged, not terminated.
 
 import base64
 import re
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import pytest
@@ -684,3 +685,31 @@ def test_turn_record_reports_the_first_failure_of_a_multi_action_turn():
         ]
     )
     assert record.result()["error"] == "click rejected: coordinates out of bounds"
+
+
+def test_a_flash_action_records_the_drivers_incident_and_metrics():
+    """Flash runs must be replayable too: the same evidence the Validator records."""
+    from artemis.agents.flash.runner import FlashRunner
+
+    exec_result = SimpleNamespace(
+        metadata={
+            "target_coordinates": [540, 1200],
+            "incident": "pointer_missing",
+            "action_metrics": {"error_px": 12.5, "frame_age_s": 0.4},
+        }
+    )
+
+    # The record builder only needs `_extract_normalized_coordinates` from the instance.
+    def _extract(name, args, resolved=None):
+        return [500, 500], None, None
+
+    runner = SimpleNamespace(_extract_normalized_coordinates=_extract)
+    action_dict = FlashRunner._build_action_record(
+        runner,
+        "click",
+        {"target": [500, 500], "target_description": "play"},
+        exec_result,
+    )
+
+    assert action_dict["incident"] == "pointer_missing"
+    assert action_dict["action_metrics"]["error_px"] == 12.5

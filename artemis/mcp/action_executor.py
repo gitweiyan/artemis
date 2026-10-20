@@ -248,6 +248,10 @@ class McpActionExecutor:
                 "normalized_coordinates": res.normalized_coordinates,
                 "target_semantics": target_semantics,
                 "target_coordinates": target_coordinates,
+                # The driver's structured evidence (pointer position, error, frame age)
+                # and why it refused: recorded by both profiles, not just the Validator.
+                "incident": getattr(res, "incident", None),
+                "action_metrics": getattr(res, "metrics", None),
             },
         )
 

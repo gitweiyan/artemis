@@ -722,6 +722,15 @@ class FlashRunner:
             action_dict["normalized_start_coordinates"] = norm_start
             action_dict["normalized_end_coordinates"] = norm_end
         action_dict.update(metadata.get("target_semantics") or {})
+        # Evidence the driver reported for this action: the incident code when it refused,
+        # and the numbers behind it (pointer position, error_px, frame age). Same shape the
+        # Validator path records, so a flash run is replayable too.
+        incident = metadata.get("incident")
+        if incident:
+            action_dict["incident"] = incident
+        metrics = metadata.get("action_metrics")
+        if metrics:
+            action_dict["action_metrics"] = metrics
         return action_dict
 
     def _record_action_step(
