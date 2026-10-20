@@ -733,7 +733,7 @@
     }
   },
   "press_key": {
-    "description": "Press a device key (home, back, enter, delete, tab, search, menu, app_switch).",
+    "description": "Press a device key or shortcut (home, back, enter, delete, tab, search, escape, up, down, left, right, close, app_switch). On iOS 'search' is Cmd+Space (Spotlight), 'home' is Cmd+H, 'close' is Cmd+W.",
     "inputSchema": {
       "properties": {
         "key": {

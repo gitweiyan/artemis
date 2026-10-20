@@ -564,20 +564,42 @@ _SPECS: tuple[ActionSpec, ...] = (
         name="press_key",
         operator=OperatorDialect(
             description=(
-                "[ACTION] Press a physical or virtual system button (e.g. ENTER, BACK,"
-                " HOME, APP_SWITCH)."
+                "[ACTION] Press a system key or keyboard shortcut. Prefer the keyboard over"
+                " tapping icons: SEARCH opens the system search (Spotlight on iOS) where you"
+                " can INPUT_TEXT an app name (pinyin/latin), press DOWN to pick the top"
+                " result, then ENTER to launch it; HOME returns to the home screen; ESCAPE"
+                " dismisses a sheet or search page."
             ),
             params=(
                 ParamSpec(
                     "key",
-                    Literal["ENTER", "BACK", "HOME", "APP_SWITCH"],
-                    "Standard Android system button name (ENTER, BACK, HOME, APP_SWITCH).",
+                    Literal[
+                        "ENTER",
+                        "BACK",
+                        "HOME",
+                        "APP_SWITCH",
+                        "SEARCH",
+                        "ESCAPE",
+                        "UP",
+                        "DOWN",
+                        "LEFT",
+                        "RIGHT",
+                        "CLOSE",
+                        "TAB",
+                        "SPACE",
+                        "DELETE",
+                    ],
+                    "System key or shortcut: ENTER, BACK, HOME, APP_SWITCH, SEARCH"
+                    " (system search / Spotlight), ESCAPE, UP, DOWN, LEFT, RIGHT, CLOSE,"
+                    " TAB, SPACE, DELETE.",
                 ),
             ),
         ),
         wire=WireDialect(
             description=(
-                "Press a device key (home, back, enter, delete, tab, search, menu, app_switch)."
+                "Press a device key or shortcut (home, back, enter, delete, tab, search,"
+                " escape, up, down, left, right, close, app_switch). On iOS 'search' is"
+                " Cmd+Space (Spotlight), 'home' is Cmd+H, 'close' is Cmd+W."
             ),
             params=(ParamSpec("key", str),),
             bind=_wire_press_key,

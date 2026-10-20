@@ -234,16 +234,26 @@
     "type": "function",
     "function": {
       "name": "press_key",
-      "description": "[ACTION] Press a physical or virtual system button (e.g. ENTER, BACK, HOME, APP_SWITCH).",
+      "description": "[ACTION] Press a system key or keyboard shortcut. Prefer the keyboard over tapping icons: SEARCH opens the system search (Spotlight on iOS) where you can INPUT_TEXT an app name (pinyin/latin), press DOWN to pick the top result, then ENTER to launch it; HOME returns to the home screen; ESCAPE dismisses a sheet or search page.",
       "parameters": {
         "properties": {
           "key": {
-            "description": "Standard Android system button name (ENTER, BACK, HOME, APP_SWITCH).",
+            "description": "System key or shortcut: ENTER, BACK, HOME, APP_SWITCH, SEARCH (system search / Spotlight), ESCAPE, UP, DOWN, LEFT, RIGHT, CLOSE, TAB, SPACE, DELETE.",
             "enum": [
               "ENTER",
               "BACK",
               "HOME",
-              "APP_SWITCH"
+              "APP_SWITCH",
+              "SEARCH",
+              "ESCAPE",
+              "UP",
+              "DOWN",
+              "LEFT",
+              "RIGHT",
+              "CLOSE",
+              "TAB",
+              "SPACE",
+              "DELETE"
             ],
             "type": "string"
           }
