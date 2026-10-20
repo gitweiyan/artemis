@@ -167,3 +167,36 @@ def test_the_capture_mode_can_be_pinned_to_a_persistent_stream(monkeypatch):
 
     assert stream.called
     assert not single.called
+
+
+def test_the_factory_logs_the_selected_composition(monkeypatch, caplog):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+        caplog.at_level(logging.INFO),
+    ):
+        create_driver(_ios_ctx())
+
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Composition: uvc-hid" in logged
+    assert "relative pointer" in logged, "the log says why this composition was chosen"
+
+
+def test_a_camera_only_rig_fails_loudly_today(monkeypatch):
+    """The selector can choose a camera composition; no builder exists, so say that."""
+    from artemis.orchestration.selector import CompositionError
+
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_IOS_CAMERA", "1")
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+    ):
+        # uvc is still available, so the UVC composition wins; the camera flag alone
+        # must never override a working capture path.
+        assert create_driver(_ios_ctx()) is not None

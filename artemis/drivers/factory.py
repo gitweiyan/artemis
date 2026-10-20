@@ -73,10 +73,33 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
         from artemis.devices.ios_uvc import build_ios_uvc_session
         from artemis.drivers.ios.config import IosRuntimeConfig
         from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
+        from artemis.orchestration.selector import (
+            CompositionError,
+            DeviceProfile,
+            select_composition,
+        )
         from artemis.reflex.capture import UvcCapture, UvcStream
         from artemis.reflex.control import Esp32HidControl
 
         ios = IosRuntimeConfig.from_env()
+        composition = select_composition(
+            DeviceProfile(
+                platform="ios",
+                device_id=getattr(ctx.device, "device_id", "ios-uvc"),
+                capabilities=IOSUvcHidDriver.capabilities,
+                screen_size=_descriptor_screen_size(ctx) or ios.screen_size,
+                uvc_available=True,
+                camera_available=bool(os.environ.get("ARTEMIS_IOS_CAMERA", "").strip()),
+                capture_mode=ios.capture_mode,
+            )
+        )
+        logger.info(f"Composition: {composition.kind} — {composition.reason}")
+        if composition.kind != "uvc-hid":
+            # Only the UVC + HID builder exists today; saying so beats pretending.
+            raise CompositionError(
+                f"composition {composition.kind!r} is not buildable yet ({composition.reason})"
+            )
+
         capture_factory = UvcStream if ios.capture_mode == "stream" else UvcCapture
         capture = capture_factory(
             ios.uvc_device,
