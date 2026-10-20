@@ -47,6 +47,13 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         self.session = session
         self._device_id = device_id
         self.detector = detector or _session_detector(session) or RedPointerDetector()
+        # What *this rig* can do: the session aggregates its perception sources and
+        # control sinks. The class-level declaration above stays the contract default
+        # (and the thing tests read on the class); a driver instance reports the truth,
+        # so a log or a caller never has to guess whether OCR is actually available.
+        session_capabilities = getattr(session, "capabilities", None)
+        if session_capabilities is not None:
+            self.capabilities = session_capabilities
         self._screen_size = session.geometry.screen_size if session.geometry else (1080, 2400)
 
     @property

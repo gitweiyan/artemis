@@ -117,3 +117,21 @@ def test_the_factory_logs_the_driver_and_its_capabilities(monkeypatch, caplog):
     assert "ios-uvc-hid" in logged
     assert "requires_pointer_precheck=True" in logged
     assert "supports_ui_tree=False" in logged
+
+
+def test_the_driver_instance_reports_the_rigs_real_capabilities(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_IOS_OCR", "0")
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.PaddleOcrEngine"),
+    ):
+        driver = create_driver(_ios_ctx())
+
+    assert driver.capabilities.supports_ocr is False, "OCR is disabled for this run"
+    assert driver.capabilities.supports_ui_tree is False
+    assert driver.capabilities.requires_pointer_precheck is True
+    # The class declaration stays the contract; instances report the session's truth.
+    assert IOSUvcHidDriver.capabilities.supports_relative_pointer is True
