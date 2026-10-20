@@ -176,6 +176,7 @@ class SessionTapController:
         max_frame_age_s: float = 3.0,
         tracker=None,
         diff_nudge: int = 20,
+        adaptive_gain: bool = True,
     ):
         if detector is not None and capture is None:
             raise ValueError("pre-click pointer verification needs a capture")
@@ -207,6 +208,12 @@ class SessionTapController:
         #: two frames around a nudge and needs no appearance model at all.
         self.tracker = tracker
         self.diff_nudge = max(1, int(diff_nudge))
+        #: iOS pointer gain is *not* constant: measured 1.2 per HID unit for small moves
+        #: and up to ~2.1 for large ones (2026-10-21). A fixed gain makes the correction
+        #: loop stop short of the target, so the ratio is estimated from the observations
+        #: themselves (exponential smoothing, clamped to a plausible band).
+        self.adaptive_gain = bool(adaptive_gain)
+        self._gain = [float(session.gain_x), float(session.gain_y)]
 
     def _frame_age_s(self, frame) -> float | None:
         """Seconds between capture and now, when the frame can be dated."""
@@ -252,6 +259,18 @@ class SessionTapController:
             # has already moved it, so report the current position.
             found = Pointer(min(1.0, found.x + shift), found.y, found.confidence, found.method)
         return later, found
+
+    def _update_gain(self, moved: tuple[int, int], observed: tuple[float, float]) -> None:
+        """Blend the measured displacement ratio into the gain estimate."""
+        if not self.adaptive_gain:
+            return
+        for index, delta in enumerate(moved):
+            if abs(delta) < 8:
+                continue  # too small to measure against pointer jitter
+            ratio = observed[index] / delta
+            if not (0.3 <= ratio <= 4.0):
+                continue  # a mis-detection, not a gain
+            self._gain[index] = min(4.0, max(0.3, 0.6 * self._gain[index] + 0.4 * ratio))
 
     def _observe(self, after: bytes | None = None):
         """Grab frames until a pointer is detected, or ``observe_attempts`` run out.
@@ -323,83 +342,74 @@ class SessionTapController:
         # only a moment after each move, so a queued frame is useless for this).
         before = self.capture.grab_latest()
         self._travel_on_belief(x, y)
+        last_position: tuple[float, float] | None = None
+        last_move: tuple[int, int] | None = None
 
         for attempt in range(1, self.max_attempts + 1):
-            frame, pointer = self._observe(after=before.image)
-            if pointer is None:
-                # Wake the faded pointer with a deliberate move, then look for a frame
-                # that reflects it.
-                self.session.move(self.wake_step, self.wake_step)
-                frame, pointer = self._observe(after=frame.image)
-            if pointer is None:
-                return TapResult(
-                    False,
-                    attempt,
-                    None,
-                    None,
-                    "pointer not detected before click; refusing to click",
-                    "pointer_missing",
-                )
-            frame_age = self._frame_age_s(frame)
-            stale = self._stale_reason(frame)
-            if stale is not None:
-                return TapResult(
-                    False,
-                    attempt,
-                    pointer,
-                    None,
-                    f"{stale}; refusing to click on a frame we cannot trust",
-                    "stale_frame",
-                    frame_age,
-                )
-            last_pointer = pointer
-            self.session.observe(pointer.x * width, pointer.y * height)
-            # One definition of "the pointer is on the target", shared with the driver's
-            # read-only precheck (artemis.safety.pointer).
-            verdict = check_point(
-                x,
-                y,
-                self.session.position[0],
-                self.session.position[1],
-                tolerance_px=self.tolerance_px,
-            )
-            error = verdict.error_px if verdict.error_px is not None else 0.0
-            last_error = error
-            if verdict.ok:
-                before = frame.image
-                self.session.click()
-                after = self.capture.grab_latest()
-                # The target crop decides first; a change elsewhere on the screen is
-                # still proof the click landed (a sheet can open away from the target).
-                effect = verify_effect(
-                    before,
-                    after.image,
-                    (pointer.x * width, pointer.y * height),
-                )
-                if effect.ok:
+            for _step in range(self.max_steps):
+                frame, pointer = self._observe(after=before.image if _step == 0 else None)
+                if pointer is None and last_position is None:
+                    # Wake the faded pointer with a deliberate move, then look for a frame
+                    # that reflects it.
+                    self.session.move(self.wake_step, self.wake_step)
+                    frame, pointer = self._observe(after=frame.image)
+                if pointer is None:
                     return TapResult(
-                        True,
+                        False,
+                        attempt,
+                        None,
+                        None,
+                        "pointer not detected before click; refusing to click",
+                        "pointer_missing",
+                    )
+                frame_age = self._frame_age_s(frame)
+                stale = self._stale_reason(frame)
+                if stale is not None:
+                    return TapResult(
+                        False,
                         attempt,
                         pointer,
-                        error,
-                        "pointer verified at target; click changed the screen",
                         None,
+                        f"{stale}; refusing to click on a frame we cannot trust",
+                        "stale_frame",
                         frame_age,
-                        effect.crop_change,
                     )
-                return TapResult(
-                    False,
-                    attempt,
-                    pointer,
-                    error,
-                    "pointer verified at target, but click did not change the screen",
-                    "no_effect",
-                    frame_age,
-                    effect.crop_change,
+                last_pointer = pointer
+                position = (pointer.x * width, pointer.y * height)
+                if last_position is not None and last_move is not None:
+                    self._update_gain(
+                        last_move,
+                        (position[0] - last_position[0], position[1] - last_position[1]),
+                    )
+                self.session.observe(*position)
+                # One definition of "the pointer is on the target", shared with the
+                # driver's read-only precheck (artemis.safety.pointer).
+                verdict = check_point(
+                    x,
+                    y,
+                    self.session.position[0],
+                    self.session.position[1],
+                    tolerance_px=self.tolerance_px,
                 )
-            # The detection disagreed with the belief (gain drift): correct and retry.
-            self._travel_on_belief(x, y)
-
+                error = verdict.error_px if verdict.error_px is not None else 0.0
+                last_error = error
+                if verdict.ok:
+                    return self._click_and_verify(x, y, pointer, error, frame, frame_age, attempt)
+                # Correct with the *measured* gain rather than the configured one: iOS
+                # accelerates the pointer, so the configured ratio is only a starting
+                # guess and a fixed one stops the loop short of the target.
+                dx = max(
+                    -self.max_step,
+                    min(self.max_step, round((x - position[0]) / self._gain[0])),
+                )
+                dy = max(
+                    -self.max_step,
+                    min(self.max_step, round((y - position[1]) / self._gain[1])),
+                )
+                if dx == 0 and dy == 0:
+                    break
+                self.session.move(dx, dy)
+                last_position, last_move = position, (dx, dy)
         return TapResult(
             False,
             self.max_attempts,
@@ -407,6 +417,37 @@ class SessionTapController:
             last_error,
             "pointer did not converge to the target; refusing to click",
             "pointer_not_centered",
+        )
+
+    def _click_and_verify(self, x, y, pointer, error, frame, frame_age, attempt) -> TapResult:
+        """Click a verified pointer and demand that the screen reacts."""
+        width, height = self.session.frame_size
+        before = frame.image
+        self.session.click()
+        after = self.capture.grab_latest()
+        # The target crop decides first; a change elsewhere on the screen is still proof
+        # the click landed (a sheet can open away from the target).
+        effect = verify_effect(before, after.image, (pointer.x * width, pointer.y * height))
+        if effect.ok:
+            return TapResult(
+                True,
+                attempt,
+                pointer,
+                error,
+                "pointer verified at target; click changed the screen",
+                None,
+                frame_age,
+                effect.crop_change,
+            )
+        return TapResult(
+            False,
+            attempt,
+            pointer,
+            error,
+            "pointer verified at target, but click did not change the screen",
+            "no_effect",
+            frame_age,
+            effect.crop_change,
         )
 
     def tap(self, x: float, y: float) -> TapResult:

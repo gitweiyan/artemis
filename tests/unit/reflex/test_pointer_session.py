@@ -789,3 +789,89 @@ def test_a_click_that_changes_only_the_target_crop_is_verified():
 
     assert result.ok is True
     assert result.crop_change is not None and result.crop_change > 0.0
+
+
+def test_the_loop_learns_a_gain_the_configuration_guessed_wrong():
+    """iOS accelerates: 1.2 device px per HID unit here, 1.8 configured.
+
+    A fixed gain stops the loop short of the target (measured live 2026-10-21: the tap
+    landed left of the icon it aimed at), so the ratio is measured from the observations.
+    """
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from PIL import Image, ImageDraw
+
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    TRUE_GAIN = 1.2
+    FRAME = (449, 974)
+
+    class Accelerating:
+        """The truth: our moves land TRUE_GAIN device px per unit, not the configured 1.8."""
+
+        def __init__(self, gain=(1.8, 1.8)):
+            self.position = [0.0, 0.0]
+            self.clicks = 0
+            self.hid = SimpleNamespace(
+                mouse_home=lambda: None,
+                mouse_move=self._move,
+                mouse_click=self._click,
+            )
+            self.moves: list[tuple[int, int]] = []
+
+        def _click(self):
+            self.clicks += 1
+
+        def _move(self, dx, dy):
+            self.moves.append((dx, dy))
+            self.position[0] += dx * TRUE_GAIN
+            self.position[1] += dy * TRUE_GAIN
+
+    class Camera:
+        """A frame whose dot is exactly at the true pointer position."""
+
+        def __init__(self, truth):
+            self.truth = truth
+            self.clicks = 0
+
+        def grab_latest(self):
+            image = Image.new("RGB", FRAME, (235, 235, 235))
+            draw = ImageDraw.Draw(image)
+            x = int(min(FRAME[0] - 6, max(6, self.truth.position[0])))
+            y = int(min(FRAME[1] - 6, max(6, self.truth.position[1])))
+            draw.ellipse((x - 4, y - 4, x + 4, y + 4), fill=(230, 40, 40))
+            buffer = BytesIO()
+            image.save(buffer, "PNG")
+            return SimpleNamespace(image=buffer.getvalue())
+
+    class Detector:
+        def __init__(self, truth):
+            self.truth = truth
+
+        def detect(self, image, near=None):
+            x = min(FRAME[0], max(0, self.truth.position[0])) / FRAME[0]
+            y = min(FRAME[1], max(0, self.truth.position[1])) / FRAME[1]
+            return Pointer(x, y, 0.9, "fake")
+
+    truth = Accelerating()
+    session = PointerSession(truth.hid, frame_size=FRAME, gain=(1.8, 1.8))
+    session.connected = True
+    camera = Camera(truth)
+    controller = SessionTapController(
+        session,
+        capture=camera,
+        detector=Detector(truth),
+        max_steps=8,
+        max_step=50,
+        settle_timeout_s=0.0,
+    )
+
+    target = (240.0, 600.0)
+    controller.tap(target[0], target[1])
+
+    reached = ((truth.position[0] - target[0]) ** 2 + (truth.position[1] - target[1]) ** 2) ** 0.5
+    assert truth.clicks >= 1, "the loop clicked on a verified pointer"
+    assert reached <= 8.0, f"the pointer truly reached the target (off by {reached:.1f})"
+    assert controller._gain[0] < 1.8, "the measured ratio replaced the configured guess"

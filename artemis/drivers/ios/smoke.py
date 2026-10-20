@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 
+from artemis.perception.base import Target
 from artemis.perception.incidents import UnhealthyFrame
 from artemis.perception.text_locator import locate_text
 from dataclasses import asdict, dataclass, field
@@ -158,10 +159,14 @@ async def run_smoke(
         try:
             # A buffered frame can predate the screen settling (a move, a fade, a page
             # transition); OCR an unreadable frame is a retry, not a verdict.
+            probe = Target(target, (0, 0, 0, 0), 0.0, "ocr")
             for attempts in range(1, 4):
                 boxes = await source.ocr(frame)
                 if boxes:
-                    located = locate_text(boxes, target)
+                    # Through the source, not around it: its target adjuster lifts a
+                    # springboard label onto the icon, and the smoke must exercise the
+                    # same path the driver does.
+                    located = await source.locate(frame, probe)
                     if located is not None:
                         break
                 # A retry must read a *new* frame: an identical buffered one would give
@@ -195,7 +200,7 @@ async def run_smoke(
                 "locate",
                 True,
                 f"{located.label!r} box={tuple(round(v, 3) for v in located.box)}"
-                f" confidence={located.confidence:.2f}"
+                f" confidence={located.confidence:.2f} source={located.source}"
                 + (f" (frame {attempts})" if attempts > 1 else ""),
                 elapsed,
             )

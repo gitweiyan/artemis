@@ -100,3 +100,48 @@ def test_uvc_source_locates_text_target():
 
     assert target is not None
     assert target.box == (0.2, 0.1, 0.3, 0.2)
+
+
+def test_locate_lifts_a_label_onto_the_icon_above_it():
+    """The springboard's label is not tappable; the target must be the icon."""
+    from artemis.perception.base import Target, TextBox
+
+    class Ocr:
+        def recognize(self, image, *, width, height):
+            return [TextBox("设置", (0.30, 0.40, 0.36, 0.42), 0.9)]
+
+    def adjuster(image, box):
+        return Target("", (0.28, 0.30, 0.38, 0.38), 1.0, "icon-above-label")
+
+    source = UvcSource(
+        FakeCapture(_png((200, 200, 200))), ocr_engine=Ocr(), target_adjuster=adjuster
+    )
+    frame = asyncio.run(source.snapshot())
+
+    located = asyncio.run(source.locate(frame, Target("设置", (0, 0, 0, 0), 0, "ocr")))
+
+    assert located is not None
+    assert located.box == (0.28, 0.30, 0.38, 0.38)
+    assert located.label == "设置", "the matched text stays as evidence"
+    assert located.confidence == 0.9
+    assert located.source == "icon-above-label"
+
+
+def test_locate_keeps_the_text_box_when_nothing_is_above_it():
+    from artemis.perception.base import Target, TextBox
+
+    class Ocr:
+        def recognize(self, image, *, width, height):
+            return [TextBox("登录", (0.30, 0.40, 0.36, 0.42), 0.9)]
+
+    source = UvcSource(
+        FakeCapture(_png((200, 200, 200))),
+        ocr_engine=Ocr(),
+        target_adjuster=lambda image, box: None,
+    )
+    frame = asyncio.run(source.snapshot())
+
+    located = asyncio.run(source.locate(frame, Target("登录", (0, 0, 0, 0), 0, "ocr")))
+
+    assert located is not None
+    assert located.box == (0.30, 0.40, 0.36, 0.42)

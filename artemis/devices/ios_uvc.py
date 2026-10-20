@@ -9,6 +9,7 @@ from artemis.devices.session import DeviceSession
 from artemis.reflex.mouse import PointerSession, SessionTapController
 from artemis.perception.base import Target
 from artemis.perception.uvc import UvcSource
+from artemis.perception.ios_targets import icon_above_label
 from artemis.reflex.vision import PointerTracker, RedPointerDetector
 
 
@@ -53,7 +54,7 @@ def build_ios_uvc_session(
     )
     geometry = ScreenGeometry(frame_size, screen_size)
     return DeviceSession(
-        perception=[UvcSource(capture, ocr_engine=ocr_engine)],
+        perception=[UvcSource(capture, ocr_engine=ocr_engine, target_adjuster=icon_above_label)],
         control=[HidControlSink(pointer, controller, geometry=geometry)],
         geometry=geometry,
         pointer=pointer,
