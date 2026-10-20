@@ -26,7 +26,12 @@ class HidControlSink:
         result = await asyncio.to_thread(self.controller.tap, x, y)
         if result.ok:
             return ActionResult(True, "tap_abs", detail=result.message)
-        return ActionResult(False, "tap_abs", "no_effect", result.message)
+        return ActionResult(
+            False,
+            "tap_abs",
+            result.incident or "no_effect",
+            result.message,
+        )
 
     async def tap_rel(self, dx: int, dy: int) -> ActionResult:
         await asyncio.to_thread(self.session.move, dx, dy)

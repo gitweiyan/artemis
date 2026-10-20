@@ -85,3 +85,25 @@ def test_relative_move_text_and_swipe_delegate():
     assert session.control.text == ["hi"]
     assert session.control.events[0] == "down"
     assert session.control.events[-1] == "up"
+
+
+def test_failed_tap_preserves_the_controller_incident():
+    controller = FakeController(
+        TapResult(False, 1, None, None, "pointer not detected", "pointer_missing")
+    )
+    sink = HidControlSink(FakeSession(), controller)
+
+    result = asyncio.run(sink.tap_abs(100, 200))
+
+    assert result.ok is False
+    assert result.incident == "pointer_missing"
+    assert "not detected" in result.detail
+
+
+def test_failed_tap_without_an_incident_still_reports_no_effect():
+    controller = FakeController(TapResult(False, 1, None, None, "unknown failure"))
+    sink = HidControlSink(FakeSession(), controller)
+
+    result = asyncio.run(sink.tap_abs(100, 200))
+
+    assert result.incident == "no_effect"
