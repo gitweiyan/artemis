@@ -203,3 +203,46 @@ async def test_tap_at_still_uses_plain_tap_when_no_structured_result_exists():
     assert out.error is None
     assert out.incident is None
     assert driver.calls == [(10, 20)]
+
+
+class _ControllerWithIncident:
+    def __init__(self, incident):
+        from third_party.mobile_use.controllers.types import TapOutput
+
+        self.tap_output = TapOutput(error="Tap failed at (540, 1200)", incident=incident)
+        self.driver = None
+
+    async def tap_at(self, x, y, **kwargs):
+        return self.tap_output
+
+
+@pytest.mark.asyncio
+async def test_click_carries_the_driver_incident():
+    from types import SimpleNamespace
+
+    from artemis.mcp.actuators.adb import AdbActuator
+
+    ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
+    actuator = AdbActuator(ctx, controller=_ControllerWithIncident("pointer_missing"))
+
+    res = await actuator.click(500, 500)
+
+    assert res.ok is False
+    assert res.incident == "pointer_missing"
+    # The historical message is part of the contract; the incident rides alongside.
+    assert res.message == "Error executing click: Tap failed at (540, 1200)"
+
+
+@pytest.mark.asyncio
+async def test_click_without_a_driver_incident_stays_unchanged():
+    from types import SimpleNamespace
+
+    from artemis.mcp.actuators.adb import AdbActuator
+
+    ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
+    actuator = AdbActuator(ctx, controller=_ControllerWithIncident(None))
+
+    res = await actuator.click(500, 500)
+
+    assert res.ok is False
+    assert res.incident is None

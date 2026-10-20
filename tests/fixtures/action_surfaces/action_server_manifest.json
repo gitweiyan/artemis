@@ -73,6 +73,18 @@
           "default": null,
           "title": "Detail"
         },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
+        },
         "normalized_coordinates": {
           "anyOf": [
             {
@@ -183,6 +195,18 @@
           "default": null,
           "title": "Detail"
         },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
+        },
         "normalized_coordinates": {
           "anyOf": [
             {
@@ -289,6 +313,18 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
         },
         "normalized_coordinates": {
           "anyOf": [
@@ -409,6 +445,18 @@
           "default": null,
           "title": "Detail"
         },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
+        },
         "normalized_coordinates": {
           "anyOf": [
             {
@@ -524,6 +572,18 @@
           "default": null,
           "title": "Detail"
         },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
+        },
         "normalized_coordinates": {
           "anyOf": [
             {
@@ -622,6 +682,18 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
         },
         "normalized_coordinates": {
           "anyOf": [
@@ -727,6 +799,18 @@
           "default": null,
           "title": "Detail"
         },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
+        },
         "normalized_coordinates": {
           "anyOf": [
             {
@@ -825,6 +909,18 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
         },
         "normalized_coordinates": {
           "anyOf": [
@@ -935,6 +1031,18 @@
           "default": null,
           "title": "Detail"
         },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
+        },
         "normalized_coordinates": {
           "anyOf": [
             {
@@ -1034,6 +1142,18 @@
           "default": null,
           "title": "Detail"
         },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
+        },
         "normalized_coordinates": {
           "anyOf": [
             {
@@ -1124,6 +1244,18 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
         },
         "normalized_coordinates": {
           "anyOf": [
@@ -1226,6 +1358,18 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
         },
         "normalized_coordinates": {
           "anyOf": [

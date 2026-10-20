@@ -132,6 +132,11 @@ class AdbActuator:
 
     # --- Required action -------------------------------------------------------------
 
+    @staticmethod
+    def _incident(result) -> str | None:
+        """The driver's machine-readable failure reason, when it reports one."""
+        return getattr(result, "incident", None) if result else None
+
     async def click_sequence(
         self, points: list[tuple[int, int]], delay_ms: int = 50
     ) -> ActionResult:
@@ -145,6 +150,7 @@ class AdbActuator:
                     "click_sequence",
                     f"Error executing click at step {i + 1}: {err}",
                     detail=str(err),
+                    incident=self._incident(result),
                 )
             outcomes.append(f"[{nx}, {ny}]")
             if i < len(points) - 1:
@@ -162,7 +168,12 @@ class AdbActuator:
         result = await self.controller.tap_at(x, y, times=times, delay_ms=delay_ms)
         err = getattr(result, "error", None) if result else None
         if err is not None:
-            return ActionResult.failure("click", f"Error executing click: {err}", detail=str(err))
+            return ActionResult.failure(
+                "click",
+                f"Error executing click: {err}",
+                detail=str(err),
+                incident=self._incident(result),
+            )
         return ActionResult.success(
             "click",
             f"Tapped at [{nx}, {ny}] (normalized).",
@@ -177,7 +188,10 @@ class AdbActuator:
         err = getattr(result, "error", None) if result else None
         if err is not None:
             return ActionResult.failure(
-                "long_press", f"Error executing long press: {err}", detail=str(err)
+                "long_press",
+                f"Error executing long press: {err}",
+                detail=str(err),
+                incident=self._incident(result),
             )
         return ActionResult.success(
             "long_press",

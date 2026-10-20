@@ -50,6 +50,14 @@ class ActionResult(BaseModel):
     """Agent-facing summary; wording matches the historical executor outcomes."""
     detail: str | None = None
     """Raw driver/controller error for diagnostics; never shown to the LLM."""
+    incident: str | None = None
+    """Machine-readable failure reason when the driver reports one.
+
+    Relative-pointer platforms (iOS UVC + ESP32 HID) know *why* a tap failed:
+    ``pointer_missing``, ``pointer_off_target``, ``pointer_not_centered``,
+    ``no_effect``. The Validator turns this into an execution incident; a platform
+    that reports nothing leaves it ``None`` and keeps the historical behavior.
+    """
     normalized_coordinates: list[int] | None = None
     duration_ms: int | None = None
 
