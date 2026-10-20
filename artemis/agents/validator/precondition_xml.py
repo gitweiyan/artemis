@@ -32,6 +32,7 @@ from artemis.agents.validator.categories import ValidationErrorCategory
 from artemis.constants import VALIDATOR_UI_HIERARCHY_TIMEOUT
 from artemis.context import ArtemisContext
 from artemis.graph.state import State
+from artemis.safety import xml as xml_safety
 from artemis.utils import visualization
 from third_party.mobile_use.utils.logger import get_logger
 
@@ -192,32 +193,11 @@ def _text_similarity(norm_target_text: str, elem_norm_text: str) -> float:
 
 def _bounds_match(target_bounds, elem_bounds) -> tuple[float, bool]:
     """Returns (IoU bounds score, size-mismatch flag) for the bounds pair."""
-    bounds_score = 0.0
-    size_mismatch = False
-    if target_bounds and elem_bounds and len(target_bounds) == 4 and len(elem_bounds) == 4:
-        l1, t1, r1, b1 = target_bounds
-        l2, t2, r2, b2 = elem_bounds
-
-        # Check size ratio mismatch to prevent matching small widget to giant container
-        w1, h1 = r1 - l1, b1 - t1
-        w2, h2 = r2 - l2, b2 - t2
-        if w1 > 0 and h1 > 0 and w2 > 0 and h2 > 0:
-            size_ratio_w = max(w1, w2) / min(w1, w2)
-            size_ratio_h = max(h1, h2) / min(h1, h2)
-            if size_ratio_w > 2.5 or size_ratio_h > 2.5:
-                size_mismatch = True
-
-        li = max(l1, l2)
-        ti = max(t1, t2)
-        ri = min(r1, r2)
-        bi = min(b1, b2)
-        if ri > li and bi > ti:
-            inter_area = (ri - li) * (bi - ti)
-            union_area = (r1 - l1) * (b1 - t1) + (r2 - l2) * (b2 - t2) - inter_area
-            if union_area > 0:
-                bounds_score = inter_area / union_area
-
-    return bounds_score, size_mismatch
+    if not (target_bounds and elem_bounds and len(target_bounds) == 4 and len(elem_bounds) == 4):
+        return 0.0, False
+    first = tuple(int(v) for v in target_bounds)
+    second = tuple(int(v) for v in elem_bounds)
+    return xml_safety.iou(first, second), xml_safety.size_mismatch(first, second)
 
 
 def _combine_signals(
@@ -426,21 +406,13 @@ def _element_is_interactive(e: dict) -> bool:
 
 def _find_occupant(elements: list, original_coords) -> tuple | None:
     """Finds the most specific element containing the expected coordinates."""
-    occupant = None
-    if original_coords and len(original_coords) == 2:
-        orig_cx, orig_cy = original_coords
-        for elem in elements:
-            if not isinstance(elem, dict):
-                continue
-            elem_bounds_str = elem.get("bounds")
-            elem_bounds = visualization.parse_bounds(elem_bounds_str)
-            if elem_bounds:
-                left, top, right, bottom = elem_bounds
-                if left <= orig_cx <= right and top <= orig_cy <= bottom:
-                    elem_area = (right - left) * (bottom - top)
-                    if not occupant or elem_area < occupant[2]:
-                        occupant = (elem, elem_bounds, elem_area)
-    return occupant
+    if not (original_coords and len(original_coords) == 2):
+        return None
+    found = xml_safety.find_element_at(elements, original_coords[0], original_coords[1])
+    if found is None:
+        return None
+    element, bounds = found
+    return element, bounds, xml_safety.area(bounds)
 
 
 def _coords_hit_interactive_element(
