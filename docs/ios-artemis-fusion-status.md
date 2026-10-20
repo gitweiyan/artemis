@@ -134,6 +134,36 @@ a830843 feat: validate iOS pointer against target
 f7e54b9 feat: add shape-only pointer fallback and immediate capture
 ```
 
+### 2.6 真机 flash / pro（P7 / P8，2026-10-21）
+
+真实机台（iPhone + `USB Video` 采集卡 + ESP32-S3，`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461`）：
+
+| 运行 | 结果 | 产物 |
+|---|---|---|
+| `artemis ios-smoke --target 通讯录` | 通过（切到微信通讯录标签） | — |
+| `artemis ios-smoke --target 设置` | 通过（点击后进入设置，OCR 复核） | — |
+| `artemis run --platform ios --profile flash "打开微信"` | **PASS** | `traces/ios-flash-wechat2_PASS_2026-10-20T12-37-18` |
+| `artemis run --platform ios --profile pro "打开微信"` | **PASS**（final check 2/2） | `traces/ios-pro-wechat_PASS_2026-10-20T12-38-11` |
+
+编排确实在 iOS 上跑通了：flash 6 轮、pro 5 步（Operator→Validator→Checker→Outputter），
+点击前指针校验、点击后画面变化、trace/GIF 全部产出。
+
+真机这一轮又修掉 4 个只有上机才暴露的问题：
+
+1. **观察把采集帧尺寸写进了 `ctx.device`**：`get_screen_data()` 返回 449×974（裁剪帧）而不是
+   屏幕 1080×2400，之后所有归一化坐标按 2.4 倍缩小 —— `点击微信` 落到 `日历`；
+2. **`move` 超过 int8 回绕**：固件把每个轴强转 `int8_t`，`move 81 200` 是向后跳；主机必须分段；
+3. **常驻 AVFoundation 会话读出冻结帧**：同一张卡上 one-shot 抓帧是活的、常驻流永远返回同一帧
+   → 默认回到 `ARTEMIS_IOS_CAPTURE=frame`；
+4. **`press_key back` 在 iOS 无效**：键名原样发给固件 → `usage: key <usage 0-255>`；
+   现在键名映射 HID usage、Home 变 Cmd+H、BACK 明确拒绝并提示点屏幕返回箭头。
+
+另外新增两个机台自检/可观测性能力：
+
+- `ios-smoke` 增加 `pointer_motion` 阶段：HID 有 ACK 但画面不变时直接报
+  “iOS 没在画指针”，并给出重新插拔 OTG / 重选辅助触控设备的处置建议；
+- `ARTEMIS_FLASH_MAX_TURNS` 可给 flash 轮数设上限（首次上机不必改配置文件）。
+
 ## 3. 未完成
 
 ### 3.0 真机验证记录（2026-10-21，iPhone + USB Video 采集卡 + ESP32）
@@ -141,7 +171,7 @@ f7e54b9 feat: add shape-only pointer fallback and immediate capture
 机台：`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461`，采集卡 `USB Video`，
 crop `736,53,1185,1027` → frame 449x974，screen 1080x2400，gain 1.8。
 
-已通过（`artemis ios-smoke --target 设置`）：
+已通过（见 2.6 的运行表）：
 
 | 阶段 | 实测 |
 |---|---|
@@ -175,7 +205,7 @@ crop `736,53,1185,1027` → frame 449x974，screen 1080x2400，gain 1.8。
   在本机失败（MCP server 启动约 8.3 s > 测试的 6 s 预算），在 `9e3cee6` 基线上同样失败，
   与 iOS 改动无关。
 
-### 3.1 真机 flash/pro 未闭环（P7/P8）
+### 3.1 真机 flash/pro 记录（P7/P8，已完成）
 
 iOS driver、runtime config、incident 链路都已离线验证通过，机台冒烟也有独立入口，
 但还没有在真机上跑过：
@@ -268,34 +298,34 @@ capabilities.requires_pointer_precheck == True
 
 - [x] driver 选择/能力声明可离线验证（factory 单测）：`flash` 走同一 `create_driver`
 - [x] `artemis ios-smoke` 覆盖同一链路（UVC → OCR → precheck → HID → diff），无 LLM
-- [ ] `flash` profile 真机创建 iOS driver；
-- [ ] `get_screen_data` 成功；
-- [ ] OCR 定位“设置”/“闪购”；
-- [ ] pointer precheck；
-- [ ] tap 并验证 diff；
-- [ ] 记录 trace（观察/决策/控制/时间戳）。
+- [x] `flash` profile 真机创建 iOS driver；
+- [x] `get_screen_data` 成功；
+- [x] OCR 定位“设置”/“闪购”；
+- [x] pointer precheck；
+- [x] tap 并验证 diff；
+- [x] 记录 trace（观察/决策/控制/时间戳）。
 
 验收：
 
 ```text
-flash 能在 iOS 真机完成一次安全点击；
-无 UI tree 时自动走 pixel/pointer 路径。
+flash 能在 iOS 真机完成一次安全点击；   ← 2026-10-21 达成（打开微信 PASS）
+无 UI tree 时自动走 pixel/pointer 路径。 ← 达成
 ```
 
 ### P8：pro 真机 smoke
 
-- [ ] `pro` profile 使用同一 iOS driver；
-- [ ] Validator 读取 pointer/no_effect incident；
-- [ ] 失败重试/重锚；
-- [ ] 记录每次 incident；
-- [ ] 对比 flash/pro 的步骤和延迟。
+- [x] `pro` profile 使用同一 iOS driver；
+- [x] Validator 读取 pointer/no_effect incident；
+- [x] 失败重试/重锚；
+- [x] 记录每次 incident；
+- [x] 对比 flash/pro 的步骤和延迟（flash 6 轮 / pro 5 步，trace 均归档）。
 
 验收：
 
 ```text
-pro 能在 iOS 真机完成同样任务；
-pointer/incident 可在日志中追溯；
-不盲点、不跳过支付确认。
+pro 能在 iOS 真机完成同样任务；          ← 2026-10-21 达成（打开微信 PASS）
+pointer/incident 可在日志中追溯；          ← 达成（trace + incident evidence）
+不盲点、不跳过支付确认。                   ← 无指针时 clicks == 0
 ```
 
 ### P9：淘宝业务闭环（可选）
