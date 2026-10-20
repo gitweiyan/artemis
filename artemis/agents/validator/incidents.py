@@ -38,6 +38,9 @@ _ACTION_ITEM_DROP_KEYS = frozenset(
         "attempts",
         "safety_net_evidence",
         "thought",
+        # The structured driver result is already folded into ``category`` and
+        # ``evidence``; the raw dict only bloats the ledger and traces.
+        "action_result",
     }
 )
 

@@ -43,6 +43,7 @@ import time
 import uuid
 from uuid import UUID
 
+from artemis.agents.validator.action_execution import incident_category
 from artemis.runtime import observation_clock
 from artemis.agents.validator.categories import ValidationErrorCategory
 from artemis.agents.validator.incidents import (
@@ -153,6 +154,12 @@ async def _attempt_local_execution(
             error_msg = exec_error
             attempts_log.append(error_msg)
 
+        # A structured driver incident (pointer_missing/no_effect) means the controller
+        # already exhausted its own bounded correction loop; retrying here would only
+        # multiply single-frame UVC grabs. Report it once.
+        if action_item.get("incident"):
+            break
+
         if attempt < max_local_retries - 1:
             await asyncio.sleep(0.5)
 
@@ -218,6 +225,8 @@ async def _process_action(
             attempts_log,
             max_local_retries=max_local_retries,
         )
+        if not outcome.success and action_item.get("incident"):
+            outcome.error_category = incident_category(action_item["incident"])
 
     if not outcome.success:
         logger.info("Action failed, capturing failure screenshot...")
@@ -323,6 +332,11 @@ def _incident_evidence(ctx, outcome: _ActionOutcome) -> dict:
         evidence["occupant"] = raw["occupant"]
         if raw.get("occupant_bounds") is not None:
             evidence["occupant_bounds"] = raw["occupant_bounds"]
+    # A driver that reports its own failure reason (relative pointer platforms) keeps
+    # that code as evidence; the category above already mirrors it.
+    stem_incident = outcome.action_item.get("incident")
+    if stem_incident:
+        evidence["driver_incident"] = stem_incident
     return evidence
 
 
