@@ -69,7 +69,12 @@ def test_a_missing_port_is_a_config_error_not_a_fallback(monkeypatch):
     assert "ARTEMIS_ESP32_PORT" in str(excinfo.value)
 
 
-def test_screen_size_comes_from_the_configured_descriptor(monkeypatch):
+def test_the_descriptor_screen_size_wins_over_the_config(monkeypatch):
+    """The action layer converts normalized coordinates against the descriptor.
+
+    A session geometry on a different grid would put every tap off by the ratio, so the
+    factory follows the descriptor and says so in the log when they disagree.
+    """
     monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
     monkeypatch.setenv("ARTEMIS_IOS_SCREEN_SIZE", "1170x2532")
 
@@ -80,7 +85,21 @@ def test_screen_size_comes_from_the_configured_descriptor(monkeypatch):
     ):
         driver = create_driver(_ios_ctx(width=1080, height=2400))
 
-    assert driver.screen_size == (1170, 2532), "the env override wins over the descriptor"
+    assert driver.screen_size == (1080, 2400), "the descriptor is the action layer's frame"
+
+
+def test_a_bare_descriptor_falls_back_to_the_configured_screen_size(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_IOS_SCREEN_SIZE", "1170x2532")
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.PaddleOcrEngine"),
+    ):
+        driver = create_driver(_ios_ctx(width=0, height=0))
+
+    assert driver.screen_size == (1170, 2532)
 
 
 def test_the_factory_logs_the_driver_and_its_capabilities(monkeypatch, caplog):

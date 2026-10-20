@@ -42,6 +42,14 @@ def _describe_capabilities(capabilities) -> str:
     return ", ".join(f"{name}={getattr(capabilities, name)}" for name in capabilities.__dataclass_fields__)
 
 
+def _descriptor_screen_size(ctx: "ArtemisContext") -> tuple[int, int] | None:
+    """The device descriptor's screen size, when it is usable."""
+    device = getattr(ctx, "device", None)
+    width = int(getattr(device, "device_width", 0) or 0)
+    height = int(getattr(device, "device_height", 0) or 0)
+    return (width, height) if width > 0 and height > 0 else None
+
+
 def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
     """Instantiates the appropriate BaseDeviceDriver based on the runtime context."""
     # 1. Cloud mode check. Cloud devices are reached through the gateway's
@@ -75,11 +83,21 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
             timeout_s=12,
         )
         control = Esp32HidControl(ios.esp32_port, ack_timeout_s=3.0)
+        # The action layer converts normalized coordinates against the *device
+        # descriptor*, so the session geometry must use the same screen size or every
+        # tap lands off by the ratio. The descriptor is itself derived from this config
+        # (ios_device_context); a disagreement is a bug worth seeing in the log.
+        screen_size = _descriptor_screen_size(ctx) or ios.screen_size
+        if screen_size != ios.screen_size:
+            logger.warning(
+                f"iOS descriptor screen size {screen_size} differs from configured"
+                f" {ios.screen_size}; using the descriptor (the action layer's frame)."
+            )
         session = build_ios_uvc_session(
             capture,
             control,
             frame_size=ios.frame_size,
-            screen_size=ios.screen_size,
+            screen_size=screen_size,
             pointer_gain=ios.pointer_gain,
             ocr_engine=PaddleOcrEngine() if ios.enable_ocr else None,
         )
