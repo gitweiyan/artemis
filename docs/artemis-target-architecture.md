@@ -164,6 +164,9 @@ class DeviceSession:
 上层只依赖 `DeviceSession`。`BaseDeviceDriver` 保留为兼容 façade，
 内部组合 `DeviceSession`，不再承担平台分支。
 
+> 现状（2026-10-21）：iOS 驱动持有 `session`；`AndroidAdbDriver.session` 惰性构建
+> `build_app_session(self)`（app 组合）。工厂对两种平台都会记录所选组合与理由。
+
 ## 5. 能力矩阵
 
 | 能力 | Android | iOS | Mac/平板 | 说明 |
@@ -288,7 +291,7 @@ latency
 
 ```text
 artemis/orchestration/
-  profiles.py    # 仍缺：flash/pro 由配置与 CLI 决定
+  profiles.py    # 已落位：profile/explorer 决策（带 reason），CLI 使用并记录
   selector.py    # 已落位：DeviceProfile -> Composition 纯函数
 artemis/perception/
   base.py
@@ -302,7 +305,7 @@ artemis/control/
   app_control.py  # 已落位（绝对控制）
   composite.py    # 已落位（绝对优先，失败不换面重试）
 artemis/safety/
-  xml.py          # 仍缺（逻辑在 validator/precondition_xml.py）
+  xml.py          # 已落位（bounds/IoU/最具体元素；validator 只留阈值）
   pixel.py        # 已落位（目标 crop 优先，整帧兜底）
   pointer.py      # 已落位（指针/目标一致性）
 artemis/devices/

@@ -190,7 +190,9 @@ Tetris 等 skill 因此可以在 iOS 上跑（仍需真机确认帧率与手势�
 
 仍未落位（B 组剩余）：`control/app_control.py`（Android 绝对控制做成 ControlSink）、
 `control/composite.py`（绝对优先/HID 兜底）、`perception/app_automation.py`（Android UI 树源）、
-`safety/xml.py`（XML 预检逻辑仍在 validator 里，未搬）。
+`safety/xml.py`（XML 预检的几何事实）与 `orchestration/profiles.py`（profile 决策）
+也已落位；`BaseDeviceDriver` façade 现在同时暴露组合视图
+（`AndroidAdbDriver.session` → `build_app_session`）。
 
 已补齐（2026-10-21 离线）：
 
