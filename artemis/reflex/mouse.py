@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass
 
 from artemis.reflex.vision import Pointer, changed
+from artemis.safety.pointer import check_point
 
 
 @dataclass(frozen=True)
@@ -346,9 +347,18 @@ class SessionTapController:
                 )
             last_pointer = pointer
             self.session.observe(pointer.x * width, pointer.y * height)
-            error = math.hypot(x - self.session.position[0], y - self.session.position[1])
+            # One definition of "the pointer is on the target", shared with the driver's
+            # read-only precheck (artemis.safety.pointer).
+            verdict = check_point(
+                x,
+                y,
+                self.session.position[0],
+                self.session.position[1],
+                tolerance_px=self.tolerance_px,
+            )
+            error = verdict.error_px if verdict.error_px is not None else 0.0
             last_error = error
-            if error <= self.tolerance_px:
+            if verdict.ok:
                 before = frame.image
                 self.session.click()
                 after = self.capture.grab_latest()

@@ -17,6 +17,7 @@ from artemis.perception.incidents import (
     incident_for_health,
 )
 from artemis.reflex.vision import RedPointerDetector
+from artemis.safety.pointer import check_in_box
 
 
 @dataclass(frozen=True)
@@ -173,24 +174,26 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         return PointerControl(sink.controller, session=sink.session, geometry=self.session.geometry)
 
     async def validate_pointer(self, target, *, tolerance_px: float = 8.0) -> PointerValidation:
-        frame = await self.session.perception[0].snapshot()
+        """Read-only precheck: is the pointer on this target *right now*?
+
+        The rule itself lives in ``artemis.safety.pointer`` so the smoke, the driver and
+        the controller cannot drift apart on what "on target" means.
+        """
+        frame = await self.snapshot_frame()
         left, top, right, bottom = target.box
         center_norm = ((left + right) / 2, (top + bottom) / 2)
         pointer = self.detector.detect(frame.image, near=center_norm)
         if pointer is None:
             return PointerValidation(False, "pointer_missing", None, None)
         px, py = pointer.x * frame.width, pointer.y * frame.height
-        tx, ty = center_norm[0] * frame.width, center_norm[1] * frame.height
-        error = ((px - tx) ** 2 + (py - ty) ** 2) ** 0.5
-        inside = (
-            left * frame.width <= px <= right * frame.width
-            and top * frame.height <= py <= bottom * frame.height
+        box = (
+            left * frame.width,
+            top * frame.height,
+            right * frame.width,
+            bottom * frame.height,
         )
-        if not inside:
-            return PointerValidation(False, "pointer_off_target", error, (px, py))
-        if error > tolerance_px:
-            return PointerValidation(False, "pointer_not_centered", error, (px, py))
-        return PointerValidation(True, None, error, (px, py))
+        verdict = check_in_box(box, px, py, tolerance_px=tolerance_px)
+        return PointerValidation(verdict.ok, verdict.incident, verdict.error_px, (px, py))
 
     async def tap_with_result(self, x, y) -> ActionResult:
         """Return the structured precheck/click result for Validator incidents.
