@@ -233,3 +233,79 @@ def test_a_zero_byte_write_fails_loudly():
 
     with pytest.raises(RuntimeError):
         write_line(7, b"home\n", write=lambda fd, data: 0)
+
+
+class _FakeSerial:
+    """Drive _send_with_response through an in-memory serial line."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.written = []
+
+    def send_once(self, command, *, timeout=None):
+        self.written.append(command)
+        outcome = self.responses.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def test_a_line_too_long_error_resynchronises_and_retries_once():
+    """`ERR line too long` means the board discarded a fragment; the command never ran.
+
+    Observed live (2026-10-21) on a `move` right after a burst of frame grabs. The board
+    already resynchronises itself, so a single retry is safe and turns a rare transport
+    hiccup into a completed action instead of an incident.
+    """
+    from artemis.reflex.control import Esp32HidControl
+
+    fake = _FakeSerial(
+        [
+            RuntimeError("ESP32 command 'move 81 200' failed: ERR line too long"),
+            "[cmd] move 81 200\r\nOK",
+        ]
+    )
+    control = Esp32HidControl("/dev/fake", writer=lambda line: None)
+    control._send_once = fake.send_once
+
+    assert "OK" in control._send_with_response("move 81 200")
+    assert fake.written == ["move 81 200", "move 81 200"]
+
+
+def test_other_errors_are_not_retried():
+    import pytest
+
+    from artemis.reflex.control import Esp32HidControl
+
+    fake = _FakeSerial([RuntimeError("ESP32 command 'usb' failed: ERR bad args")])
+    control = Esp32HidControl("/dev/fake", writer=lambda line: None)
+    control._send_once = fake.send_once
+
+    with pytest.raises(RuntimeError):
+        control._send_with_response("usb")
+    assert fake.written == ["usb"]
+
+
+def test_a_large_move_is_segmented_to_fit_the_firmware_int8():
+    """The firmware truncates each axis to int8, so a 200-unit move wraps backwards.
+
+    Documented in the iOS HID pointer knowledge note and observed live: `move 81 200`
+    is a wrap, not a long move. The host must segment and pace instead.
+    """
+    from artemis.reflex.control import ESP32_MAX_MOVE, Esp32HidControl
+
+    lines = []
+    control = Esp32HidControl("/dev/fake", writer=lambda line: lines.append(line))
+    control._writer = None  # exercise the real segmentation path
+    control._send_with_response = lambda command, timeout=None: lines.append(command + "\n") or ""
+
+    control.mouse_move(200, -300)
+
+    moves = [line.strip() for line in lines if line.startswith("move")]
+    assert moves, "the move must reach the wire"
+    for line in moves:
+        _cmd, dx, dy = line.split()
+        assert abs(int(dx)) <= ESP32_MAX_MOVE
+        assert abs(int(dy)) <= ESP32_MAX_MOVE
+    assert sum(int(line.split()[1]) for line in moves) == 200
+    assert sum(int(line.split()[2]) for line in moves) == -300

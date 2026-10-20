@@ -163,7 +163,7 @@ class SessionTapController:
         max_attempts: int = 3,
         tolerance_px: float = 8.0,
         max_steps: int = 6,
-        max_step: int = 50,
+        max_step: int = 100,
         observe_attempts: int = 3,
         wake_step: int = 60,
         settle_timeout_s: float = 0.6,
@@ -206,69 +206,95 @@ class SessionTapController:
         """
         width, height = self.session.frame_size
         near = (self.session.position[0] / width, self.session.position[1] / height)
-        frame = self._frame_after(after) if after is not None else None
+        if after is not None:
+            frame = self._frame_after(after)
+        else:
+            # Advance past whatever was buffered before the move we just made: a queued
+            # frame describes the previous pointer position, not this one.
+            self.capture.grab_latest()
+            frame = self.capture.grab_latest()
         for index in range(self.observe_attempts):
-            if frame is None or index > 0:
+            if index > 0:
                 frame = self.capture.grab_latest()
             pointer = self.detector.detect(frame.image, near=near)
             if pointer is not None:
                 return frame, pointer
         return frame, None
 
+    def _travel_on_belief(self, x: float, y: float) -> None:
+        """Drive the pointer to the target using only the calibrated belief.
+
+        The AssistiveTouch pointer fades within a second, and a UVC grab is slow enough
+        that a camera-in-the-loop correction often reads frames that no longer show it
+        (measured live 2026-10-21: the loop then chases its own tail and never clicks).
+        Relative moves are exactly predictable, so travel is dead reckoning; the frame is
+        used to *verify* the arrival, which is the part that must not be blind.
+        """
+        for _step in range(self.max_steps):
+            error_x = x - self.session.position[0]
+            error_y = y - self.session.position[1]
+            if math.hypot(error_x, error_y) <= self.tolerance_px:
+                return
+            dx = max(-self.max_step, min(self.max_step, round(error_x / self.session.gain_x)))
+            dy = max(-self.max_step, min(self.max_step, round(error_y / self.session.gain_y)))
+            if dx == 0 and dy == 0:
+                return
+            self.session.move(dx, dy)
+
     def _verified_tap(self, x: float, y: float) -> TapResult:
         width, height = self.session.frame_size
         last_pointer: Pointer | None = None
         last_error: float | None = None
-        after: bytes | None = None
+
+        # A reference frame from before the travel: the verification frame must differ
+        # from it, which means it was captured after the moves (the pointer is drawn for
+        # only a moment after each move, so a queued frame is useless for this).
+        before = self.capture.grab_latest()
+        self._travel_on_belief(x, y)
+
         for attempt in range(1, self.max_attempts + 1):
-            for _step in range(self.max_steps):
-                frame, pointer = self._observe(after)
-                if pointer is None and after is None:
-                    # Wake the faded pointer with a deliberate move, then look again.
-                    self.session.move(self.wake_step, self.wake_step)
-                    frame, pointer = self._observe()
-                if pointer is None:
+            frame, pointer = self._observe(after=before.image)
+            if pointer is None:
+                # Wake the faded pointer with a deliberate move, then look for a frame
+                # that reflects it.
+                self.session.move(self.wake_step, self.wake_step)
+                frame, pointer = self._observe(after=frame.image)
+            if pointer is None:
+                return TapResult(
+                    False,
+                    attempt,
+                    None,
+                    None,
+                    "pointer not detected before click; refusing to click",
+                    "pointer_missing",
+                )
+            last_pointer = pointer
+            self.session.observe(pointer.x * width, pointer.y * height)
+            error = math.hypot(x - self.session.position[0], y - self.session.position[1])
+            last_error = error
+            if error <= self.tolerance_px:
+                before = frame.image
+                self.session.click()
+                after = self.capture.grab_latest()
+                if changed(before, after.image):
                     return TapResult(
-                        False,
-                        attempt,
-                        None,
-                        None,
-                        "pointer not detected before click; refusing to click",
-                        "pointer_missing",
-                    )
-                last_pointer = pointer
-                self.session.observe(pointer.x * width, pointer.y * height)
-                error = math.hypot(x - self.session.position[0], y - self.session.position[1])
-                last_error = error
-                if error <= self.tolerance_px:
-                    before = frame.image
-                    self.session.click()
-                    after = self.capture.grab_latest()
-                    if changed(before, after.image):
-                        return TapResult(
-                            True,
-                            attempt,
-                            pointer,
-                            error,
-                            "pointer verified at target; click changed the screen",
-                        )
-                    return TapResult(
-                        False,
+                        True,
                         attempt,
                         pointer,
                         error,
-                        "pointer verified at target, but click did not change the screen",
-                        "no_effect",
+                        "pointer verified at target; click changed the screen",
                     )
-                dx = round((x - self.session.position[0]) / self.session.gain_x)
-                dy = round((y - self.session.position[1]) / self.session.gain_y)
-                dx = max(-self.max_step, min(self.max_step, dx))
-                dy = max(-self.max_step, min(self.max_step, dy))
-                if dx == 0 and dy == 0:
-                    break
-                self.session.move(dx, dy)
-                after = frame.image
-            # No click happened if the pointer never reached the target.
+                return TapResult(
+                    False,
+                    attempt,
+                    pointer,
+                    error,
+                    "pointer verified at target, but click did not change the screen",
+                    "no_effect",
+                )
+            # The detection disagreed with the belief (gain drift): correct and retry.
+            self._travel_on_belief(x, y)
+
         return TapResult(
             False,
             self.max_attempts,

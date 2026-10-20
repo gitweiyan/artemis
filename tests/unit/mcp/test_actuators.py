@@ -246,3 +246,23 @@ async def test_click_without_a_driver_incident_stays_unchanged():
 
     assert res.ok is False
     assert res.incident is None
+
+
+@pytest.mark.asyncio
+async def test_manage_app_is_refused_on_a_device_without_app_launch():
+    """iOS has no package list: naming an app can never work, so say so immediately."""
+    from types import SimpleNamespace
+
+    from artemis.devices.capabilities import CapabilitySet
+    from artemis.mcp.actuators.adb import AdbActuator
+
+    ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
+    controller = SimpleNamespace(
+        driver=SimpleNamespace(capabilities=CapabilitySet(supports_app_launch=False))
+    )
+
+    res = await AdbActuator(ctx, controller=controller).manage_app("launch", "设置")
+
+    assert res.ok is False
+    assert res.code is ActionCode.UNSUPPORTED
+    assert "Tap the app icon" in res.message

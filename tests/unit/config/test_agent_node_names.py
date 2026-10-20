@@ -70,3 +70,14 @@ def test_unset_optional_node_without_a_default_never_returns_none():
 
     with pytest.raises(ValueError):
         cfg.get_agent(cast(Any, "extra_optional_node"))
+
+
+def test_flash_max_turns_can_be_bounded_from_the_environment(monkeypatch):
+    """A first run on a new rig must be stoppable without editing the config file."""
+    from artemis.config.agent import load_agent_config
+
+    monkeypatch.setenv("ARTEMIS_FLASH_MAX_TURNS", "6")
+    assert load_agent_config().flash.max_turns == 6
+
+    monkeypatch.delenv("ARTEMIS_FLASH_MAX_TURNS")
+    assert load_agent_config().flash.max_turns >= 0

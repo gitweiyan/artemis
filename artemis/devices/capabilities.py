@@ -18,3 +18,6 @@ class CapabilitySet:
     supports_ocr: bool = False
     supports_text_input: bool = False
     supports_shell: bool = False
+    #: Launch/stop an app by package name. Android only: iOS has no package manager to
+    #: query, so the only way to open an app there is to tap its icon.
+    supports_app_launch: bool = True

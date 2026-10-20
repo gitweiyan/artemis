@@ -41,6 +41,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         supports_relative_pointer=True,
         requires_pointer_precheck=True,
         supports_text_input=True,
+        supports_app_launch=False,
     )
 
     def __init__(self, session, *, device_id: str = "ios-uvc-hid", detector=None):

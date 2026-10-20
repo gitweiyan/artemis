@@ -43,7 +43,7 @@ def test_ios_platform_builds_the_uvc_hid_driver(monkeypatch):
     monkeypatch.delenv("ARTEMIS_IOS_SCREEN_SIZE", raising=False)
 
     with (
-        patch("artemis.reflex.capture.UvcStream") as capture,
+        patch("artemis.reflex.capture.UvcCapture") as capture,
         patch("artemis.reflex.control.Esp32HidControl") as control,
         patch("artemis.drivers.factory.default_ocr_engine") as ocr,
     ):
@@ -137,7 +137,7 @@ def test_the_driver_instance_reports_the_rigs_real_capabilities(monkeypatch):
     assert IOSUvcHidDriver.capabilities.supports_relative_pointer is True
 
 
-def test_the_pointer_path_uses_a_persistent_stream_by_default(monkeypatch):
+def test_the_default_capture_is_one_live_frame_per_grab(monkeypatch):
     monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
     monkeypatch.delenv("ARTEMIS_IOS_CAPTURE", raising=False)
 
@@ -149,13 +149,13 @@ def test_the_pointer_path_uses_a_persistent_stream_by_default(monkeypatch):
     ):
         create_driver(_ios_ctx())
 
-    assert stream.called, "a live stream is what makes the pointer observable"
-    assert not single.called
+    assert single.called, "one-shot grabs are the live path on this card"
+    assert not stream.called
 
 
-def test_the_capture_mode_can_be_pinned_to_single_frames(monkeypatch):
+def test_the_capture_mode_can_be_pinned_to_a_persistent_stream(monkeypatch):
     monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
-    monkeypatch.setenv("ARTEMIS_IOS_CAPTURE", "frame")
+    monkeypatch.setenv("ARTEMIS_IOS_CAPTURE", "stream")
 
     with (
         patch("artemis.reflex.capture.UvcStream") as stream,
@@ -165,5 +165,5 @@ def test_the_capture_mode_can_be_pinned_to_single_frames(monkeypatch):
     ):
         create_driver(_ios_ctx())
 
-    assert single.called
-    assert not stream.called
+    assert stream.called
+    assert not single.called

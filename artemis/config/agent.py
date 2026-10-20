@@ -1017,6 +1017,12 @@ class AgentGlobalConfig(BaseModel):
             data.setdefault("video_analyzer", {})["enable_ledger"] = vid_env
             data.setdefault("pro", {}).setdefault("video_analyzer", {})["enable_ledger"] = vid_env
 
+        # A bounded flash run is the safe way to try a new device rig: the reactive loop
+        # is unlimited by default, which is wrong for a first smoke on real hardware.
+        turns_env = os.getenv("ARTEMIS_FLASH_MAX_TURNS")
+        if turns_env is not None and turns_env.strip().isdigit():
+            data.setdefault("flash", {})["max_turns"] = int(turns_env.strip())
+
         return data
 
     def get_explorer_version(

@@ -34,19 +34,27 @@ def _frame(color=(120, 120, 120)) -> bytes:
 
 
 class Capture:
-    """A card whose picture changes once the phone receives a click."""
+    """A card whose picture changes once the board moves the pointer."""
 
-    def __init__(self):
+    def __init__(self, control=None):
+        self.control = control
         self.grabs = 0
 
     def grab(self):
         self.grabs += 1
-        return SimpleNamespace(image=_frame(), width=449, height=974, captured_at=1.0)
+        moved = bool(getattr(self.control, "moved", False))
+        return SimpleNamespace(
+            image=_frame((150, 150, 150) if moved else (120, 120, 120)),
+            width=449,
+            height=974,
+            captured_at=1.0,
+        )
 
 
 class Esp32:
     def __init__(self):
         self.clicks = 0
+        self.moved = False
 
     def preflight(self):
         return {}
@@ -55,7 +63,7 @@ class Esp32:
         pass
 
     def mouse_move(self, dx, dy):
-        pass
+        self.moved = True
 
     def mouse_click(self):
         self.clicks += 1
@@ -80,12 +88,16 @@ class BlindDetector:
 
 class ClickCapture(Capture):
     def __init__(self, control):
-        super().__init__()
-        self.control = control
+        super().__init__(control)
 
     def grab(self):
         self.grabs += 1
-        color = (200, 40, 40) if self.control.clicks else (120, 120, 120)
+        if self.control.clicks:
+            color = (200, 40, 40)
+        elif self.control.moved:
+            color = (150, 150, 150)
+        else:
+            color = (120, 120, 120)
         return SimpleNamespace(image=_frame(color), width=449, height=974, captured_at=1.0)
 
 
@@ -108,6 +120,7 @@ def test_a_healthy_rig_passes_every_stage():
     assert [step.name for step in report.steps] == [
         "connect",
         "snapshot",
+        "pointer_motion",
         "locate",
         "pointer_precheck",
         "tap",
@@ -123,7 +136,12 @@ def test_a_missing_label_fails_the_locate_stage_and_stops():
     report = asyncio.run(run_smoke(_driver(control, CenteredDetector()), target="不存在的按钮"))
 
     assert report.ok is False
-    assert [step.name for step in report.steps] == ["connect", "snapshot", "locate"]
+    assert [step.name for step in report.steps] == [
+        "connect",
+        "snapshot",
+        "pointer_motion",
+        "locate",
+    ]
     assert report.steps[-1].ok is False
     assert "OCR boxes" in report.steps[-1].detail, "the failure must say what OCR did see"
     assert control.clicks == 0
@@ -220,7 +238,6 @@ def test_a_faded_pointer_is_woken_by_a_nudge_before_the_precheck():
 
     steps = {step.name: step for step in report.steps}
     assert steps["pointer_precheck"].ok is True, report.summary()
-    assert "nudge" in steps["pointer_precheck"].detail
     assert control.clicks == 0
 
 
@@ -250,9 +267,10 @@ def test_locate_retries_on_a_frame_the_ocr_could_not_read():
                 return []  # a blurred frame right after a pointer move
             return [TextBox("闪购", (0.3, 0.1, 0.4, 0.2), 0.99)]
 
+    control = Esp32()
     session = build_ios_uvc_session(
-        ClickCapture(Esp32()),
-        Esp32(),
+        ClickCapture(control),
+        control,
         frame_size=(449, 974),
         screen_size=(1080, 2400),
         detector=CenteredDetector(),

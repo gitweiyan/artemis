@@ -298,6 +298,16 @@ class AdbActuator:
         return ActionResult.success("press_key", f"Pressed key '{key}'.")
 
     async def manage_app(self, action: str, app_name: str) -> ActionResult:
+        driver = getattr(self.controller, "driver", None)
+        if getattr(getattr(driver, "capabilities", None), "supports_app_launch", True) is False:
+            # No package manager: naming an app cannot work here, and a package lookup
+            # costs a model call and a turn to say so.
+            return ActionResult.failure(
+                "manage_app",
+                f"This device cannot launch apps by name ({app_name!r}); it has no app"
+                " package list. Tap the app icon on the screen instead.",
+                code=ActionCode.UNSUPPORTED,
+            )
         # Imported lazily: launch_app pulls in tool wrappers that are costly at import.
         from artemis.tools.mobile.launch_app import find_package
         from third_party.mobile_use.utils.app_launch_utils import launch_app_with_retries

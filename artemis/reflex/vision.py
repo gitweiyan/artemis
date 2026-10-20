@@ -170,9 +170,18 @@ class RedPointerDetector:
             (168, 120, 80, 180),
         ),
         min_confidence: float = 0.5,
+        border_area_min: int = 200,
+        border_min_side: int = 10,
+        max_fill_ratio: float = 0.7,
     ):
         self.size_range = size_range
         self.area_range = area_range
+        #: A pointer at the frame edge is cut in half by the crop, so the full-ring
+        #: size/area/roundness filters cannot apply. A clipped ring is still a thin rim:
+        #: a low fill ratio separates it from a solid red banner or badge at the edge.
+        self.border_area_min = int(border_area_min)
+        self.border_min_side = int(border_min_side)
+        self.max_fill_ratio = float(max_fill_ratio)
         self.hue_ranges = hue_ranges
         self.min_confidence = min_confidence
 
@@ -193,19 +202,30 @@ class RedPointerDetector:
         candidates = []
         for index in range(1, count):
             x, y, w, h, area = (int(v) for v in stats[index])
-            if not (self.area_range[0] <= area <= self.area_range[1]):
-                continue
-            if not (self.size_range[0] <= w <= self.size_range[1]):
-                continue
-            if not (self.size_range[0] <= h <= self.size_range[1]):
-                continue
-            if not 0.7 <= w / max(1, h) <= 1.4:
-                continue
-            # The pointer is a ring: its center shows the background, not red.
-            # Solid red ad blocks/badges have a saturated center and are rejected.
-            center = mask[y + h // 2 - 3 : y + h // 2 + 4, x + w // 2 - 3 : x + w // 2 + 4]
-            if center.size and float(center.mean()) > 0.35 * 255.0:
-                continue
+            touches_border = (
+                x <= 1 or y <= 1 or x + w >= width - 1 or y + h >= height - 1
+            )
+            if touches_border:
+                if area < self.border_area_min:
+                    continue
+                if min(w, h) < self.border_min_side:
+                    continue
+                if area / float(max(1, w * h)) > self.max_fill_ratio:
+                    continue
+            else:
+                if not (self.area_range[0] <= area <= self.area_range[1]):
+                    continue
+                if not (self.size_range[0] <= w <= self.size_range[1]):
+                    continue
+                if not (self.size_range[0] <= h <= self.size_range[1]):
+                    continue
+                if not 0.7 <= w / max(1, h) <= 1.4:
+                    continue
+                # The pointer is a ring: its center shows the background, not red.
+                # Solid red ad blocks/badges have a saturated center and are rejected.
+                center = mask[y + h // 2 - 3 : y + h // 2 + 4, x + w // 2 - 3 : x + w // 2 + 4]
+                if center.size and float(center.mean()) > 0.35 * 255.0:
+                    continue
             cx, cy = centroids[index]
             candidates.append((float(cx) / width, float(cy) / height, area))
         if not candidates:

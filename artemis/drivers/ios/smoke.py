@@ -101,6 +101,40 @@ async def run_smoke(
     if not healthy:
         return report
 
+    # Does the pointer actually move? A rig can ACK every HID command while iOS has
+    # dropped the assistive pointer device (seen live after a lock/unlock): clicks then
+    # land at a stale position and no pointer ring is ever drawn. Diagnosing that here
+    # is the difference between "the rig is broken" and "the task failed".
+    started = time.monotonic()
+    pointer_source = getattr(session, "pointer", None)
+    moved = False
+    detail = "session has no relative pointer to test"
+    if pointer_source is not None:
+        before = frame.image
+        await __import__("asyncio").to_thread(pointer_source.move, 60, 60)
+        deadline = time.monotonic() + 1.2
+        while True:
+            await __import__("asyncio").sleep(0.05)
+            probe = await session.snapshot()
+            if probe.image != before:
+                moved = True
+                break
+            if time.monotonic() >= deadline:
+                break
+        detail = (
+            "pointer moved (frame changed after a 60-unit move)"
+            if moved
+            else "HID accepted the move but the screen never changed: iOS is not drawing"
+            " the pointer (replug the ESP32 OTG cable, or re-select the pointer device in"
+            " Settings > Accessibility > Touch > AssistiveTouch > Devices)"
+        )
+    report.ok = report.ok and moved
+    report.steps.append(
+        SmokeStep("pointer_motion", moved, detail, (time.monotonic() - started) * 1000)
+    )
+    if not moved:
+        return report
+
     located = None
     if target:
         started = time.monotonic()

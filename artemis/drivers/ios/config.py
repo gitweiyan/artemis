@@ -136,9 +136,11 @@ class IosRuntimeConfig:
     screen_size: tuple[int, int] = DEFAULT_SCREEN_SIZE
     pointer_gain: tuple[float, float] = DEFAULT_POINTER_GAIN
     enable_ocr: bool = True
-    #: ``stream`` keeps one ffmpeg alive (a pointer nudge is observable ~120 ms later);
-    #: ``frame`` spawns one ffmpeg per grab (~870 ms, and the pointer ring has faded).
-    capture_mode: str = "stream"
+    #: ``frame`` spawns one ffmpeg per grab (~0.9 s, always a live frame). ``stream``
+    #: keeps one ffmpeg alive (faster when it works), but on this rig a persistent
+    #: AVFoundation session returned the *same* frame forever while one-shot grabs
+    #: stayed live (measured 2026-10-21), so per-frame is the honest default.
+    capture_mode: str = "frame"
     #: The cropped capture size a skill's coordinates are expressed in.
     frame_size: tuple[int, int] = field(init=False)
 
@@ -158,7 +160,7 @@ class IosRuntimeConfig:
                 " fall back to Android ADB, which cannot drive this rig."
             )
         gain = _floats(env, ENV_POINTER_GAIN) or DEFAULT_POINTER_GAIN
-        mode = (_env(env, ENV_CAPTURE) or "stream").lower()
+        mode = (_env(env, ENV_CAPTURE) or "frame").lower()
         if mode not in ("stream", "frame"):
             raise IosConfigError(f"{ENV_CAPTURE} must be 'stream' or 'frame', got {mode!r}")
         return cls(

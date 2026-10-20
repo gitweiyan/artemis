@@ -159,13 +159,23 @@ def test_a_target_outside_the_frame_is_rejected():
 
 
 class FakeCapture:
-    def __init__(self, frames: list[bytes]):
+    """A camera with a scripted frame list.
+
+    When a control is supplied, the screen changes once a click has been delivered, so a
+    test does not have to predict how many frames the servo loop consumes before it
+    clicks.
+    """
+
+    def __init__(self, frames: list[bytes], control=None):
         self.frames = frames
+        self.control = control
         self.index = 0
 
     def grab_latest(self, timeout_s=None):
         from types import SimpleNamespace
 
+        if self.control is not None and self.control.clicks:
+            return SimpleNamespace(image=_png((240, 40, 40)))
         frame = self.frames[min(self.index, len(self.frames) - 1)]
         self.index += 1
         return SimpleNamespace(image=frame)
@@ -261,8 +271,8 @@ def test_verified_tap_clicks_only_after_pointer_is_at_the_target():
     control = FakeControl()
     session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
     session.connect()
-    capture = FakeCapture([_png((120, 120, 120)), _png((240, 40, 40))])
-    detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")])
+    capture = FakeCapture([_png((120, 120, 120))] * 10, control=control)
+    detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")] * 5)
     controller = SessionTapController(
         session, capture=capture, detector=detector, settle_timeout_s=0.0
     )
@@ -271,7 +281,8 @@ def test_verified_tap_clicks_only_after_pointer_is_at_the_target():
 
     assert result.ok is True
     assert control.clicks == 1
-    assert control.moves == []
+    # Travel is dead reckoning; the frame is only used to verify the arrival.
+    assert control.moves == [(50, 50)]
 
 
 def test_verified_tap_corrects_an_offset_pointer_before_clicking():
@@ -281,8 +292,10 @@ def test_verified_tap_corrects_an_offset_pointer_before_clicking():
     control = FakeControl()
     session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
     session.connect()
-    capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120)), _png((240, 40, 40))])
-    detector = FakeDetector([Pointer(0.25, 0.25, 0.95, "fake"), Pointer(0.5, 0.5, 0.95, "fake")])
+    capture = FakeCapture([_png((120, 120, 120))] * 10, control=control)
+    detector = FakeDetector(
+        [Pointer(0.25, 0.25, 0.95, "fake")] + [Pointer(0.5, 0.5, 0.95, "fake")] * 5
+    )
     controller = SessionTapController(
         session, capture=capture, detector=detector, settle_timeout_s=0.0
     )
@@ -404,8 +417,8 @@ def test_a_transient_miss_is_retried_before_declaring_pointer_missing():
     control = FakeControl()
     session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
     session.connect()
-    capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120)), _png((240, 40, 40))])
-    detector = FakeDetector([None, Pointer(0.5, 0.5, 0.95, "fake")])
+    capture = FakeCapture([_png((120, 120, 120))] * 10, control=control)
+    detector = FakeDetector([None, Pointer(0.5, 0.5, 0.95, "fake")] * 5)
     controller = SessionTapController(
         session, capture=capture, detector=detector, settle_timeout_s=0.0
     )
@@ -440,6 +453,84 @@ def test_pointer_missing_only_after_every_observation_attempt():
     assert control.moves, "the wake move happened before giving up"
     assert result.incident == "pointer_missing"
     assert control.clicks == 0
+
+
+def test_a_faded_pointer_is_woken_by_a_move_before_the_first_observation_is_trusted():
+    """iOS hides the AssistiveTouch pointer; a deliberate move reveals it again."""
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class WakeDetector:
+        def __init__(self, control):
+            self.control = control
+            self.calls = 0
+
+        def detect(self, image, near=None):
+            self.calls += 1
+            if not self.control.moves:
+                return None
+            return Pointer(0.5, 0.5, 0.95, "fake")
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120)), _png((240, 40, 40))] * 20)
+    controller = SessionTapController(
+        session, capture=capture, detector=WakeDetector(control), settle_timeout_s=0.0
+    )
+
+    result = controller.tap(100, 100)
+
+    assert control.moves, "a wake move is required before the pointer can be seen"
+    assert result.ok is True
+    assert control.clicks == 1
+
+
+def test_a_pointer_that_stays_invisible_after_a_wake_is_never_clicked():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120))] * 20)
+    detector = FakeDetector([None] * 40)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, settle_timeout_s=0.0
+    )
+
+    result = controller.tap(100, 100)
+
+    assert result.incident == "pointer_missing"
+    assert control.clicks == 0
+
+
+def test_frame_after_skips_the_frame_that_predates_the_move():
+    """A queued frame describes the pointer position *before* the move."""
+    from artemis.reflex.mouse import SessionTapController
+
+    class LaggingCapture:
+        def __init__(self):
+            self.frames = [_png((120, 120, 120)), _png((130, 120, 120))]
+            self.index = 0
+
+        def grab_latest(self):
+            from types import SimpleNamespace
+
+            frame = self.frames[min(self.index, len(self.frames) - 1)]
+            self.index += 1
+            return SimpleNamespace(image=frame)
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    before = _png((120, 120, 120))
+    controller = SessionTapController(
+        session, capture=LaggingCapture(), detector=FakeDetector([]), settle_timeout_s=0.2
+    )
+
+    frame = controller._frame_after(before)
+
+    assert frame.image != before
 
 
 def test_a_faded_pointer_is_woken_by_a_move_before_the_first_observation_is_trusted():

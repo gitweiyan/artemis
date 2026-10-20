@@ -136,6 +136,10 @@ KEY_RIGHT = 79
 KEY_LEFT = 80
 KEY_DOWN = 81
 KEY_UP = 82
+#: The firmware casts each ``move`` axis through ``int8_t``, so a bigger value wraps to
+#: the opposite direction (a 200-unit move becomes a backwards jump). The host segments.
+ESP32_MAX_MOVE = 127
+
 #: When set, gestures go through the ESP32-S3 HID board on this serial port (its UART
 #: USB-C console) instead of the assisted paths. Unset keeps the previous choice.
 ENV_ESP32_PORT = "ARTEMIS_ESP32_PORT"
@@ -196,6 +200,10 @@ def _open_serial(port: str, baudrate: int) -> int:
         raise
     return fd
 
+
+#: The firmware's reply to a line it could not parse as one complete command. It always
+#: drains to the next newline first, so the stream is resynchronised when this arrives.
+_LINE_TOO_LONG = "ERR line too long"
 
 #: The firmware's diagnostic line. ``mode`` is optional so old firmware still parses;
 #: ``touch`` is informational — iOS builds legitimately report ``touch=0``.
@@ -303,12 +311,45 @@ class Esp32HidControl(Control):
         return self._fd
 
     def _send_with_response(self, command: str, *, timeout: float | None = None) -> str:
-        """Send one command and wait for the firmware's ``OK`` before returning.
+        """Send one command and wait for the firmware's ``OK``.
 
-        The firmware prints ``OK`` after every command (including a slow ``home``),
-        so the host never has a second line in flight while the UART is busy. This is
-        the fix for the 2026-10-19 overrun that turned ``move`` into ``ove``.
+        The firmware prints ``OK`` after every command (including a slow ``home``), so the
+        host never has a second line in flight while the UART is busy. This is the fix for
+        the 2026-10-19 overrun that turned ``move`` into ``ove``.
+
+        ``ERR line too long`` is special: it means the firmware read a line *fragment*,
+        discarded it to resynchronise, and did not execute anything. It was observed
+        live on a ``move`` right after a burst of frame grabs. Retrying once (after a
+        resync character) is therefore safe and keeps a transport hiccup from becoming
+        a task-level incident.
         """
+        try:
+            return self._send_once(command, timeout=timeout)
+        except RuntimeError as exc:
+            if _LINE_TOO_LONG not in str(exc):
+                raise
+            self._resync_line()
+            return self._send_once(command, timeout=timeout)
+
+    def _resync_line(self) -> None:
+        """Terminate any orphan fragment in the firmware's line parser."""
+        if self._writer is not None or self._reader is not None:
+            return
+        fd = self._ensure_open()
+        try:
+            write_line(fd, b"\n")
+        except OSError:
+            return
+        deadline = time.monotonic() + 0.2
+        while time.monotonic() < deadline:
+            if not select.select([fd], [], [], 0.02)[0]:
+                continue
+            try:
+                os.read(fd, 4096)
+            except (BlockingIOError, OSError):
+                return
+
+    def _send_once(self, command: str, *, timeout: float | None = None) -> str:
         line = command + "\n"
         if len(line.encode("ascii")) > MAX_ESP32_LINE:
             raise ValueError(
@@ -454,8 +495,22 @@ class Esp32HidControl(Control):
         return self._timed(f"kup {int(usage)}")
 
     def mouse_move(self, dx: int, dy: int) -> float:
-        """Move the pointer by a relative ``(dx, dy)`` — iOS assistive-touch style."""
-        return self._timed(f"move {int(dx)} {int(dy)}")
+        """Move the pointer by a relative ``(dx, dy)`` — iOS assistive-touch style.
+
+        Each axis is sent in segments no larger than ``ESP32_MAX_MOVE``: the firmware
+        truncates to ``int8_t``, so a 200-unit axis would wrap and move the pointer
+        backwards. Segments are separate commands, so the firmware's ``OK`` paces them
+        (USB HID polls at ~10 ms; flooding reports is how positions get lost).
+        """
+        started = time.monotonic()
+        remaining_x, remaining_y = int(dx), int(dy)
+        while remaining_x or remaining_y:
+            step_x = max(-ESP32_MAX_MOVE, min(ESP32_MAX_MOVE, remaining_x))
+            step_y = max(-ESP32_MAX_MOVE, min(ESP32_MAX_MOVE, remaining_y))
+            self._send(f"move {step_x} {step_y}")
+            remaining_x -= step_x
+            remaining_y -= step_y
+        return (time.monotonic() - started) * 1000.0
 
     def mouse_home(self) -> float:
         """Slam the pointer to the top-left corner (firmware-paced, one command)."""
@@ -491,6 +546,7 @@ __all__ = [
     "AdbInputControl",
     "Esp32HidControl",
     "HelperControl",
+    "ESP32_MAX_MOVE",
     "esp32_port",
     "parse_usb_state",
     "write_line",
