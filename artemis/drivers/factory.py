@@ -23,6 +23,7 @@ from artemis.config import settings
 from artemis.drivers.android.adb_driver import AndroidAdbDriver
 from artemis.drivers.base import BaseDeviceDriver
 from artemis.drivers.mock.mock_driver import MockDeviceDriver
+from artemis.perception.paddle_ocr import PaddleOcrEngine
 from third_party.mobile_use.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -70,7 +71,7 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
             capture,
             control,
             screen_size=(int(width), int(height)),
-            ocr_engine=None,
+            ocr_engine=PaddleOcrEngine(),
         )
         return IOSUvcHidDriver(session)
 
