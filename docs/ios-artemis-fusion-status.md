@@ -156,6 +156,16 @@ f7e54b9 feat: add shape-only pointer fallback and immediate capture
   Operator prompt 对三类各给处置建议（查 HDMI/转接/息屏、查卡住的抓帧进程、重新观察）；
 - 指针闭环拒绝用过期帧验证点击（无时间戳的帧不受限，测试替身不受影响）。
 
+### 2.5.2 指针观测与锚点（P10 批次 2，2026-10-21）
+
+| 改动 | 原因 | 落点 |
+|---|---|---|
+| 软件 `home`：按 ACK 节奏分段走回左上角 | 固件 `home` 2ms 连发 50 报文，USB 10ms 轮询会丢（知识库 2026-10-19 记录） | `Esp32HidControl.mouse_home()`（`firmware_home()` 仅留作诊断） |
+| nudge/diff 指针兜底 | 指针是灰色、且可能被帧边缘切掉，颜色/形状模型抓不住 | `SessionTapController(tracker=PointerTracker(...))`，`build_ios_uvc_session` 默认开启；`menu_box` 可配置 |
+
+`PointerTracker.locate()` 报的是**第一帧**里的位置，所以兜底路径会把 nudge 的位移加回去，
+再交给 belief 校正（否则每次兜底都会少算一段位移）。
+
 ### 2.6 真机 flash / pro（P7 / P8，2026-10-21）
 
 真实机台（iPhone + `USB Video` 采集卡 + ESP32-S3，`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461`）：
@@ -264,7 +274,9 @@ frame 449x974、screen 1080x2400、gain 1.8）。换手机/采集卡/线材后�
 
 | 阻塞 | 影响 | 处理 |
 |---|---|---|
-| profile 未真机验证 | 不能声称 flash/pro 可用 | P7/P8 固定用例真机跑一遍 |
+| 指针增益未校准 | 大距离移动靠闭环修正，慢且可能过冲 | 两点校准 → `ARTEMIS_IOS_POINTER_GAIN`；离线可先做校准入口 |
+| 无 Camera 兜底 | 采集卡黑屏/HDCP 时任务直接停 | `perception/camera.py` + `composite.py` |
+| skill 在 iOS 只能绝对 tap | Tetris 等 reflex skill 在 iOS 不可用 | 新增 `PointerControl`（绝对 tap → 相对移动+预检+点击） |
 | 支付需生物识别 | 无法自动完成最终付款 | 到支付页停止，用户确认 |
 | 淘宝自绘控件/手势不稳定 | 任务易中断 | OCR bbox + 键盘滚动 + 点击后验证 |
 | 指针/采集卡依赖单一机台 | 换设备需重新标定 | crop/gain 走 env，改机台先跑冒烟 |
