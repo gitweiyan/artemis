@@ -39,7 +39,9 @@ def _is_ios(ctx: "ArtemisContext") -> bool:
 
 def _describe_capabilities(capabilities) -> str:
     """The capability flags that decide perception/control composition, for the log."""
-    return ", ".join(f"{name}={getattr(capabilities, name)}" for name in capabilities.__dataclass_fields__)
+    return ", ".join(
+        f"{name}={getattr(capabilities, name)}" for name in capabilities.__dataclass_fields__
+    )
 
 
 def _descriptor_screen_size(ctx: "ArtemisContext") -> tuple[int, int] | None:

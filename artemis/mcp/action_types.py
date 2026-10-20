@@ -50,6 +50,8 @@ class ActionResult(BaseModel):
     """Agent-facing summary; wording matches the historical executor outcomes."""
     detail: str | None = None
     """Raw driver/controller error for diagnostics; never shown to the LLM."""
+    metrics: dict[str, float | str] | None = None
+    """Structured evidence behind the action (pointer position, error, frame age)."""
     incident: str | None = None
     """Machine-readable failure reason when the driver reports one.
 

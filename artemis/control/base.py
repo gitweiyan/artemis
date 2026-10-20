@@ -14,6 +14,9 @@ class ActionResult:
     action: str
     incident: str | None = None
     detail: str = ""
+    #: Structured evidence for telemetry/replay (pointer position, error, frame age,
+    #: latency). Free text in ``detail`` is for humans; this is what a graph can read.
+    metrics: dict[str, float | str] | None = None
 
 
 @runtime_checkable

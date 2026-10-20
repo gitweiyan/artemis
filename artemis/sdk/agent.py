@@ -115,9 +115,7 @@ class Agent(AgentBase):
                 updates["device_id"] = target_dev
                 # An explicitly configured platform wins: a caller that asked for iOS must
                 # not be silently rewritten to Android just because it also named a device.
-                updates["device_platform"] = (
-                    self._config.device_platform or DevicePlatform.ANDROID
-                )
+                updates["device_platform"] = self._config.device_platform or DevicePlatform.ANDROID
             if concurrency_mode:
                 updates["concurrency_mode"] = str(concurrency_mode).strip().lower()
             if max_concurrency is not None:

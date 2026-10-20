@@ -205,11 +205,29 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         try:
             return await self._relative_sink().tap_abs(int(x), int(y))
         except UnhealthyFrame as exc:
-            return ActionResult(False, "tap_abs", exc.incident, str(exc))
+            return ActionResult(
+                False,
+                "tap_abs",
+                exc.incident,
+                str(exc),
+                {"target_x": float(x), "target_y": float(y)},
+            )
         except DeviceSessionError as exc:
-            return ActionResult(False, "tap_abs", UVC_NO_SIGNAL, str(exc))
+            return ActionResult(
+                False,
+                "tap_abs",
+                UVC_NO_SIGNAL,
+                str(exc),
+                {"target_x": float(x), "target_y": float(y)},
+            )
         except Exception as exc:  # noqa: BLE001 - a device failure is an incident
-            return ActionResult(False, "tap_abs", incident_for_error(exc), str(exc))
+            return ActionResult(
+                False,
+                "tap_abs",
+                incident_for_error(exc),
+                str(exc),
+                {"target_x": float(x), "target_y": float(y)},
+            )
 
     async def tap(self, x, y, duration_ms=100, times=1, delay_ms=100) -> bool:
         return (await self.tap_with_result(x, y)).ok

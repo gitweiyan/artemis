@@ -175,3 +175,25 @@ async def test_android_style_failure_still_opens_a_general_incident(mock_context
     assert incident["category"] == str(ValidationErrorCategory.GENERAL)
     assert "driver_incident" not in incident["evidence"]
     assert "action_result" not in incident["action"]
+
+
+@pytest.mark.asyncio
+async def test_the_incident_evidence_carries_the_action_metrics(mock_context, temp_screenshot):
+    class WithMetrics(PointerIncidentSession):
+        async def call(self, name, args):
+            result = await super().call(name, args)
+            if name == "click":
+                return result.model_copy(update={"metrics": {"error_px": 21.0, "frame_age_s": 0.4}})
+            return result
+
+    session = WithMetrics()
+    decisions = json.dumps([{"action": "tap", "normalized_coordinates": [500, 500]}])
+    state = DummyState(decisions, temp_screenshot)
+
+    report = (await _run(ValidatorNode(mock_context), state, session))["last_execution_result"]
+
+    assert report["incident"]["evidence"]["action_metrics"] == {
+        "error_px": 21.0,
+        "frame_age_s": 0.4,
+    }
+    assert "action_metrics" not in report["incident"]["action"]

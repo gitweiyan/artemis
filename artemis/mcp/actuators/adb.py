@@ -137,6 +137,11 @@ class AdbActuator:
         """The driver's machine-readable failure reason, when it reports one."""
         return getattr(result, "incident", None) if result else None
 
+    @staticmethod
+    def _metrics(result) -> dict | None:
+        """The driver's structured evidence (pointer position, error, frame age)."""
+        return getattr(result, "metrics", None) if result else None
+
     async def click_sequence(
         self, points: list[tuple[int, int]], delay_ms: int = 50
     ) -> ActionResult:
@@ -178,6 +183,7 @@ class AdbActuator:
             "click",
             f"Tapped at [{nx}, {ny}] (normalized).",
             normalized_coordinates=[int(nx), int(ny)],
+            metrics=self._metrics(result),
         )
 
     async def long_press(self, nx: int, ny: int, duration_ms: int = 1000) -> ActionResult:

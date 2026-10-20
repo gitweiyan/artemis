@@ -73,6 +73,28 @@
           "default": null,
           "title": "Detail"
         },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
         "incident": {
           "anyOf": [
             {
@@ -195,6 +217,28 @@
           "default": null,
           "title": "Detail"
         },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
         "incident": {
           "anyOf": [
             {
@@ -313,6 +357,28 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
         },
         "incident": {
           "anyOf": [
@@ -445,6 +511,28 @@
           "default": null,
           "title": "Detail"
         },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
         "incident": {
           "anyOf": [
             {
@@ -572,6 +660,28 @@
           "default": null,
           "title": "Detail"
         },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
         "incident": {
           "anyOf": [
             {
@@ -682,6 +792,28 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
         },
         "incident": {
           "anyOf": [
@@ -799,6 +931,28 @@
           "default": null,
           "title": "Detail"
         },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
         "incident": {
           "anyOf": [
             {
@@ -909,6 +1063,28 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
         },
         "incident": {
           "anyOf": [
@@ -1031,6 +1207,28 @@
           "default": null,
           "title": "Detail"
         },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
         "incident": {
           "anyOf": [
             {
@@ -1142,6 +1340,28 @@
           "default": null,
           "title": "Detail"
         },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
         "incident": {
           "anyOf": [
             {
@@ -1244,6 +1464,28 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
         },
         "incident": {
           "anyOf": [
@@ -1358,6 +1600,28 @@
           ],
           "default": null,
           "title": "Detail"
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
         },
         "incident": {
           "anyOf": [

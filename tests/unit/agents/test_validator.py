@@ -926,6 +926,7 @@ async def test_exec_action_records_a_driver_incident():
         "action": "click",
         "incident": "pointer_missing",
         "detail": "pointer not detected before click; refusing to click",
+        "metrics": None,
     }
     assert incident_category("pointer_missing") is ValidationErrorCategory.POINTER_MISSING
     assert incident_category("pointer_not_centered") is (
@@ -963,3 +964,29 @@ def test_capture_failures_map_to_their_own_categories():
     assert incident_category("uvc_decode_error") is ValidationErrorCategory.UVC_NO_SIGNAL
     assert incident_category("capture_timeout") is ValidationErrorCategory.CAPTURE_TIMEOUT
     assert incident_category("stale_frame") is ValidationErrorCategory.STALE_FRAME
+
+
+@pytest.mark.asyncio
+async def test_exec_action_records_the_driver_metrics():
+    """Telemetry: the pointer evidence rides on the action item for the trace."""
+    from artemis.agents.validator.action_execution import exec_action
+
+    class _Session:
+        async def call(self, name, args):
+            return ActionResult(
+                ok=False,
+                code=ActionCode.DEVICE_ERROR,
+                action=name,
+                message="Error executing click: Tap failed at (540, 1200)",
+                detail="pointer not detected",
+                incident="pointer_missing",
+                metrics={"target_x": 540.0, "error_px": 12.5, "frame_age_s": 0.9},
+            )
+
+    ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
+    action_item = {"action": "tap", "normalized_coordinates": [500, 500]}
+
+    await exec_action(ctx, _Session(), action_item)
+
+    assert action_item["action_metrics"]["error_px"] == 12.5
+    assert action_item["action_result"]["metrics"]["target_x"] == 540.0

@@ -39,16 +39,41 @@ class HidControlSink:
         fx, fy = self.geometry.screen_to_frame(int(x), int(y))
         return int(fx), int(fy)
 
+    @staticmethod
+    def _metrics(result, *, target: tuple[int, int], frame_target: tuple[int, int]) -> dict:
+        """The evidence a graph can read: where the pointer was, how far off, how old."""
+        pointer = getattr(result, "pointer", None)
+        metrics: dict[str, float | str] = {
+            "target_x": float(target[0]),
+            "target_y": float(target[1]),
+            "frame_x": float(frame_target[0]),
+            "frame_y": float(frame_target[1]),
+            "attempts": float(getattr(result, "attempts", 0) or 0),
+        }
+        if pointer is not None:
+            metrics["pointer_x"] = float(getattr(pointer, "x", 0.0)) * 1000.0
+            metrics["pointer_y"] = float(getattr(pointer, "y", 0.0)) * 1000.0
+            metrics["pointer_confidence"] = float(getattr(pointer, "confidence", 0.0))
+        error = getattr(result, "error_px", None)
+        if isinstance(error, (int, float)):
+            metrics["error_px"] = float(error)
+        age = getattr(result, "frame_age_s", None)
+        if isinstance(age, (int, float)):
+            metrics["frame_age_s"] = float(age)
+        return metrics
+
     async def tap_abs(self, x: int, y: int) -> ActionResult:
         frame_x, frame_y = self._frame_point(x, y)
         result = await asyncio.to_thread(self.controller.tap, frame_x, frame_y)
+        metrics = self._metrics(result, target=(x, y), frame_target=(frame_x, frame_y))
         if result.ok:
-            return ActionResult(True, "tap_abs", detail=result.message)
+            return ActionResult(True, "tap_abs", detail=result.message, metrics=metrics)
         return ActionResult(
             False,
             "tap_abs",
             result.incident or "no_effect",
             result.message,
+            metrics,
         )
 
     async def tap_rel(self, dx: int, dy: int) -> ActionResult:

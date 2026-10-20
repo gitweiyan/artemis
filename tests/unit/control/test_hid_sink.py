@@ -161,3 +161,36 @@ def test_press_key_uses_the_named_key_map_and_reports_unsupported_keys():
     assert failed.ok is False
     assert failed.incident == "unsupported_key"
     assert "back arrow" in failed.detail
+
+
+def test_a_verified_tap_reports_pointer_evidence():
+    """Telemetry needs numbers, not a sentence: where the pointer was and how far off."""
+    from types import SimpleNamespace
+
+    pointer = SimpleNamespace(x=0.5, y=0.25, confidence=0.9)
+    controller = FakeController(TapResult(True, 1, pointer, 3.0, "ok"))
+    sink = HidControlSink(FakeSession(), controller)
+
+    result = asyncio.run(sink.tap_abs(540, 1200))
+
+    metrics = result.metrics
+    assert metrics["target_x"] == 540 and metrics["target_y"] == 1200
+    assert metrics["pointer_x"] == 500 and metrics["pointer_y"] == 250
+    assert metrics["error_px"] == 3.0
+    assert metrics["attempts"] == 1
+
+
+def test_a_refused_tap_keeps_its_evidence():
+    from types import SimpleNamespace
+
+    pointer = SimpleNamespace(x=0.1, y=0.2, confidence=0.4)
+    controller = FakeController(
+        TapResult(False, 2, pointer, 30.0, "not centered", "pointer_not_centered", 1.25)
+    )
+    sink = HidControlSink(FakeSession(), controller)
+
+    result = asyncio.run(sink.tap_abs(540, 1200))
+
+    assert result.ok is False
+    assert result.metrics["error_px"] == 30.0
+    assert result.metrics["frame_age_s"] == 1.25

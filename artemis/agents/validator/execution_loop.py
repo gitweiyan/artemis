@@ -337,6 +337,10 @@ def _incident_evidence(ctx, outcome: _ActionOutcome) -> dict:
     stem_incident = outcome.action_item.get("incident")
     if stem_incident:
         evidence["driver_incident"] = stem_incident
+    metrics = outcome.action_item.get("action_metrics")
+    if metrics:
+        # Pointer position, error, frame age: what telemetry and a bug report need.
+        evidence["action_metrics"] = dict(metrics)
     return evidence
 
 

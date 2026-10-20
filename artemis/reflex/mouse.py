@@ -35,6 +35,8 @@ class TapResult:
     error_px: float | None
     message: str
     incident: str | None = None
+    #: Age of the frame the click was verified against (seconds), when it could be dated.
+    frame_age_s: float | None = None
 
 
 class PointerSession:
@@ -335,6 +337,7 @@ class SessionTapController:
                     "pointer not detected before click; refusing to click",
                     "pointer_missing",
                 )
+            frame_age = self._frame_age_s(frame)
             stale = self._stale_reason(frame)
             if stale is not None:
                 return TapResult(
@@ -344,6 +347,7 @@ class SessionTapController:
                     None,
                     f"{stale}; refusing to click on a frame we cannot trust",
                     "stale_frame",
+                    frame_age,
                 )
             last_pointer = pointer
             self.session.observe(pointer.x * width, pointer.y * height)
@@ -369,6 +373,8 @@ class SessionTapController:
                         pointer,
                         error,
                         "pointer verified at target; click changed the screen",
+                        None,
+                        frame_age,
                     )
                 return TapResult(
                     False,
@@ -377,6 +383,7 @@ class SessionTapController:
                     error,
                     "pointer verified at target, but click did not change the screen",
                     "no_effect",
+                    frame_age,
                 )
             # The detection disagreed with the belief (gain drift): correct and retry.
             self._travel_on_belief(x, y)

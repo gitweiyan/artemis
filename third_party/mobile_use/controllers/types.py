@@ -26,6 +26,10 @@ class TapOutput(BaseModel):
 
     error: str | None = Field(default=None, description="Error message if tap failed")
     success: bool = Field(default=True, description="Whether the tap was successfully dispatched")
+    metrics: dict[str, float | str] | None = Field(
+        default=None,
+        description="Structured evidence from a driver that reports it",
+    )
     incident: str | None = Field(
         default=None,
         description=(

@@ -65,10 +65,11 @@ class UnifiedMobileControllerBase:
             if callable(tap_with_result):
                 result = await tap_with_result(x, y)
                 if result.ok:
-                    return TapOutput()
+                    return TapOutput(metrics=getattr(result, "metrics", None))
                 return TapOutput(
                     error=f"Tap failed at ({x}, {y})",
                     incident=getattr(result, "incident", None),
+                    metrics=getattr(result, "metrics", None),
                 )
 
             success = await self._driver.tap(

@@ -119,6 +119,9 @@ async def exec_action(
     # structured incident. Record it on the action item so the execution loop can open
     # the matching incident and the trace keeps the evidence. Platforms that report
     # nothing leave the action item byte-identical to before.
+    metrics = getattr(res, "metrics", None)
+    if metrics:
+        action_item["action_metrics"] = dict(metrics)
     if getattr(res, "incident", None):
         action_item["incident"] = res.incident
         action_item["action_result"] = {
@@ -126,6 +129,7 @@ async def exec_action(
             "action": tool_name,
             "incident": res.incident,
             "detail": getattr(res, "detail", None),
+            "metrics": dict(metrics) if metrics else None,
         }
 
     return (True, "") if res.ok else (False, res.message)
