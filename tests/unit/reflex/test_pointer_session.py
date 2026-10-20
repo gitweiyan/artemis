@@ -321,3 +321,57 @@ def test_verified_tap_fails_when_click_does_not_change_the_screen():
     assert result.ok is False
     assert control.clicks == 1
     assert "did not change" in result.message
+
+
+def test_verified_tap_reports_pointer_missing_incident():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120))])
+    detector = FakeDetector([None])
+    controller = SessionTapController(session, capture=capture, detector=detector)
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is False
+    assert result.incident == "pointer_missing"
+    assert control.clicks == 0
+
+
+def test_verified_tap_reports_no_effect_incident():
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120)), _png((120, 120, 120))])
+    detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")])
+    controller = SessionTapController(session, capture=capture, detector=detector)
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is False
+    assert result.incident == "no_effect"
+
+
+def test_verified_tap_reports_not_centered_incident_when_pointer_never_converges():
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120))] * 50)
+    detector = FakeDetector([Pointer(0.1, 0.1, 0.95, "fake")] * 50)
+    controller = SessionTapController(
+        session, capture=capture, detector=detector, max_attempts=1, max_steps=2
+    )
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is False
+    assert result.incident == "pointer_not_centered"
+    assert control.clicks == 0

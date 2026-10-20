@@ -20,11 +20,20 @@ from artemis.reflex.vision import Pointer, changed
 
 @dataclass(frozen=True)
 class TapResult:
+    """Outcome of one tap attempt.
+
+    ``incident`` is the machine-readable reason a failed tap failed:
+    ``pointer_missing`` (no verified pointer, so no click), ``pointer_not_centered``
+    (the pointer never converged inside the tolerance) or ``no_effect`` (the click was
+    dispatched but the screen did not change). Callers must not parse ``message``.
+    """
+
     ok: bool
     attempts: int
     pointer: Pointer | None
     error_px: float | None
     message: str
+    incident: str | None = None
 
 
 class PointerSession:
@@ -154,7 +163,7 @@ class SessionTapController:
         max_attempts: int = 3,
         tolerance_px: float = 8.0,
         max_steps: int = 6,
-        max_step: int = 80,
+        max_step: int = 50,
     ):
         if detector is not None and capture is None:
             raise ValueError("pre-click pointer verification needs a capture")
@@ -184,6 +193,7 @@ class SessionTapController:
                         None,
                         None,
                         "pointer not detected before click; refusing to click",
+                        "pointer_missing",
                     )
                 last_pointer = pointer
                 self.session.observe(pointer.x * width, pointer.y * height)
@@ -207,6 +217,7 @@ class SessionTapController:
                         pointer,
                         error,
                         "pointer verified at target, but click did not change the screen",
+                        "no_effect",
                     )
                 dx = round((x - self.session.position[0]) / self.session.gain_x)
                 dy = round((y - self.session.position[1]) / self.session.gain_y)
@@ -222,6 +233,7 @@ class SessionTapController:
             last_pointer,
             last_error,
             "pointer did not converge to the target; refusing to click",
+            "pointer_not_centered",
         )
 
     def tap(self, x: float, y: float) -> TapResult:
@@ -258,6 +270,7 @@ class SessionTapController:
             None,
             None,
             "click did not change the screen; pointer was re-anchored",
+            "no_effect",
         )
 
 
@@ -344,6 +357,7 @@ class MouseController:
             last_pointer,
             last_error,
             "not converged or click did not change the screen",
+            "no_effect",
         )
 
     def _locate(self, expected: tuple[float, float]) -> Pointer | None:
