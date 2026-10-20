@@ -590,8 +590,10 @@ def render_execution_incident(incident: dict, steps: list) -> str:
     elif category == "no_effect":
         lines.append(
             "Evidence: the pointer was verified on the target and the click was dispatched,"
-            " but the screen did not change. The app may ignore synthetic clicks on this"
-            " control (self-drawn widgets), or the control may need a different gesture."
+            " but the screen did not change. Either the app ignores synthetic clicks on this"
+            " control (self-drawn widgets) and needs a different gesture, or the device is no"
+            " longer delivering HID button events at all (the pointer still moves, the click"
+            " does nothing) — that one needs the HID device replugged, not another tap."
         )
 
     elif category == "uvc_no_signal":

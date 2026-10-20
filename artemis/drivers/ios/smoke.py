@@ -241,6 +241,12 @@ async def run_smoke(
         detail = f"screen=({x}, {y})"
         if not result.ok:
             detail += f" incident={result.incident}"
+            if result.incident == "no_effect":
+                detail += (
+                    " (the pointer was verified but the click did nothing: iOS may have"
+                    " lost the HID button mapping — replug the ESP32 OTG cable, and check"
+                    " Settings > Accessibility > Touch > AssistiveTouch > Devices)"
+                )
         if result.detail:
             detail += f" {result.detail}"
         report.ok = report.ok and result.ok

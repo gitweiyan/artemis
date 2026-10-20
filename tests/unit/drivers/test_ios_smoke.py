@@ -322,3 +322,31 @@ def test_a_black_frame_is_named_in_the_report():
 
     assert report.ok is False
     assert "uvc_no_signal" in report.steps[-1].detail
+
+
+def test_a_no_effect_tap_names_the_hid_button_hypothesis():
+    """Measured live 2026-10-21 after a reboot: the pointer moved, the button did nothing."""
+
+    class DeadButtonEsp32(Esp32):
+        """The click is accepted by the board and ignored by the phone."""
+
+        def mouse_click(self):
+            self.clicks += 1
+
+    control = DeadButtonEsp32()
+    # The screen never changes: a click that lands and does nothing looks exactly like this.
+    session = build_ios_uvc_session(
+        Capture(control),
+        control,
+        frame_size=(449, 974),
+        screen_size=(1080, 2400),
+        detector=CenteredDetector(),
+        ocr_engine=Ocr(),
+    )
+    report = asyncio.run(run_smoke(IOSUvcHidDriver(session), target="闪购"))
+
+    steps = {step.name: step for step in report.steps}
+    assert steps["tap"].ok is False
+    assert steps["tap"].detail.startswith("screen=")
+    assert "incident=no_effect" in steps["tap"].detail
+    assert "replug" in steps["tap"].detail
