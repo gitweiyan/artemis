@@ -151,13 +151,25 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
             host=settings.ADB_HOST or "localhost", port=settings.ADB_PORT or 5037
         )
 
-    return AndroidAdbDriver(
+    driver = AndroidAdbDriver(
         device_id=ctx.device.device_id,
         adb_client=ctx.adb_client,
         ui_adb_client=getattr(ctx, "ui_adb_client", None),
         width=ctx.device.device_width,
         height=ctx.device.device_height,
     )
+    from artemis.orchestration.selector import DeviceProfile, select_composition
+
+    composition = select_composition(
+        DeviceProfile(
+            platform="android",
+            device_id=driver.device_id,
+            capabilities=driver.capabilities,
+            screen_size=driver.screen_size,
+        )
+    )
+    logger.info(f"Composition: {composition.kind} — {composition.reason}")
+    return driver
 
 
 def get_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:

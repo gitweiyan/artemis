@@ -106,6 +106,23 @@ class AndroidAdbDriver(BaseDeviceDriver):
         return (self._width, self._height)
 
     @property
+    def session(self):
+        """The capability-driven view of this device (perception source + control sink).
+
+        The target architecture keeps ``BaseDeviceDriver`` as a compatible façade whose
+        *composition* is a ``DeviceSession``. Android is driven by an absolute surface, so
+        the session is the app composition the selector calls ``app``. Built lazily: a
+        driver that is never used through a session pays nothing.
+        """
+        cached = getattr(self, "_session_cache", None)
+        if cached is None:
+            from artemis.devices.app_session import build_app_session
+
+            cached = build_app_session(self)
+            self._session_cache = cached
+        return cached
+
+    @property
     def device(self) -> AdbDevice:
         if self._device is None:
             self._device = self._adb_client.device(serial=self._device_id)
