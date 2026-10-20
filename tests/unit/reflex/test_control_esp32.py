@@ -373,3 +373,34 @@ def test_the_firmware_home_command_is_still_available_for_diagnostics():
     control.firmware_home()
 
     assert lines == ["home"]
+
+
+def test_named_shortcuts_are_cmd_combinations():
+    """Keyboard first on iOS: Spotlight/Home/app-switch/closing a sheet need no pointer.
+
+    Verified on the rig 2026-10-21: Cmd+Space → type "taobao" → Down → Enter launched
+    Taobao, which is far more reliable than aiming the pointer at an icon.
+    """
+    from artemis.reflex.control import Esp32HidControl
+
+    sent: list[str] = []
+    control = Esp32HidControl("/dev/fake", writer=lambda line: sent.append(line.strip()))
+
+    control.press_named_key("spotlight")
+    control.press_named_key("home")
+    control.press_named_key("app_switch")
+    control.press_named_key("close")
+
+    assert sent == ["keymod 8 44", "keymod 8 11", "keymod 8 43", "keymod 8 26"]
+
+
+def test_escape_and_enter_are_plain_usages():
+    from artemis.reflex.control import Esp32HidControl
+
+    sent: list[str] = []
+    control = Esp32HidControl("/dev/fake", writer=lambda line: sent.append(line.strip()))
+
+    control.press_named_key("escape")
+    control.press_named_key("enter")
+
+    assert sent == ["key 41", "key 40"]

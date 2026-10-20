@@ -509,22 +509,39 @@ class Esp32HidControl(Control):
         "backspace": 42,
     }
 
+    #: Named shortcuts that need Cmd (left GUI, HID usage 8). Verified on the rig
+    #: 2026-10-21: Cmd+Space opens Spotlight (type an app name + Down + Enter to launch),
+    #: Cmd+H goes Home, Cmd+Tab is the app switcher, Cmd+W closes a sheet.
+    KEY_SHORTCUTS: dict[str, int] = {
+        "spotlight": 44,  # Cmd+Space
+        "search": 44,
+        "app_switch": 43,  # Cmd+Tab
+        "close": 26,  # Cmd+W
+        "close_window": 26,
+    }
+
     def press_named_key(self, name: str) -> float:
-        """Press a key by name (``enter``, ``home``, ``delete`` ...) on the phone.
+        """Press a key or a named shortcut on the phone.
 
         The firmware only understands numeric HID usages, so an unmapped name used to
         reach it verbatim and come back as ``usage: key <usage 0-255>`` — observed live
-        when the Operator pressed BACK on iOS. ``home`` becomes Cmd+H; a real BACK key
-        does not exist on iOS and is refused here with that explanation.
+        when the Operator pressed BACK on iOS.
+
+        Keyboard shortcuts are the *first* choice on this platform: launching an app
+        through Spotlight, going Home and dismissing a sheet all avoid the relative
+        pointer, its calibration and its precheck entirely.
         """
         key = str(name or "").strip().lower()
-        if key in ("home", "app_switch"):
+        if key == "home":
             self.ios_home()
             return 0.0
+        shortcut = self.KEY_SHORTCUTS.get(key)
+        if shortcut is not None:
+            return self._timed(f"keymod 8 {shortcut}")
         if key == "back":
             raise ValueError(
-                "iOS has no Back key: tap the on-screen back arrow instead"
-                " (Cmd+H goes to the Home screen)"
+                "iOS has no Back key: use 'escape' to dismiss, the on-screen back arrow to"
+                " go back, or 'home' (Cmd+H) for the Home screen"
             )
         usage = self.KEY_NAMES.get(key)
         if usage is None and key.isdigit():

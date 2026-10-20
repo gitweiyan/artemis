@@ -43,6 +43,21 @@
 - 键盘：`Enter/Space/Tab/方向键` 可用；没有 Back 键（用屏幕返回箭头或 Cmd+H）。
 - 应用启动只能点图标（没有包名可查）；`manage_app` 在本平台直接失败并提示点图标。
 
+## 2.5 键盘优先（先走这条路，再考虑指针）
+
+指针有加速度、会淡出、要预检；键盘没有这些问题。**能用键盘就别用鼠标。**
+
+| 目的 | 命令（`press_named_key` / 固件） | 备注 |
+|---|---|---|
+| 回主屏 | `home` → `keymod 8 11`（Cmd+H） | 主屏/App 内都有效 |
+| 搜索/打开 App | `spotlight` → `keymod 8 44`（Cmd+Space），`type_text("taobao")`，`down`，`enter` | **已验证**：输入英文/拼音即可命中中文 App（`taobao` → 淘宝） |
+| 关闭弹层/搜索页 | `escape` → `key 41` | “点击无效”的第一反应也是它 |
+| 切 App | `app_switch` → `keymod 8 43`（Cmd+Tab） | |
+| 关闭当前弹窗/页面 | `close` → `keymod 8 26`（Cmd+W） | 不适用于所有 App |
+| 光标/翻页 | `down/up/left/right` → `key 81/82/80/79` | Spotlight 选中首条结果要 `down` 再 `enter` |
+
+`type_text` **只支持 ASCII**（固件限制）：中文要输入时用拼音（淘宝 → `taobao`）、或用 App 内搜索框的中文候选。
+
 ## 3. 点击落点（最贵的一课：2026-10-21）
 
 1. **桌面文字不是可点区域**。OCR 命中的是图标下方的标签；点击标签在 iOS 上完全不生效。
