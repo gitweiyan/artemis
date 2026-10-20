@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass
 
 from artemis.reflex.vision import Pointer, changed
+from artemis.safety.pixel import verify_effect
 from artemis.safety.pointer import check_point
 
 
@@ -37,6 +38,8 @@ class TapResult:
     incident: str | None = None
     #: Age of the frame the click was verified against (seconds), when it could be dated.
     frame_age_s: float | None = None
+    #: How much of the target crop changed after the click (0..1), when it could be read.
+    crop_change: float | None = None
 
 
 class PointerSession:
@@ -366,7 +369,14 @@ class SessionTapController:
                 before = frame.image
                 self.session.click()
                 after = self.capture.grab_latest()
-                if changed(before, after.image):
+                # The target crop decides first; a change elsewhere on the screen is
+                # still proof the click landed (a sheet can open away from the target).
+                effect = verify_effect(
+                    before,
+                    after.image,
+                    (pointer.x * width, pointer.y * height),
+                )
+                if effect.ok:
                     return TapResult(
                         True,
                         attempt,
@@ -375,6 +385,7 @@ class SessionTapController:
                         "pointer verified at target; click changed the screen",
                         None,
                         frame_age,
+                        effect.crop_change,
                     )
                 return TapResult(
                     False,
@@ -384,6 +395,7 @@ class SessionTapController:
                     "pointer verified at target, but click did not change the screen",
                     "no_effect",
                     frame_age,
+                    effect.crop_change,
                 )
             # The detection disagreed with the belief (gain drift): correct and retry.
             self._travel_on_belief(x, y)

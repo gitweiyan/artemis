@@ -733,3 +733,59 @@ def test_travel_moves_on_the_belief_without_clicking():
     assert control.moves, "travel is dead reckoning"
     assert control.clicks == 0, "travel is not a tap"
     assert remaining <= 8.0, "the pointer belief lands on the target"
+
+
+def test_a_click_that_changes_only_the_target_crop_is_verified():
+    """Verification looks at the target first: a press highlight there is the click."""
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    def frame(highlight: bool) -> bytes:
+        image = Image.new("RGB", (200, 200), (235, 235, 235))
+        if highlight:
+            ImageDraw.Draw(image).rectangle((90, 90, 110, 110), fill=(10, 120, 220))
+        out = BytesIO()
+        image.save(out, "PNG")
+        return out.getvalue()
+
+    class HighlightOnClick:
+        def __init__(self):
+            self.clicked = False
+
+        def grab_latest(self):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(image=frame(self.clicked))
+
+    capture = HighlightOnClick()
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+
+    class ClickPaints(  # the click itself is what repaints the target
+        type(control)
+    ):
+        pass
+
+    original_click = control.mouse_click
+
+    def click():
+        original_click()
+        capture.clicked = True
+
+    control.mouse_click = click
+    controller = SessionTapController(
+        session,
+        capture=capture,
+        detector=FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")] * 5),
+        settle_timeout_s=0.0,
+    )
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is True
+    assert result.crop_change is not None and result.crop_change > 0.0

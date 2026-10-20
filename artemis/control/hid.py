@@ -60,6 +60,9 @@ class HidControlSink:
         age = getattr(result, "frame_age_s", None)
         if isinstance(age, (int, float)):
             metrics["frame_age_s"] = float(age)
+        crop_change = getattr(result, "crop_change", None)
+        if isinstance(crop_change, (int, float)):
+            metrics["crop_change"] = float(crop_change)
         return metrics
 
     async def tap_abs(self, x: int, y: int) -> ActionResult:
