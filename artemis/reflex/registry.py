@@ -46,12 +46,17 @@ import types
 from typing import Any
 
 from artemis.reflex.contract import SkillHandle
+from artemis.skills.manifest import (
+    CALIBRATION_NAME,
+    MANIFEST_NAME,
+    SkillManifest,
+    SkillManifestError,
+    read_manifest,
+)
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-MANIFEST_NAME = "skill.json"
-CALIBRATION_NAME = "calibration.json"
 
 #: Where skills are looked up, in order. ``ARTEMIS_SKILLS_DIR`` lets a user keep
 #: private skills outside the repository (and take precedence over it).
@@ -136,10 +141,9 @@ def _load_callable(module_path: Path, dotted: str, *, skill: str, role: str) -> 
 
 def _check_requires(name: str, requires: dict[str, Any]) -> None:
     """Refuse to load a skill whose declared needs are not met — with the reason."""
-    if requires.get("screenshot") is True:
-        # Any reflex loop needs frames; the runtime reports the real failure if the
-        # capture path is down, so this is a declaration check, not a probe.
-        return
+    # `screenshot: true` is a declaration, not a probe: every reflex loop needs frames
+    # and the runtime reports a dead capture path itself. It must not short-circuit the
+    # other declarations, though — an unset API key is a skill that cannot run at all.
     api_key_env = requires.get("api_key_env")
     if isinstance(api_key_env, str) and api_key_env.strip():
         if not os.environ.get(api_key_env.strip()):
@@ -162,49 +166,39 @@ def load_skill(name: str, *, directory: str | Path | None = None) -> SkillHandle
         )
         raise SkillError(f"skill '{name}' not found under {root} (available: {known})")
 
-    manifest_path = skill_dir / MANIFEST_NAME
-    if not manifest_path.is_file():
-        raise SkillError(f"skill '{name}': {MANIFEST_NAME} is missing in {skill_dir}")
-    manifest = _read_json(manifest_path)
+    try:
+        manifest = read_manifest(skill_dir, name=name)
+    except SkillManifestError as exc:
+        raise SkillError(f"skill '{name}': {exc}") from exc
 
-    declared_name = manifest.get("name")
-    if declared_name != name:
-        raise SkillError(
-            f"skill '{name}': manifest names '{declared_name}' — the directory name is the skill name"
-        )
-    entry = manifest.get("entry")
-    if not isinstance(entry, dict):
-        raise SkillError(f"skill '{name}': manifest needs an 'entry' object")
-    for role in ("perception", "policy", "control"):
-        if not isinstance(entry.get(role), str):
-            raise SkillError(f"skill '{name}': entry.{role} is required")
-
-    requires = manifest.get("requires") if isinstance(manifest.get("requires"), dict) else {}
-    _check_requires(name, requires)
+    requires = {
+        "screenshot": manifest.requires.screenshot,
+        "api_key_env": manifest.requires.api_key_env,
+    }
+    _check_requires(name, {k: v for k, v in requires.items() if v is not None})
 
     calibration: dict[str, Any] = {}
-    calibration_name = manifest.get("calibration") or CALIBRATION_NAME
-    calibration_path = skill_dir / str(calibration_name)
+    calibration_path = skill_dir / (manifest.calibration_name or CALIBRATION_NAME)
     if calibration_path.is_file():
         calibration = _read_json(calibration_path)
 
     return SkillHandle(
         name=name,
-        version=str(manifest.get("version") or "0"),
+        version=manifest.version,
         directory=skill_dir,
-        parse=_load_callable(skill_dir, entry["perception"], skill=name, role="perception"),
-        decide=_load_callable(skill_dir, entry["policy"], skill=name, role="policy"),
-        to_gestures=_load_callable(skill_dir, entry["control"], skill=name, role="control"),
+        parse=_load_callable(
+            skill_dir, manifest.entry["perception"], skill=name, role="perception"
+        ),
+        decide=_load_callable(skill_dir, manifest.entry["policy"], skill=name, role="policy"),
+        to_gestures=_load_callable(
+            skill_dir, manifest.entry["control"], skill=name, role="control"
+        ),
         calibration=calibration,
-        plan_hint=str(manifest.get("plan_hint") or ""),
+        plan_hint=manifest.plan_hint,
         requires=requires,
-        on_start=_optional_hook(
-            skill_dir, manifest.get("hooks", {}).get("on_start"), name, "on_start"
-        ),
-        on_stop=_optional_hook(
-            skill_dir, manifest.get("hooks", {}).get("on_stop"), name, "on_stop"
-        ),
-        arena=_optional_entry(skill_dir, entry.get("arena"), name, "arena"),
+        on_start=_optional_hook(skill_dir, manifest.hooks.get("on_start"), name, "on_start"),
+        on_stop=_optional_hook(skill_dir, manifest.hooks.get("on_stop"), name, "on_stop"),
+        arena=_optional_entry(skill_dir, manifest.entry.get("arena"), name, "arena"),
     )
 
 

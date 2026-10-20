@@ -62,10 +62,9 @@ def check_in_box(
     left, top, right, bottom = (float(value) for value in box)
     center_x = (left + right) / 2
     center_y = (top + bottom) / 2
-    inside = (
-        min(left, right) <= float(pointer_x) <= max(left, right)
-        and min(top, bottom) <= float(pointer_y) <= max(top, bottom)
-    )
+    inside = min(left, right) <= float(pointer_x) <= max(left, right) and min(top, bottom) <= float(
+        pointer_y
+    ) <= max(top, bottom)
     return check_point(
         center_x, center_y, pointer_x, pointer_y, tolerance_px=tolerance_px, inside=inside
     )
