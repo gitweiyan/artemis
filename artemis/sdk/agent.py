@@ -113,7 +113,11 @@ class Agent(AgentBase):
             updates = {}
             if target_dev:
                 updates["device_id"] = target_dev
-                updates["device_platform"] = DevicePlatform.ANDROID
+                # An explicitly configured platform wins: a caller that asked for iOS must
+                # not be silently rewritten to Android just because it also named a device.
+                updates["device_platform"] = (
+                    self._config.device_platform or DevicePlatform.ANDROID
+                )
             if concurrency_mode:
                 updates["concurrency_mode"] = str(concurrency_mode).strip().lower()
             if max_concurrency is not None:
@@ -211,7 +215,9 @@ class Agent(AgentBase):
     async def _ensure_device_unlocked(self) -> None:
         """Reject secure keyguard instead of allowing an agent to guess credentials."""
         if self._adb_client is None:
-            raise AgentError("ADB client is not initialized.")
+            # No ADB transport (an iOS rig): there is no Android keyguard to inspect.
+            logger.info("No ADB client on this device; skipping the Android keyguard probe.")
+            return
 
         device = self._adb_client.device(serial=self._device_context.device_id)
         try:

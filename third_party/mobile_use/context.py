@@ -47,9 +47,15 @@ class AppLaunchResult(BaseModel):
 
 
 class DevicePlatform(StrEnum):
-    """Mobile device platform enumeration."""
+    """Mobile device platform enumeration.
+
+    The platform describes how the host reaches the device, not what the orchestrator
+    may do with it: capability flags (``CapabilitySet``) remain the only thing core
+    orchestration branches on.
+    """
 
     ANDROID = "android"
+    IOS = "ios"
 
 
 class DeviceContext(BaseModel):

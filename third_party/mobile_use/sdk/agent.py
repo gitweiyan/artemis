@@ -140,7 +140,13 @@ class AgentBase:
         retry_wait_seconds: int = 5,
     ):
 
-        if os.environ.get("ARTEMIS_CLOUD_MODE") != "1" and not which("adb"):
+        # ADB is the Android transport. An explicitly configured iOS rig is reached over
+        # UVC + a serial HID board, so it must not require the adb binary to exist.
+        if (
+            self._config.device_platform != DevicePlatform.IOS
+            and os.environ.get("ARTEMIS_CLOUD_MODE") != "1"
+            and not which("adb")
+        ):
             raise ExecutableNotFoundError("adb")
 
         if self._initialized:
@@ -164,11 +170,20 @@ class AgentBase:
             logger.error(error_msg)
             raise DeviceNotFoundError(error_msg)
 
+        # ADB is the Android transport, not a universal requirement: an iOS rig is
+        # reached over UVC + a serial HID board.
+        needs_adb = platform != DevicePlatform.IOS
+
         # Initialize clients
         publish_startup_progress(
-            "device_check", "Checking the Android device", session_id=self._session_id
+            "device_check",
+            "Checking the iOS rig" if not needs_adb else "Checking the Android device",
+            session_id=self._session_id,
         )
-        if os.environ.get("ARTEMIS_CLOUD_MODE") != "1":
+        if not needs_adb:
+            self._adb_client = None
+            self._ui_adb_client = None
+        elif os.environ.get("ARTEMIS_CLOUD_MODE") != "1":
             self._init_clients(
                 device_id=device_id,
                 platform=platform,
@@ -1012,6 +1027,14 @@ class AgentBase:
     ) -> DeviceContext:
 
         host_platform = system()
+
+        # A device reached without ADB (the iOS UVC + HID rig) has no window_size to
+        # query; its descriptor carries the configured screen size instead.
+        if platform == DevicePlatform.IOS:
+            from artemis.drivers.ios.config import ios_device_context
+
+            return ios_device_context(device_id)
+
         if os.environ.get("ARTEMIS_CLOUD_MODE") == "1":
             width, height = (1080, 2400)
             if self._adb_client:
