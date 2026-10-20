@@ -15,6 +15,7 @@
 """The rig smoke is the operator's answer to "is it the phone or the agent?"."""
 
 import asyncio
+import time
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -47,7 +48,7 @@ class Capture:
             image=_frame((150, 150, 150) if moved else (120, 120, 120)),
             width=449,
             height=974,
-            captured_at=1.0,
+            captured_at=time.monotonic(),
         )
 
 
@@ -98,7 +99,9 @@ class ClickCapture(Capture):
             color = (150, 150, 150)
         else:
             color = (120, 120, 120)
-        return SimpleNamespace(image=_frame(color), width=449, height=974, captured_at=1.0)
+        return SimpleNamespace(
+            image=_frame(color), width=449, height=974, captured_at=time.monotonic()
+        )
 
 
 def _driver(control, detector):
@@ -163,7 +166,9 @@ def test_a_blind_pointer_is_reported_and_nothing_is_clicked():
 def test_a_black_frame_stops_before_any_ocr():
     class BlackCapture(Capture):
         def grab(self):
-            return SimpleNamespace(image=_frame((0, 0, 0)), width=449, height=974, captured_at=1.0)
+            return SimpleNamespace(
+                image=_frame((0, 0, 0)), width=449, height=974, captured_at=time.monotonic()
+            )
 
     session = build_ios_uvc_session(
         BlackCapture(),
@@ -282,3 +287,38 @@ def test_locate_retries_on_a_frame_the_ocr_could_not_read():
     steps = {step.name: step for step in report.steps}
     assert steps["locate"].ok is True, report.summary()
     assert "frame 2" in steps["locate"].detail
+
+
+def test_a_capture_that_never_produces_a_frame_is_named_in_the_report():
+    from artemis.reflex.contract import CaptureError
+
+    class DeadCapture:
+        def grab(self):
+            raise CaptureError("uvc capture failed: Command ... timed out after 12.0 seconds")
+
+    session = build_ios_uvc_session(
+        DeadCapture(), Esp32(), frame_size=(449, 974), screen_size=(1080, 2400)
+    )
+
+    report = asyncio.run(run_smoke(IOSUvcHidDriver(session), target="闪购"))
+
+    assert report.ok is False
+    assert [step.name for step in report.steps] == ["connect", "snapshot"]
+    assert "capture_timeout" in report.steps[-1].detail
+
+
+def test_a_black_frame_is_named_in_the_report():
+    class BlackCapture(Capture):
+        def grab(self):
+            return SimpleNamespace(
+                image=_frame((0, 0, 0)), width=449, height=974, captured_at=time.monotonic()
+            )
+
+    session = build_ios_uvc_session(
+        BlackCapture(), Esp32(), frame_size=(449, 974), screen_size=(1080, 2400)
+    )
+
+    report = asyncio.run(run_smoke(IOSUvcHidDriver(session), target="闪购"))
+
+    assert report.ok is False
+    assert "uvc_no_signal" in report.steps[-1].detail

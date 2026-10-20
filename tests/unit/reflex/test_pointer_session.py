@@ -606,9 +606,7 @@ def test_an_old_frame_is_never_used_to_verify_a_click():
         def grab_latest(self):
             from types import SimpleNamespace
 
-            return SimpleNamespace(
-                image=self.image, captured_at=time.monotonic() - 30.0
-            )
+            return SimpleNamespace(image=self.image, captured_at=time.monotonic() - 30.0)
 
     control = FakeControl()
     session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))

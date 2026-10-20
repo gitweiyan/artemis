@@ -100,7 +100,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         if pointer is not None:
             pointer.connected = False
 
-    async def _healthy_frame(self):
+    async def snapshot_frame(self):
         """The one frame this driver is allowed to act on, or a named failure.
 
         A ``DeviceSession`` tries its sources and raises ``DeviceSessionError`` when none
@@ -112,8 +112,11 @@ class IOSUvcHidDriver(BaseDeviceDriver):
             try:
                 return await snapshot()
             except DeviceSessionError as exc:
+                # "health=<value>" means a frame arrived but is unusable; anything else
+                # is a capture failure whose message decides timeout vs no signal.
                 health = _health_from_message(str(exc))
-                raise UnhealthyFrame(health or UVC_NO_SIGNAL, str(exc)) from exc
+                incident = incident_for_health(health) if health else incident_for_error(exc)
+                raise UnhealthyFrame(incident, str(exc)) from exc
             except UnhealthyFrame:
                 raise
             except Exception as exc:  # noqa: BLE001 - a capture failure is data
@@ -136,7 +139,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         (449x974) shrank that grid by 2.4x and sent every tap to the top-left corner
         (measured live 2026-10-21: a tap meant for 微信 landed on 日历).
         """
-        frame = await self._healthy_frame()
+        frame = await self.snapshot_frame()
         width, height = self._screen_size
         return ScreenData(
             screenshot_bytes=frame.image,

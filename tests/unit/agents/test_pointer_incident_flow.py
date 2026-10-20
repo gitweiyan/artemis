@@ -152,9 +152,7 @@ async def test_no_effect_incident_is_reported_as_no_effect(mock_context, temp_sc
 
 
 @pytest.mark.asyncio
-async def test_android_style_failure_still_opens_a_general_incident(
-    mock_context, temp_screenshot
-):
+async def test_android_style_failure_still_opens_a_general_incident(mock_context, temp_screenshot):
     class _NoIncidentSession(PointerIncidentSession):
         async def call(self, name, args):
             self.calls.append((name, args))

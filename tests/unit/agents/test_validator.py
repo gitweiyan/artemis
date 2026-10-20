@@ -910,7 +910,11 @@ async def test_exec_action_records_a_driver_incident():
             )
 
     ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
-    action_item = {"action": "tap", "normalized_coordinates": [500, 500], "coordinates": [540, 1200]}
+    action_item = {
+        "action": "tap",
+        "normalized_coordinates": [500, 500],
+        "coordinates": [540, 1200],
+    }
 
     ok, error = await exec_action(ctx, _Session(), action_item)
 

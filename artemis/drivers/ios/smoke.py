@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 
+from artemis.perception.incidents import UnhealthyFrame
 from artemis.perception.text_locator import locate_text
 from dataclasses import asdict, dataclass, field
 
@@ -80,8 +81,19 @@ async def run_smoke(
 
     started = time.monotonic()
     try:
-        frame = await session.snapshot()
-    except Exception as exc:  # noqa: BLE001
+        frame = await driver.snapshot_frame()
+    except UnhealthyFrame as exc:
+        report.ok = False
+        report.steps.append(
+            SmokeStep(
+                "snapshot",
+                False,
+                f"{exc.incident}: {exc.detail}",
+                (time.monotonic() - started) * 1000,
+            )
+        )
+        return report
+    except Exception as exc:  # noqa: BLE001 - a capture failure is data, not a crash
         report.ok = False
         report.steps.append(
             SmokeStep("snapshot", False, str(exc), (time.monotonic() - started) * 1000)
