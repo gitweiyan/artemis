@@ -190,8 +190,12 @@ Tetris 等 skill 因此可以在 iOS 上跑（仍需真机确认帧率与手势�
 
 仍未落位（B 组剩余）：`control/app_control.py`（Android 绝对控制做成 ControlSink）、
 `control/composite.py`（绝对优先/HID 兜底）、`perception/app_automation.py`（Android UI 树源）、
-`perception/camera.py` + `composite.py`（黑屏降级）、`orchestration/{profiles,selector}.py`
-（能力驱动组合，目前硬编码在 factory）、`safety/{pixel,xml}.py`（逻辑仍在 validator 里）。
+`perception/camera.py` + `composite.py`（黑屏降级）、`safety/{pixel,xml}.py`（逻辑仍在 validator 里）。
+
+`orchestration/selector.py` 已落位：`DeviceProfile → Composition` 的纯函数决策表
+（app / uvc-hid / camera-hid），factory 现在“先选择、记录理由、再构建”；加新组合 =
+加一行表 + 一个 builder，不再加平台分支。`orchestration/profiles.py` 仍缺（flash/pro 由
+配置与 CLI 决定，尚未集中到编排层）。
 
 ### 2.6 真机 flash / pro（P7 / P8，2026-10-21）
 

@@ -288,8 +288,8 @@ latency
 
 ```text
 artemis/orchestration/
-  profiles.py
-  selector.py
+  profiles.py    # 仍缺：flash/pro 由配置与 CLI 决定
+  selector.py    # 已落位：DeviceProfile -> Composition 纯函数
 artemis/perception/
   base.py
   uvc.py
