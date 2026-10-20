@@ -63,6 +63,7 @@ async def execute_task(
     explorer_flash_mode: str | None = None,
     explorer_pro_mode: str | None = None,
     verification_level: str | None = None,
+    platform: str | None = None,
 ) -> None:
     """Executes a single mobile automation task end-to-end.
 
@@ -83,6 +84,8 @@ async def execute_task(
         explorer_pro_mode: Override the Explorer tier for the Pro execution profile.
         verification_level: Coarse Checker preset ('off', 'final', 'checkpoints',
             'strict'); applied before the explicit ``enable_checker`` switch.
+        platform: Device platform to target ('android' or 'ios'); defaults to the
+            ``ARTEMIS_DEVICE_PLATFORM`` env var, then Android.
     """
     effective_sid = (
         session_id or os.getenv("ARTEMIS_SESSION_ID") or os.getenv("ARTEMIS_CLOUD_SESSION_ID")
@@ -137,18 +140,19 @@ async def execute_task(
     target_serial = (
         device_serial or settings.ADB_DEVICE_SERIAL or os.environ.get("ADB_DEVICE_SERIAL")
     )
-    if not target_serial:
-        try:
-            from artemis.runtime import device_pool
 
-            target_serial = device_pool.select_device()
-        except Exception:
-            target_serial = None
+    from artemis.runtime.device_pool import resolve_target
 
-    if target_serial:
-        from artemis.context import DevicePlatform
+    def _select_adb_device():
+        from artemis.runtime import device_pool
 
-        config.for_device(DevicePlatform.ANDROID, target_serial)
+        return device_pool.select_device()
+
+    target_platform, target_id = resolve_target(
+        platform, target_serial, select=_select_adb_device
+    )
+    if target_id:
+        config.for_device(target_platform, target_id)
 
     if graph_config_callbacks:
         config.with_graph_config_callbacks(graph_config_callbacks)
@@ -278,7 +282,20 @@ def run_command(
         typer.Option(
             "--device-serial",
             "-s",
-            help="Target specific Android device by serial number (e.g. emulator-5554).",
+            help=(
+                "Target device by id: an Android ADB serial (emulator-5554) or, with"
+                " --platform ios, the rig id (defaults to ios-uvc)."
+            ),
+        ),
+    ] = None,
+    platform: Annotated[
+        str | None,
+        typer.Option(
+            "--platform",
+            help=(
+                "Device platform: 'android' (ADB) or 'ios' (UVC perception + ESP32 HID"
+                " control). Defaults to ARTEMIS_DEVICE_PLATFORM, then android."
+            ),
         ),
     ] = None,
     session_id: Annotated[
@@ -427,6 +444,7 @@ def run_command(
                 explorer_flash_mode=explorer_flash_mode,
                 explorer_pro_mode=explorer_pro_mode,
                 verification_level=verification_level,
+                platform=platform,
             )
         )
     except (KeyboardInterrupt, asyncio.CancelledError):

@@ -476,3 +476,36 @@ class DevicePool:
 
 # Global device pool instance
 device_pool = DevicePool()
+
+
+#: The device id an iOS UVC + HID rig reports when the caller names none.
+IOS_DEVICE_ID = "ios-uvc"
+
+
+def resolve_target(
+    platform: str | None = None,
+    serial: str | None = None,
+    *,
+    select=None,
+):
+    """``(DevicePlatform, device_id)`` for a run, without guessing the transport.
+
+    Android (the default) keeps the historical behavior: the explicit serial wins, and
+    otherwise the ADB pool picks a device. iOS is reached over UVC + a serial HID board,
+    so it never consults the ADB pool — the rig id defaults to ``ios-uvc``.
+    """
+    from artemis.context import DevicePlatform
+
+    requested = str(platform or os.environ.get("ARTEMIS_DEVICE_PLATFORM") or "android").lower()
+    if requested == DevicePlatform.IOS.value:
+        return DevicePlatform.IOS, serial or IOS_DEVICE_ID
+    if requested != DevicePlatform.ANDROID.value:
+        raise ValueError(f"Unsupported device platform: {requested!r} (use 'android' or 'ios')")
+
+    device_id = serial
+    if not device_id and select is not None:
+        try:
+            device_id = select()
+        except Exception:  # noqa: BLE001 - no ADB pool is a normal headless case
+            device_id = None
+    return DevicePlatform.ANDROID, device_id

@@ -104,3 +104,60 @@ def test_no_adb_client_means_no_keyguard_probe():
 
     # A non-ADB device has no keyguard to inspect; this must not raise.
     asyncio.run(agent._ensure_device_unlocked())
+
+
+def test_resolve_target_for_ios_never_touches_the_adb_pool():
+    from artemis.context import DevicePlatform
+    from artemis.runtime.device_pool import resolve_target
+
+    def _pool():
+        raise AssertionError("the ADB device pool must not be consulted for iOS")
+
+    platform, device_id = resolve_target("ios", None, select=_pool)
+
+    assert platform is DevicePlatform.IOS
+    assert device_id == "ios-uvc"
+    assert resolve_target("ios", "my-iphone", select=_pool) == (DevicePlatform.IOS, "my-iphone")
+
+
+def test_resolve_target_defaults_to_android_and_keeps_the_explicit_serial():
+    from artemis.context import DevicePlatform
+    from artemis.runtime.device_pool import resolve_target
+
+    assert resolve_target(None, "emulator-5554", select=lambda: "ignored") == (
+        DevicePlatform.ANDROID,
+        "emulator-5554",
+    )
+    assert resolve_target("android", None, select=lambda: "emulator-5554") == (
+        DevicePlatform.ANDROID,
+        "emulator-5554",
+    )
+
+
+def test_resolve_target_rejects_an_unknown_platform():
+    import pytest
+
+    from artemis.runtime.device_pool import resolve_target
+
+    with pytest.raises(ValueError):
+        resolve_target("windows-phone", None, select=lambda: None)
+
+
+def test_artemis_run_platform_ios_configures_the_agent(monkeypatch):
+    import asyncio
+
+    from artemis.context import DevicePlatform
+    from artemis.interfaces.cli.commands import run as run_module
+
+    captured = {}
+
+    async def fake_run_automation(config, goal, **kwargs):
+        captured["config"] = config.build()
+        captured["goal"] = goal
+
+    monkeypatch.setattr(run_module, "run_automation", fake_run_automation)
+
+    asyncio.run(run_module.execute_task(goal="open Settings", platform="ios"))
+
+    assert captured["config"].device_platform is DevicePlatform.IOS
+    assert captured["config"].device_id == "ios-uvc"
