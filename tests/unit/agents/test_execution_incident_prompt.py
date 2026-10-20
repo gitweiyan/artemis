@@ -219,3 +219,47 @@ async def test_component_renders_closed_notice_once_no_incident_is_open():
     )
     await ExecutionIncidentPromptComponent()(builder, state, ctx, steps=STEPS)
     assert builder.human_parts[0].startswith(EXECUTION_INCIDENT_MARKER)
+
+
+# --- relative-pointer (iOS UVC + HID) incidents --------------------------------------
+
+
+def _pointer_incident(category, evidence=None):
+    incident = open_incident(
+        previous=None,
+        kind=KIND_EXEC_ERROR,
+        category=category,
+        reason="Error executing click: Tap failed at (540, 1200)",
+        action_item={"action": "tap", "normalized_coordinates": [500, 500]},
+        action_description="Tapped '闪购' at [500, 500]",
+        step_number=12,
+        evidence=evidence,
+    )
+    return incident
+
+
+@pytest.mark.parametrize(
+    "category,needle",
+    [
+        ("pointer_missing", "no pointer was visible"),
+        ("pointer_off_target", "outside the target box"),
+        ("pointer_not_centered", "never reached the click tolerance"),
+        ("no_effect", "the screen did not change"),
+    ],
+)
+def test_render_explains_a_pointer_incident(category, needle):
+    text = render_execution_incident(_pointer_incident(category), STEPS)
+
+    assert EXECUTION_INCIDENT_MARKER in text
+    assert needle in text
+    # The XML safety net's evidence lines must not leak into a pointer incident.
+    assert "no longer on screen" not in text
+    assert "moved at normalized" not in text
+
+
+def test_render_pointer_incident_quoting_the_driver_code():
+    text = render_execution_incident(
+        _pointer_incident("pointer_missing", {"driver_incident": "pointer_missing"}), STEPS
+    )
+
+    assert "pointer_missing" in text

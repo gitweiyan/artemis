@@ -568,6 +568,35 @@ def render_execution_incident(incident: dict, steps: list) -> str:
             "Evidence: the element you saw in the previous screenshot is no longer on"
             f" screen. Its recorded target was {target_label}.{prior_str}"
         )
+    elif category == "pointer_missing":
+        lines.append(
+            "Evidence: no pointer was visible in the captured frame, so the system refused"
+            " to click (a blind relative move would hit an unknown position). Wake the"
+            " pointer with a small move or re-anchor it from the Home screen before you"
+            " retry; do not repeat the same action blindly."
+        )
+    elif category == "pointer_off_target":
+        lines.append(
+            "Evidence: the pointer was visible but outside the target box; the click was"
+            " withheld. Re-locate the target from a fresh screen before retrying, and treat"
+            " the recorded coordinates as stale."
+        )
+    elif category == "pointer_not_centered":
+        lines.append(
+            "Evidence: the pointer was visible and inside the target, but it never reached"
+            " the click tolerance (8 px) although the system corrected it step by step. The"
+            " calibration may be off, or the target may be smaller than the pointer step."
+        )
+    elif category == "no_effect":
+        lines.append(
+            "Evidence: the pointer was verified on the target and the click was dispatched,"
+            " but the screen did not change. The app may ignore synthetic clicks on this"
+            " control (self-drawn widgets), or the control may need a different gesture."
+        )
+
+    driver_incident = evidence.get("driver_incident")
+    if driver_incident:
+        lines.append(f"Driver-reported incident code: `{driver_incident}`.")
 
     # The response protocol lives in the static system prompt (Execution Incident).
     return "\n".join(lines)
