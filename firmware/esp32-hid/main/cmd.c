@@ -5,6 +5,7 @@
 #include "sdkconfig.h"
 #include "tusb.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -214,37 +215,56 @@ static void handle_line(char *line)
     }
 }
 
+//: A command line may hold this many bytes (excluding the terminator). The host's
+//: MAX_ESP32_LINE is the same number; `type` splits long text to fit it.
+#define CMD_LINE_MAX 126
+
 static void cmd_task(void *arg)
 {
     (void) arg;
-    char line[128];
-    char discard[64];
+    char line[CMD_LINE_MAX + 1];
+    size_t len = 0;
+    bool overlong = false;
 
     printf("\n=== HID Touch/Mouse/Keyboard ready. Type 'help' for commands. ===\n");
+    fflush(stdout);
 
+    // Read character by character and end the line on LF, CRLF **or a bare CR**: a serial
+    // console is a serial console, and a terminal set to send only CR used to fill the
+    // line buffer and answer `ERR line too long` for every command (measured 2026-10-21 in
+    // CoolTerm). The parser also resynchronises immediately on an overlong line instead of
+    // draining through `fgets`, so a lost newline costs one command, not the session.
     while (1) {
-        if (fgets(line, sizeof(line), stdin) == NULL) {
-            vTaskDelay(pdMS_TO_TICKS(50));
+        int ch = fgetc(stdin);
+        if (ch == EOF) {
+            vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
-        size_t len = strlen(line);
-        if (len > 0 && line[len - 1] != '\n') {
-            // Overlong line: drain to the next newline, never execute a fragment.
-            while (fgets(discard, sizeof(discard), stdin) != NULL) {
-                size_t n = strlen(discard);
-                if (n > 0 && discard[n - 1] == '\n') {
-                    break;
-                }
+        if (ch == '\r' || ch == '\n') {
+            if (overlong) {
+                printf("ERR line too long (>%d bytes); one command per line\nOK\n",
+                       CMD_LINE_MAX);
+            } else if (len > 0) {
+                line[len] = '\0';
+                handle_line(line);
+                printf("OK\n");
+            } else {
+                // A bare terminator: the LF half of a CRLF pair, or an empty Enter.
+                printf("OK\n");
             }
-            printf("ERR line too long\nOK\n");
             fflush(stdout);
+            len = 0;
+            overlong = false;
             continue;
         }
-        handle_line(line);
-        // Every command ends with an explicit ack. The host keeps exactly one
-        // command in flight, so a slow home/move cannot overrun the UART parser.
-        printf("OK\n");
-        fflush(stdout);
+        if (overlong) {
+            continue;  // already reported; the terminator resyncs us
+        }
+        if (len >= CMD_LINE_MAX) {
+            overlong = true;
+            continue;
+        }
+        line[len++] = (char) ch;
     }
 }
 

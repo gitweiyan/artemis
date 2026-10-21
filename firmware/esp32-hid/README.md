@@ -21,6 +21,8 @@
 - `artemis/tools/reflex_tool.py` — `play_reflex` 工具，把 capture/control 接进 reflex 运行时；
 - 环境变量 `ARTEMIS_ESP32_PORT` 指向本固件的 UART 口（如 `/dev/cu.usbmodemXXXX`）；`play_reflex` 的 `capture` 参数当前文档写的是 `helper`/`screencap`，底层 `default_capture` 已支持 `uvc`。
 
+行终止符：**LF / CRLF / 裸 CR 都接受**（终端只发 CR 也照样执行；旧固件只认 LF，会攒到 127 字节后回 `ERR line too long`）。
+
 串口参数：**115200 8N1**，一行一条命令，固件在 UART0 控制台回显 `[cmd] ...` 和诊断信息。每条命令执行完回一行 `OK`；上位机必须**一次只发一条**，收到 `OK` 再发下一条（P0 的 ack 流控，防止 `home`/`move` 期间 UART 溢出）。非法/超长命令回 `ERR ...`（超长行丢弃并回 `ERR line too long`），上位机应视为失败，而不是静默成功。单行（含换行）**≤126 字节**；`type` 的长文本由上位机自动分片。
 
 ## 硬件与接线

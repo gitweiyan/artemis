@@ -34,6 +34,7 @@
 | 重启后“按键全废” | 疑似 iOS 丢了指针设备的按键映射 | 先排除 Spotlight（Esc）；仍不行才插拔 ESP32 OTG 线 |
 | `press_key back` 报 usage 错误 | 键名原样下发，固件只认数字 usage | `press_named_key`（Home→Cmd+H；BACK 明确拒绝并提示点返回箭头） |
 | 串口里 `key 8 11` 没反应 | `key` 只取**一个** usage（8='e'），多给的数字被忽略；Cmd+H 是 `keymod 8 11` | 固件现在对多余参数直接报错并提示 `keymod <mod> <usage>`；用法见 §2.5 表 |
+| 串口里同一条命令时有 `ERR line too long` | 收到 ≥127 字节仍没有行终止符：终端只发 **CR**、粘贴过快丢了换行、或单行超 126 字节 | 固件现在认 LF/CRLF/**裸 CR** 并在超长时立即重同步（只丢一条命令）；CoolTerm 里把 Enter 设为 LF、一次一条、等 `OK` |
 | 中文小字定位不到 | 裁剪帧太小、OCR 引擎置信度口径不同 | `locate_text` 整串精确匹配门槛 0.25、部分匹配 0.5；`ARTEMIS_IOS_OCR` 可关 |
 | 图标明明在，却不肯抬到图标上 | 抬升判据曾用“整帧边缘密度”，纹理壁纸/相邻图标都会否掉 | `icon_above_label` 改判**较安静的那一侧邻居** + 内部细节（`_MIN_INNER_DENSITY`） |
 
