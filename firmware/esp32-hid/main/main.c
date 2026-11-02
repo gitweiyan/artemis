@@ -17,7 +17,9 @@ static const char *TAG = "main";
 
 void app_main(void)
 {
-#if CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+    ESP_LOGI(TAG, "Initializing USB HID (BCI-only absolute pointer spike)...");
+#elif CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
     ESP_LOGI(TAG, "Initializing USB HID (touchscreen + mouse + keyboard)...");
 #else
     ESP_LOGI(TAG, "Initializing USB HID (mouse + keyboard, iOS build)...");
@@ -43,6 +45,8 @@ void app_main(void)
 
     ESP_LOGI(TAG, "USB HID initialized. Connect the USB-OTG port to the phone.");
 
+#if !CONFIG_ARTEMIS_HID_BCI_ONLY
     hid_touch_init();
+#endif
     cmd_task_start();                      // interactive console on UART0
 }

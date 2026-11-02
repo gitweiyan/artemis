@@ -1,0 +1,10 @@
+# BCI-only spike: one BCI HID interface, no touch/mouse/keyboard.
+# Build:
+#   idf.py -B build-bci -D SDKCONFIG=build-bci/sdkconfig \
+#     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.bci.defaults" \
+#     set-target esp32s3
+#   idf.py -B build-bci -D SDKCONFIG=build-bci/sdkconfig \
+#     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.bci.defaults" build
+CONFIG_ARTEMIS_HID_BCI_ONLY=y
+CONFIG_ARTEMIS_HID_INCLUDE_TOUCH=n
+CONFIG_TINYUSB_HID_COUNT=1

@@ -68,6 +68,47 @@ const uint8_t hid_report_descriptor_keyboard[] = {
     TUD_HID_REPORT_DESC_KEYBOARD()
 };
 
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+// BCI-only spike: Report ID 2 = 32-button state; Report ID 3 = absolute x/y/z.
+//
+// Pointer axes use the BCI logical range -127..127 and Input (Absolute), so the
+// host maps them directly onto the screen. -128 (0x80) marks an absent axis; a
+// 2D report sends z = -128.
+const uint8_t hid_report_descriptor_bci[] = {
+    0x05, 0x60,              // Usage Page (Brain Control Interface)
+    0x09, 0x01,              // Usage (BCI Application)
+    0xA1, 0x01,              // Collection (Application)
+
+    // Report ID 2: 32 buttons (button 0 = Select).
+    0x05, 0x09,              //   Usage Page (Button)
+    0x19, 0x01,              //   Usage Minimum (1)
+    0x29, 0x20,              //   Usage Maximum (32)
+    0x15, 0x00,              //   Logical Minimum (0)
+    0x25, 0x01,              //   Logical Maximum (1)
+    0x75, 0x01,              //   Report Size (1)
+    0x95, 0x20,              //   Report Count (32)
+    0x85, HID_REPORT_ID_BCI_BUTTON,
+    0x81, 0x02,              //   Input (Data,Var,Abs)
+
+    // Report ID 3: absolute 2D pointer (x, y valid; z absent = -128).
+    0x05, 0x01,              //   Usage Page (Generic Desktop)
+    0x09, 0x01,              //   Usage (Pointer)
+    0x85, HID_REPORT_ID_BCI_POINTER,
+    0xA1, 0x00,              //   Collection (Physical)
+    0x09, 0x30,              //     Usage (X)
+    0x09, 0x31,              //     Usage (Y)
+    0x09, 0x32,              //     Usage (Z)
+    0x15, 0x81,              //     Logical Minimum (-127)
+    0x25, 0x7F,              //     Logical Maximum (127)
+    0x75, 0x08,              //     Report Size (8)
+    0x95, 0x03,              //     Report Count (3)
+    0x81, 0x02,              //     Input (Data,Var,Abs) absolute
+    0xC0,                    //   End Collection
+
+    0xC0,                    // End Collection
+};
+#endif // CONFIG_ARTEMIS_HID_BCI_ONLY
+
 // ---------------------------------------------------------------------------
 // String descriptors (index 0 = supported languages).
 // ---------------------------------------------------------------------------
@@ -91,17 +132,23 @@ const char *hid_string_descriptor[HID_STRING_COUNT] = {
 const uint8_t hid_configuration_descriptor[] = {
     TUD_CONFIG_DESCRIPTOR(1, HID_HID_COUNT, 0, TUSB_DESC_TOTAL_LEN,
                           TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-#if CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+    // interface 0: BCI absolute pointer + button report
+    TUD_HID_DESCRIPTOR(HID_ITF_BCI, 4, HID_ITF_PROTOCOL_NONE,
+                       sizeof(hid_report_descriptor_bci), 0x81, 16, 10),
+#elif CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
     // interface 0: touchscreen (digitizer)
     TUD_HID_DESCRIPTOR(HID_ITF_TOUCH, 4, HID_ITF_PROTOCOL_NONE,
                        sizeof(hid_report_descriptor_touch), 0x81, 16, 10),
 #endif
+#if !CONFIG_ARTEMIS_HID_BCI_ONLY
     // mouse (boot protocol)
     TUD_HID_DESCRIPTOR(HID_ITF_MOUSE, 4, HID_ITF_PROTOCOL_MOUSE,
                        sizeof(hid_report_descriptor_mouse), 0x82, 16, 10),
     // keyboard (boot protocol)
     TUD_HID_DESCRIPTOR(HID_ITF_KEYBOARD, 4, HID_ITF_PROTOCOL_KEYBOARD,
                        sizeof(hid_report_descriptor_keyboard), 0x83, 16, 10),
+#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -110,6 +157,10 @@ const uint8_t hid_configuration_descriptor[] = {
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
     switch (instance) {
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+    case HID_ITF_BCI:
+        return hid_report_descriptor_bci;
+#else
 #if CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
     case HID_ITF_TOUCH:
         return hid_report_descriptor_touch;
@@ -118,6 +169,7 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
         return hid_report_descriptor_mouse;
     case HID_ITF_KEYBOARD:
         return hid_report_descriptor_keyboard;
+#endif
     default:
         return NULL;
     }

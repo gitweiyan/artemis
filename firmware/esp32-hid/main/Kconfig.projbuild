@@ -9,3 +9,12 @@ menu "Artemis HID configuration"
             disable this and expose keyboard + mouse only.
 
 endmenu
+
+    config ARTEMIS_HID_BCI_ONLY
+        bool "Expose only the Apple BCI HID interface (absolute pointer spike)"
+        default n
+        help
+            Build a BCI-only HID device for iOS 26+. The device exposes one
+            BCI HID interface: Report ID 2 (32 buttons) and Report ID 3
+            (absolute x/y/z pointer). Touch, boot mouse and keyboard are
+            omitted. This is a hardware-validation spike, not the default rig.

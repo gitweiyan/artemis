@@ -7,7 +7,16 @@
 // HID interface instances (order of interfaces in the config descriptor).
 // iOS does not support external HID digitizers; an iOS-only build can omit
 // the touchscreen interface entirely (CONFIG_ARTEMIS_HID_INCLUDE_TOUCH=n).
-#if CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+#define HID_ITF_BCI      0
+// Compatibility aliases so the legacy mouse/keyboard sources still compile.
+// BCI-only commands reject move/key/click, so these are never used at runtime.
+#define HID_ITF_TOUCH    0
+#define HID_ITF_MOUSE    0
+#define HID_ITF_KEYBOARD 0
+#define HID_HID_COUNT    1
+#define HID_MODE_NAME    "bci"
+#elif CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
 #define HID_ITF_TOUCH    0
 #define HID_ITF_MOUSE    1
 #define HID_ITF_KEYBOARD 2
@@ -25,6 +34,14 @@
 #define HID_REPORT_ID_TOUCH    1
 #define HID_REPORT_ID_MOUSE    0
 #define HID_REPORT_ID_KEYBOARD 0
+
+// BCI report IDs (Apple BCI HID reference).
+#define HID_REPORT_ID_BCI_BUTTON  2
+#define HID_REPORT_ID_BCI_POINTER 3
+
+// BCI pointer payload: x, y, z as signed 8-bit values.
+// -128 means "this axis is absent"; 2D reports send z = -128.
+#define HID_BCI_POINTER_LEN 3
 
 // Number of entries in hid_string_descriptor.
 #define HID_STRING_COUNT 5

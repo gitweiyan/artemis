@@ -2,6 +2,7 @@
 #include "hid_descriptor.h"
 #include "hid_touch.h"
 #include "hid_mouse_kb.h"
+#include "hid_bci.h"
 #include "sdkconfig.h"
 #include "tusb.h"
 
@@ -15,6 +16,14 @@
 static void print_help(void)
 {
     printf("\n");
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+    printf("Commands (BCI-only spike; normalized x/y 0..1000):\n"
+           "  bci   <x> <y>   # send BCI absolute pointer report (z absent)\n"
+           "  bci_click       # press+release BCI button 0 (Select)\n"
+           "  usb             # show USB mount/BCI ready state\n"
+           "  help\n\n");
+    return;
+#endif
 #if CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
     printf("Commands (touch coords in phone pixels of %dx%d):\n"
            "  tap        <x> <y>            # touchscreen: tap\n"
@@ -73,12 +82,29 @@ static void handle_line(char *line)
 
     int a = 0, b = 0, c = 0, d = 0, e = 0;
 
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+    if (strcmp(cmd, "move") == 0 || strcmp(cmd, "home") == 0 ||
+        strcmp(cmd, "click") == 0 || strcmp(cmd, "mdown") == 0 ||
+        strcmp(cmd, "mup") == 0 || strcmp(cmd, "mswipe") == 0 ||
+        strcmp(cmd, "key") == 0 || strcmp(cmd, "keymod") == 0 ||
+        strcmp(cmd, "kdown") == 0 || strcmp(cmd, "kup") == 0 ||
+        strcmp(cmd, "type") == 0) {
+        printf("disabled in BCI-only build; use bci/bci_click\n");
+        return;
+    }
+#endif
+
     if (strcmp(cmd, "help") == 0 || strcmp(cmd, "h") == 0) {
         print_help();
     } else if (strcmp(cmd, "usb") == 0) {
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+        printf("usb mounted=%d suspended=%d bci=%d mode=%s\n",
+               tud_mounted(), tud_suspended(), hid_bci_ready(), HID_MODE_NAME);
+#else
         printf("usb mounted=%d suspended=%d mouse=%d keyboard=%d touch=%d mode=%s\n",
                tud_mounted(), tud_suspended(), hid_mouse_ready(),
                hid_keyboard_ready(), hid_touch_ready(), HID_MODE_NAME);
+#endif
     } else if (strcmp(cmd, "wake") == 0) {
         if (tud_suspended()) {
             tud_remote_wakeup();
@@ -89,6 +115,23 @@ static void handle_line(char *line)
         printf("usb mounted=%d suspended=%d mouse=%d keyboard=%d touch=%d mode=%s\n",
                tud_mounted(), tud_suspended(), hid_mouse_ready(),
                hid_keyboard_ready(), hid_touch_ready(), HID_MODE_NAME);
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+    } else if (strcmp(cmd, "bci") == 0) {
+        if (sscanf(line, "%*s %d %d", &a, &b) == 2 && a >= 0 && a <= 1000 &&
+            b >= 0 && b <= 1000) {
+            printf("[cmd] bci %d %d\n", a, b);
+            if (!hid_bci_pointer(a, b)) {
+                printf("ERR BCI not ready (check usb)\n");
+            }
+        } else {
+            printf("usage: bci <x 0..1000> <y 0..1000>\n");
+        }
+    } else if (strcmp(cmd, "bci_click") == 0) {
+        printf("[cmd] bci_click\n");
+        if (!hid_bci_select()) {
+            printf("ERR BCI not ready (check usb)\n");
+        }
+#endif
     } else if (strcmp(cmd, "tap") == 0) {
         if (sscanf(line, "%*s %d %d", &a, &b) == 2 && a >= 0 && b >= 0) {
             printf("[cmd] tap %d %d\n", a, b);
@@ -226,7 +269,11 @@ static void cmd_task(void *arg)
     size_t len = 0;
     bool overlong = false;
 
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+    printf("\n=== BCI-only HID ready. Type 'help' for commands. ===\n");
+#else
     printf("\n=== HID Touch/Mouse/Keyboard ready. Type 'help' for commands. ===\n");
+#endif
     fflush(stdout);
 
     // Read character by character and end the line on LF, CRLF **or a bare CR**: a serial
