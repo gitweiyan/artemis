@@ -16,7 +16,7 @@ from artemis.perception.incidents import (
     incident_for_error,
     incident_for_health,
 )
-from artemis.reflex.vision import RedPointerDetector
+from artemis.reflex.vision import CompositePointerDetector
 from artemis.safety.pointer import check_in_box
 
 
@@ -65,7 +65,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
     def __init__(self, session, *, device_id: str = "ios-uvc-hid", detector=None):
         self.session = session
         self._device_id = device_id
-        self.detector = detector or _session_detector(session) or RedPointerDetector()
+        self.detector = detector or _session_detector(session) or CompositePointerDetector()
         # What *this rig* can do: the session aggregates its perception sources and
         # control sinks. The class-level declaration above stays the contract default
         # (and the thing tests read on the class); a driver instance reports the truth,

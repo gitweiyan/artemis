@@ -101,3 +101,46 @@ hole ≥0.20 可以排除这次的 2 个蓝色 Logo/图标；
 3. 给 12 张有效图人工标注中心，计算 Median/P95 误差；
 4. 用 hole≥0.2 + ROI + nudge diff 跑离线对比；
 5. 若 P95 >3px，再考虑 Tiny Heatmap。
+
+
+## 优化实现结果
+
+新增 `BluePointerDetector`：
+
+```text
+HSV 蓝色
++ hole ratio ≥0.18
++ 圆度 ≥0.45
++ 面积/尺寸
++ 可选 ROI
+```
+
+在 12 张有效 App 帧上：
+
+```text
+正确：10/12
+漏检：2（alipay_1 菜鸟 Logo 被拒后无真指针候选；hema_2 蓝色图标被拒）
+误检：0
+```
+
+相比旧版：
+
+```text
+旧版：10 正确 + 2 误检
+新版：10 正确 + 2 漏检 + 0 误检
+```
+
+新增 `CompositePointerDetector`：
+
+```text
+BluePointerDetector → RedPointerDetector
+```
+
+iOS session 默认使用组合检测器，并给 `SessionTapController` 默认挂 `PointerTracker` 做 nudge diff 兜底。
+
+测试：
+
+```text
+pytest tests/unit/reflex/test_blue_pointer_detector.py
+4 passed
+```

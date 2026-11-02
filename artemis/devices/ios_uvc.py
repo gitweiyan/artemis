@@ -10,7 +10,7 @@ from artemis.reflex.mouse import PointerSession, SessionTapController
 from artemis.perception.base import Target
 from artemis.perception.uvc import UvcSource
 from artemis.perception.ios_targets import icon_above_label
-from artemis.reflex.vision import PointerTracker, RedPointerDetector
+from artemis.reflex.vision import CompositePointerDetector, PointerTracker
 
 
 class _GrabLatest:
@@ -46,7 +46,7 @@ def build_ios_uvc_session(
     controller = SessionTapController(
         pointer,
         capture=_GrabLatest(capture),
-        detector=detector or RedPointerDetector(),
+        detector=detector or CompositePointerDetector(),
         # The AssistiveTouch pointer is sometimes grey and half-clipped at the screen
         # edge, which no colour/shape model catches reliably; the nudge/diff locator
         # needs no appearance model at all, so it backs the colour detector up.

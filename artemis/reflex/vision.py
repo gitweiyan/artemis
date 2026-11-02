@@ -240,6 +240,110 @@ class RedPointerDetector:
         return Pointer(x, y, confidence, "red-ring")
 
 
+class BluePointerDetector:
+    """Find a hollow blue AssistiveTouch ring; reject solid blue logos/icons."""
+
+    def __init__(
+        self,
+        *,
+        hue_range: tuple[int, int] = (90, 135),
+        min_saturation: int = 50,
+        min_value: int = 60,
+        area_range: tuple[int, int] = (150, 4000),
+        size_range: tuple[int, int] = (12, 100),
+        min_circularity: float = 0.45,
+        min_hole_ratio: float = 0.18,
+        min_confidence: float = 0.5,
+    ):
+        self.hue_range = hue_range
+        self.min_saturation = int(min_saturation)
+        self.min_value = int(min_value)
+        self.area_range = area_range
+        self.size_range = size_range
+        self.min_circularity = float(min_circularity)
+        self.min_hole_ratio = float(min_hole_ratio)
+        self.min_confidence = float(min_confidence)
+
+    def detect(
+        self, image: bytes, near: tuple[float, float] | None = None, *, roi_px: float | None = None
+    ) -> Pointer | None:
+        cv2 = _cv2()
+        np = _numpy()
+        decoded = cv2.imdecode(np.frombuffer(image, np.uint8), cv2.IMREAD_COLOR)
+        if decoded is None:
+            return None
+        hsv = cv2.cvtColor(decoded, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(
+            hsv,
+            (self.hue_range[0], self.min_saturation, self.min_value),
+            (self.hue_range[1], 255, 255),
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        contours, hierarchy = cv2.findContours(
+            mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if hierarchy is None:
+            return None
+        hierarchy = hierarchy[0]
+        height, width = mask.shape[:2]
+        candidates = []
+        for index, contour in enumerate(contours):
+            area = cv2.contourArea(contour)
+            x, y, w, h = cv2.boundingRect(contour)
+            if not (self.area_range[0] <= area <= self.area_range[1]):
+                continue
+            if not (self.size_range[0] <= w <= self.size_range[1]):
+                continue
+            if not (self.size_range[0] <= h <= self.size_range[1]):
+                continue
+            if not 0.65 <= w / max(1, h) <= 1.55:
+                continue
+            perimeter = cv2.arcLength(contour, True)
+            circularity = 4 * np.pi * area / (perimeter * perimeter + 1e-6)
+            if circularity < self.min_circularity:
+                continue
+            child = hierarchy[index][2]
+            if child == -1:
+                continue  # solid logo/icon: no hollow center
+            hole_ratio = cv2.contourArea(contours[child]) / max(area, 1.0)
+            if hole_ratio < self.min_hole_ratio:
+                continue
+            cx, cy = (x + w / 2) / width, (y + h / 2) / height
+            if near is not None and roi_px is not None:
+                dx = (cx - near[0]) * width
+                dy = (cy - near[1]) * height
+                if (dx * dx + dy * dy) ** 0.5 > roi_px:
+                    continue
+            score = circularity + 0.5 * min(1.0, hole_ratio)
+            candidates.append((score, cx, cy, circularity, hole_ratio))
+        if not candidates:
+            return None
+        if near is not None:
+            candidates.sort(key=lambda item: (item[1] - near[0]) ** 2 + (item[2] - near[1]) ** 2)
+        else:
+            candidates.sort(reverse=True)
+        _score, cx, cy, circularity, hole_ratio = candidates[0]
+        confidence = min(1.0, 0.5 + 0.25 * circularity + 0.5 * hole_ratio)
+        if confidence < self.min_confidence:
+            return None
+        return Pointer(cx, cy, confidence, "blue-ring")
+
+
+class CompositePointerDetector:
+    """Try detectors in order; blue first, then legacy red, then shape callers."""
+
+    def __init__(self, detectors=None):
+        self.detectors = list(detectors or [BluePointerDetector(), RedPointerDetector()])
+
+    def detect(self, image: bytes, near: tuple[float, float] | None = None) -> Pointer | None:
+        for detector in self.detectors:
+            found = detector.detect(image, near=near)
+            if found is not None:
+                return found
+        return None
+
+
 class RingShapeDetector:
     """Shape-only fallback for a small pointer ring over a red/colored target."""
 
