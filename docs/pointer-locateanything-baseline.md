@@ -79,3 +79,30 @@ LocateAnything 可以作为**候选生成器**，但不能单独决定指针位�
 
 - `captures/pointer_baseline_blue/locateanything_baseline.png`
 - `captures/pointer_baseline_blue/locateanything_crops.png`
+
+## Prompt 2 对照
+
+Prompt:
+
+```text
+Point to the center of the small blue outline ring, not a solid circle.
+```
+
+结果更差：
+
+```text
+正确：2/14
+```
+
+仅 `alipay_2`、`meituan_1` 接近真指针；其余多数输出为右侧大框或错误坐标。
+模型把长句拆成大量重复 ref，并尝试框住“not a solid circle”的语义，而不是定位空心环。
+
+结论：
+
+```text
+简短外观 prompt 优于长否定句
+LocateAnything 对句式高度敏感
+不能用“not a solid circle”来替代 hole 几何过滤
+```
+
+图：`captures/pointer_baseline_blue/locateanything_baseline2.png`
