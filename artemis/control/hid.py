@@ -6,6 +6,7 @@ import asyncio
 
 from artemis.control.base import ActionResult
 from artemis.devices.capabilities import CapabilitySet
+from artemis.reflex.vision import changed
 
 #: Where a drag starts, as a fraction of the frame height. iOS reads a downward drag
 #: from the very top as Control Center and an upward drag from the bottom as Home (it
@@ -13,6 +14,15 @@ from artemis.devices.capabilities import CapabilitySet
 #: upward drag therefore starts low in the frame, a downward one high, and both stay
 #: clear of the edge they move away from.
 DRAG_START_RATIO = 0.65
+
+#: One arrow press scrolls roughly this far in a scroll view (measured ~170 px on the
+#: Taobao shop page). It only sizes the press burst; the frame check decides.
+KEY_SCROLL_STEP_PX = 200
+#: A long burst would walk the focus ring out of the scroll container.
+KEY_SCROLL_MAX_PRESSES = 6
+#: A scroll moves at least this much of the frame. The first arrow press can merely
+#: put the focus ring around a container — a change, but not a scroll.
+KEY_SCROLL_MIN_CHANGE_RATIO = 0.05
 
 
 class HidControlSink:
@@ -99,6 +109,40 @@ class HidControlSink:
                 return width, height
         return None
 
+    def _scroll_changed(self, before, after) -> bool:
+        """Whether two frames differ by enough to be a scroll (not just a focus ring)."""
+        size = self._frame_size(self.session)
+        area = size[0] * size[1] if size else 0
+        min_pixels = max(30, round(area * KEY_SCROLL_MIN_CHANGE_RATIO)) if area else 30
+        return changed(before.image, after.image, min_pixels=min_pixels)
+
+    async def _scroll_with_key(self, key: str, distance: float) -> bool:
+        """Scroll with an arrow key and keep it only if the screen really moved.
+
+        iOS scroll views scroll on an external keyboard's arrows — no pointer, no
+        gain calibration, no edge gesture. The press count only sizes the burst
+        from the requested distance; the frame comparison decides, and a screen
+        that did not move falls back to the pointer drag.
+        """
+        press = getattr(self._control, "press_named_key", None)
+        capture = getattr(self.controller, "capture", None)
+        grab = getattr(capture, "grab_latest", None) or getattr(capture, "grab", None)
+        if not callable(press) or not callable(grab):
+            return False
+        presses = max(1, min(KEY_SCROLL_MAX_PRESSES, round(distance / KEY_SCROLL_STEP_PX)))
+        try:
+            before = await asyncio.to_thread(grab)
+            for _ in range(presses):
+                await asyncio.to_thread(press, key)
+            after = await asyncio.to_thread(grab)
+            if self._scroll_changed(before, after):
+                return True
+            # A streamed capture can hand back a frame taken before the presses.
+            after = await asyncio.to_thread(grab)
+        except Exception:  # noqa: BLE001 - the pointer drag is the fallback for any of this
+            return False
+        return self._scroll_changed(before, after)
+
     def _place_for_drag(self, start: tuple[int, int], dy: int) -> None:
         """Re-anchor the pointer and move it to a safe drag start (blocking I/O).
 
@@ -158,6 +202,12 @@ class HidControlSink:
         frame_end = self._frame_point(end_x, end_y)
         dx = frame_end[0] - frame_start[0]
         dy = frame_end[1] - frame_start[1]
+        if dy != 0 and abs(dy) >= abs(dx):
+            # Keyboard first: an arrow scroll avoids the pointer, its gain and its
+            # edge gestures entirely. A vertical swipe up means "scroll down".
+            key = "down" if dy < 0 else "up"
+            if await self._scroll_with_key(key, abs(dy)):
+                return ActionResult(True, "swipe", detail=f"scrolled with the {key} key")
         try:
             await asyncio.to_thread(self._place_for_drag, frame_start, dy)
         except Exception as exc:  # noqa: BLE001 - a device failure is an incident

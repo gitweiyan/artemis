@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 
 from artemis.control.hid import HidControlSink
@@ -342,3 +343,147 @@ def test_a_failed_placement_is_an_incident_not_an_exception():
     assert result.incident == "swipe_failed"
     assert "serial write failed" in result.detail
     assert session.control.swipes == []
+
+
+# --- keyboard-first scrolling --------------------------------------------------------
+#
+# iOS scroll views scroll on an external keyboard's arrows, which avoids the pointer,
+# its calibration and its edge gestures entirely. The swipe therefore tries the arrow
+# that matches the direction first and keeps the pointer drag as the fallback for when
+# the screen does not move.
+
+
+class KeyboardSwipeControl(RecordingSwipeControl):
+    def __init__(self, events=None):
+        super().__init__(events)
+        self.keys = []
+
+    def press_named_key(self, name):
+        self.keys.append(name)
+
+
+class Frames:
+    """The controller's capture seam: a frame per grab."""
+
+    def __init__(self, frames):
+        self._frames = list(frames)
+        self.calls = 0
+
+    def grab_latest(self):
+        frame = self._frames[min(self.calls, len(self._frames) - 1)]
+        self.calls += 1
+        return SimpleNamespace(image=frame)
+
+
+class CapturingController(FakeController):
+    def __init__(self, capture):
+        super().__init__(TapResult(True, 1, None, 0, "ok"))
+        self.capture = capture
+
+
+def _png(color, size=(64, 64)):
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", size, color).save(out, "PNG")
+    return out.getvalue()
+
+
+def _keyboard_rig(frames):
+    session = PlacingSession()
+    control = KeyboardSwipeControl(session.placements)
+    session.control = control
+    sink = HidControlSink(session, CapturingController(Frames(frames)))
+    return sink, session, control
+
+
+def test_an_upward_swipe_scrolls_with_the_down_key_before_touching_the_pointer():
+    sink, session, control = _keyboard_rig(
+        [_png((200, 200, 200), FRAME), _png((20, 20, 20), FRAME)]
+    )
+
+    result = asyncio.run(sink.swipe(100, 900, 100, 300))
+
+    assert result.ok is True
+    assert control.keys == ["down", "down", "down"], "600 frame px is three presses"
+    assert control.swipes == [], "a working arrow key replaces the drag"
+    assert session.placements == [], "no home or pointer move when the keys scroll"
+
+
+def test_a_downward_swipe_scrolls_with_the_up_key():
+    sink, _session, control = _keyboard_rig(
+        [_png((200, 200, 200), FRAME), _png((20, 20, 20), FRAME)]
+    )
+
+    asyncio.run(sink.swipe(100, 300, 100, 900))
+
+    assert control.keys == ["up", "up", "up"]
+    assert control.swipes == []
+
+
+def test_a_swipe_falls_back_to_the_drag_when_the_arrow_keys_change_nothing():
+    same = _png((200, 200, 200), FRAME)
+    sink, session, control = _keyboard_rig([same])
+
+    result = asyncio.run(sink.swipe(100, 900, 100, 300))
+
+    assert result.ok is True
+    assert control.keys, "the keyboard was tried first"
+    assert control.swipes, "an unchanged screen falls back to the pointer drag"
+    assert "home" in session.placements, "the drag still places the pointer first"
+
+
+def test_a_horizontal_swipe_does_not_try_arrow_keys():
+    sink, _session, control = _keyboard_rig(
+        [_png((200, 200, 200), FRAME), _png((20, 20, 20), FRAME)]
+    )
+
+    asyncio.run(sink.swipe(100, 500, 500, 500))
+
+    assert control.keys == [], "horizontal gestures have no keyboard equivalent here"
+    assert control.swipes
+
+
+def test_a_keyboard_error_falls_back_to_the_drag():
+    class BrokenKeys(KeyboardSwipeControl):
+        def press_named_key(self, name):
+            raise RuntimeError("serial write failed")
+
+    session = PlacingSession()
+    control = BrokenKeys(session.placements)
+    session.control = control
+    sink = HidControlSink(
+        session,
+        CapturingController(Frames([_png((200, 200, 200), FRAME), _png((20, 20, 20), FRAME)])),
+    )
+
+    result = asyncio.run(sink.swipe(100, 900, 100, 300))
+
+    assert result.ok is True
+    assert control.swipes, "a device error on the keys must not lose the gesture"
+
+
+def test_a_focus_ring_is_not_mistaken_for_a_scroll():
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    def frame(ring: bool) -> bytes:
+        image = Image.new("RGB", FRAME, (200, 200, 200))
+        if ring:
+            ImageDraw.Draw(image).rectangle(
+                (10, 10, FRAME[0] - 10, FRAME[1] - 10), outline=(0, 0, 255), width=2
+            )
+        out = BytesIO()
+        image.save(out, "PNG")
+        return out.getvalue()
+
+    sink, _session, control = _keyboard_rig([frame(False), frame(True)])
+
+    result = asyncio.run(sink.swipe(100, 900, 100, 300))
+
+    assert result.ok is True
+    assert control.keys, "the keys are still tried first"
+    assert control.swipes, "a ring-only change still falls back to the drag"
