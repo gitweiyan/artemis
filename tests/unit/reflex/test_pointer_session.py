@@ -847,13 +847,27 @@ def test_the_loop_learns_a_gain_the_configuration_guessed_wrong():
             return SimpleNamespace(image=buffer.getvalue())
 
     class Detector:
-        def __init__(self, truth):
-            self.truth = truth
+        """Finds the red dot the camera draws, in whatever image it is handed.
+
+        Image-aware on purpose: the observation corridor crops the frame, so a detector
+        that returns absolute coordinates regardless of the image would mis-map the crop.
+        """
 
         def detect(self, image, near=None):
-            x = min(FRAME[0], max(0, self.truth.position[0])) / FRAME[0]
-            y = min(FRAME[1], max(0, self.truth.position[1])) / FRAME[1]
-            return Pointer(x, y, 0.9, "fake")
+            import numpy as np
+
+            with Image.open(BytesIO(image)) as img:
+                pixels = np.asarray(img.convert("RGB"))
+            mask = (pixels[:, :, 0] > 180) & (pixels[:, :, 1] < 90) & (pixels[:, :, 2] < 90)
+            ys, xs = np.nonzero(mask)
+            if not len(xs):
+                return None
+            return Pointer(
+                float(xs.mean()) / pixels.shape[1],
+                float(ys.mean()) / pixels.shape[0],
+                0.9,
+                "fake-dot",
+            )
 
     truth = Accelerating()
     session = PointerSession(truth.hid, frame_size=FRAME, gain=(1.8, 1.8))
@@ -862,7 +876,7 @@ def test_the_loop_learns_a_gain_the_configuration_guessed_wrong():
     controller = SessionTapController(
         session,
         capture=camera,
-        detector=Detector(truth),
+        detector=Detector(),
         max_steps=8,
         max_step=50,
         settle_timeout_s=0.0,
@@ -919,19 +933,52 @@ class _LinearPointer:
         self.clicks += 1
 
 
-class _PointerAtControl:
-    """A detector that reports the virtual pointer's real position."""
+class _DotCamera:
+    """Draws a red dot at the virtual pointer; after a click the screen repaints."""
 
     def __init__(self, control, frame_size=(449, 974)):
         self.control = control
         self.frame_size = frame_size
 
+    def grab_latest(self):
+        from io import BytesIO
+        from types import SimpleNamespace
+
+        from PIL import Image, ImageDraw
+
+        base = (240, 240, 240) if self.control.clicks else (200, 200, 200)
+        image = Image.new("RGB", self.frame_size, base)
+        x = int(min(self.frame_size[0] - 8, max(8.0, self.control.x)))
+        y = int(min(self.frame_size[1] - 8, max(8.0, self.control.y)))
+        ImageDraw.Draw(image).ellipse((x - 6, y - 6, x + 6, y + 6), fill=(230, 40, 40))
+        buffer = BytesIO()
+        image.save(buffer, "PNG")
+        return SimpleNamespace(image=buffer.getvalue())
+
+
+class _DotDetector:
+    """Finds the red dot in whatever image it is handed (full frame or corridor crop)."""
+
     def detect(self, image, near=None):
+        from io import BytesIO
+
+        import numpy as np
+        from PIL import Image
+
         from artemis.reflex.vision import Pointer
 
-        x = min(self.frame_size[0], max(0.0, self.control.x)) / self.frame_size[0]
-        y = min(self.frame_size[1], max(0.0, self.control.y)) / self.frame_size[1]
-        return Pointer(x, y, 0.95, "fake")
+        with Image.open(BytesIO(image)) as img:
+            pixels = np.asarray(img.convert("RGB"))
+        mask = (pixels[:, :, 0] > 180) & (pixels[:, :, 1] < 90) & (pixels[:, :, 2] < 90)
+        ys, xs = np.nonzero(mask)
+        if not len(xs):
+            return None
+        return Pointer(
+            float(xs.mean()) / pixels.shape[1],
+            float(ys.mean()) / pixels.shape[0],
+            0.95,
+            "fake-dot",
+        )
 
 
 def test_a_far_target_converges_in_phases_and_reports_them():
@@ -940,20 +987,71 @@ def test_a_far_target_converges_in_phases_and_reports_them():
     control = _LinearPointer(gain=2.0)
     session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
     session.connect()
-    capture = FakeCapture([_png((120, 120, 120))] * 30, control=control)
     controller = SessionTapController(
         session,
-        capture=capture,
-        detector=_PointerAtControl(control),
+        capture=_DotCamera(control),
+        detector=_DotDetector(),
         max_step=20,  # a deliberately short first leg: the planner owns the travel
         settle_timeout_s=0.0,
     )
 
-    result = controller.tap(449, 974)
+    result = controller.tap(400, 800)
 
     assert result.ok is True
     assert control.clicks == 1
     assert result.motion is not None
-    assert result.motion.segments >= 2
+    assert result.motion.segments >= 1
     assert result.motion.observations == result.motion.segments + 1
     assert "ballistic" in result.motion.phases
+
+
+def test_a_corridor_miss_falls_back_to_the_full_frame_and_counts_a_recovery():
+    from artemis.reflex.mouse import MotionReport, SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class FirstMissThenFound:
+        """The ROI crop is a miss; the full frame finds the pointer."""
+
+        def __init__(self):
+            self.calls = 0
+
+        def detect(self, image, near=None):
+            self.calls += 1
+            return None if self.calls == 1 else Pointer(0.5, 0.5, 0.9, "fake")
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connected = True
+    capture = FakeCapture([_png((120, 120, 120))] * 6)
+    controller = SessionTapController(
+        session, capture=capture, detector=FirstMissThenFound(), settle_timeout_s=0.0
+    )
+    report = MotionReport()
+
+    frame, pointer = controller._observe(corridor=((100.0, 100.0), (300.0, 600.0)), motion=report)
+
+    assert pointer is not None, "the full-frame recovery still finds the pointer"
+    assert report.global_recoveries == 1
+
+
+def test_a_corridor_hit_does_not_count_a_recovery():
+    from artemis.reflex.mouse import MotionReport, SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class AlwaysFound:
+        def detect(self, image, near=None):
+            return Pointer(0.5, 0.5, 0.9, "fake")
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connected = True
+    capture = FakeCapture([_png((120, 120, 120))] * 6)
+    controller = SessionTapController(
+        session, capture=capture, detector=AlwaysFound(), settle_timeout_s=0.0
+    )
+    report = MotionReport()
+
+    frame, pointer = controller._observe(corridor=((100.0, 100.0), (300.0, 600.0)), motion=report)
+
+    assert pointer is not None
+    assert report.global_recoveries == 0

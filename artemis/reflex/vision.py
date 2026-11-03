@@ -280,9 +280,7 @@ class BluePointerDetector:
         )
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        contours, hierarchy = cv2.findContours(
-            mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
-        )
+        contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         if hierarchy is None:
             return None
         hierarchy = hierarchy[0]
@@ -461,11 +459,81 @@ def changed(
     return count >= min_pixels
 
 
+#: The AssistiveTouch pointer's radius in capture-frame pixels (the blue ring is ~40 px
+#: across on this rig). Used to size a motion corridor when no measurement exists yet.
+POINTER_RADIUS_PX = 20.0
+
+
+def corridor_roi(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    *,
+    radius: float,
+    frame_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """The pixel box around a pointer's travelled segment, padded and clipped.
+
+    ``start``/``end`` are frame pixels (the last observed position and the prediction);
+    the search only has to cover the segment plus the prediction's uncertainty.
+    """
+    width, height = int(frame_size[0]), int(frame_size[1])
+    pad = max(0.0, float(radius))
+    left = int(min(start[0], end[0]) - pad)
+    top = int(min(start[1], end[1]) - pad)
+    right = int(max(start[0], end[0]) + pad)
+    bottom = int(max(start[1], end[1]) + pad)
+    left, top = max(0, min(width - 1, left)), max(0, min(height - 1, top))
+    right, bottom = max(left + 1, min(width, right)), max(top + 1, min(height, bottom))
+    return left, top, right, bottom
+
+
+def detect_in_roi(
+    detector,
+    image: bytes,
+    roi: tuple[int, int, int, int],
+    *,
+    near: tuple[float, float] | None = None,
+) -> Pointer | None:
+    """Detect the pointer inside ``roi``; the result is in full-frame coordinates.
+
+    ``near`` is full-frame normalized (the detector compares it against its own
+    candidates), so it is re-expressed in the crop before the call.
+    """
+    x1, y1, x2, y2 = (int(value) for value in roi)
+    with Image.open(io.BytesIO(image)) as original:
+        full = original.convert("RGB") if original.mode != "RGB" else original
+        width, height = full.size
+        x1, y1 = max(0, min(width - 1, x1)), max(0, min(height - 1, y1))
+        x2, y2 = max(x1 + 1, min(width, x2)), max(y1 + 1, min(height, y2))
+        crop = full.crop((x1, y1, x2, y2))
+        crop_width, crop_height = crop.size
+        buffer = io.BytesIO()
+        crop.save(buffer, "PNG")
+    crop_near = None
+    if near is not None:
+        crop_near = (
+            (float(near[0]) * width - x1) / crop_width,
+            (float(near[1]) * height - y1) / crop_height,
+        )
+    found = detector.detect(buffer.getvalue(), near=crop_near)
+    if found is None:
+        return None
+    return Pointer(
+        (x1 + found.x * crop_width) / width,
+        (y1 + found.y * crop_height) / height,
+        found.confidence,
+        found.method,
+    )
+
+
 __all__ = [
+    "POINTER_RADIUS_PX",
     "Pointer",
     "PointerTracker",
     "RedPointerDetector",
     "RingShapeDetector",
     "changed",
+    "corridor_roi",
+    "detect_in_roi",
     "pointer",
 ]

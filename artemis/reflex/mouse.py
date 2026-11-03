@@ -16,7 +16,13 @@ import time
 from dataclasses import dataclass, field
 
 from artemis.reflex.motion import MotionCalibration, MotionConfig, Phase, choose_phase
-from artemis.reflex.vision import Pointer, changed
+from artemis.reflex.vision import (
+    POINTER_RADIUS_PX,
+    Pointer,
+    changed,
+    corridor_roi,
+    detect_in_roi,
+)
 from artemis.safety.pixel import verify_effect
 from artemis.safety.pointer import check_point
 
@@ -236,6 +242,9 @@ class SessionTapController:
         self.motion_calibration = motion_calibration or MotionCalibration(
             (self._gain[0], self._gain[1])
         )
+        #: Expected prediction error of the motion model, in frame pixels. Sizes the
+        #: observation corridor: too tight and a real pointer falls outside it.
+        self._sigma = 8.0
 
     def _frame_age_s(self, frame) -> float | None:
         """Seconds between capture and now, when the frame can be dated."""
@@ -296,11 +305,24 @@ class SessionTapController:
         # Mirror the measurement into the session so `session.move` integrates with it.
         self.session.gain_x, self.session.gain_y = self._gain[0], self._gain[1]
 
-    def _observe(self, after: bytes | None = None):
+    def _corridor_radius(self) -> float:
+        """How wide the search corridor is: the pointer plus the prediction's error."""
+        return max(24.0, 2.5 * POINTER_RADIUS_PX + 3.0 * self._sigma)
+
+    def _observe(
+        self,
+        after: bytes | None = None,
+        *,
+        corridor: tuple[tuple[float, float], tuple[float, float]] | None = None,
+        motion: MotionReport | None = None,
+    ):
         """Grab frames until a pointer is detected, or ``observe_attempts`` run out.
 
         ``after`` is the image from before the last move: the first frame is then taken
-        only once the picture reflects that move.
+        only once the picture reflects that move. ``corridor`` is the segment the pointer
+        travelled (last observation -> prediction); the detector then only has to look
+        there. A corridor miss falls back to the full frame and counts a global
+        recovery, so a tight corridor can never turn a visible pointer into "missing".
         """
         width, height = self.session.frame_size
         near = (self.session.position[0] / width, self.session.position[1] / height)
@@ -314,7 +336,19 @@ class SessionTapController:
         for index in range(self.observe_attempts):
             if index > 0:
                 frame = self.capture.grab_latest()
-            pointer = self.detector.detect(frame.image, near=near)
+            pointer = None
+            if corridor is not None:
+                roi = corridor_roi(
+                    corridor[0],
+                    corridor[1],
+                    radius=self._corridor_radius(),
+                    frame_size=(width, height),
+                )
+                pointer = detect_in_roi(self.detector, frame.image, roi, near=near)
+                if pointer is None and motion is not None:
+                    motion.global_recoveries += 1
+            if pointer is None:
+                pointer = self.detector.detect(frame.image, near=near)
             if pointer is not None:
                 return frame, pointer
         if self.tracker is not None:
@@ -407,7 +441,14 @@ class SessionTapController:
 
         for attempt in range(1, self.max_attempts + 1):
             for _step in range(self.max_steps):
-                frame, pointer = self._observe(after=before.image if _step == 0 else None)
+                corridor = None
+                if last_position is not None and last_prediction is not None:
+                    corridor = (last_position, last_prediction)
+                frame, pointer = self._observe(
+                    after=before.image if _step == 0 else None,
+                    corridor=corridor,
+                    motion=motion,
+                )
                 if pointer is None and last_position is None:
                     # Wake the faded pointer with a deliberate move, then look for a frame
                     # that reflects it.
@@ -443,6 +484,8 @@ class SessionTapController:
                     motion.prediction_error_px = math.hypot(
                         position[0] - last_prediction[0], position[1] - last_prediction[1]
                     )
+                    # Size the next corridor by the model's actual error on this rig.
+                    self._sigma = 0.6 * self._sigma + 0.4 * motion.prediction_error_px
                 if last_position is not None and last_move is not None:
                     observed = (position[0] - last_position[0], position[1] - last_position[1])
                     # The base estimate feeds the belief's own integration; the phase
