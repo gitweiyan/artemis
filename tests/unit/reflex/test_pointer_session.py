@@ -1169,3 +1169,31 @@ def test_a_detection_outside_the_corridor_is_counted_as_a_recovery():
 
     assert pointer is not None, "the full frame still finds the pointer"
     assert report.global_recoveries == 1
+
+
+def test_the_first_leg_is_calibrated_and_the_belief_uses_the_phase_gain():
+    """The first leg's displacement must teach the ballistic phase, and the belief that
+    predicts the next position must integrate on the same phase gain as the plan."""
+    from artemis.reflex.motion import Phase
+    from artemis.reflex.mouse import SessionTapController
+
+    control = _LinearPointer(gain=3.0)  # the rig is not the configured 2.0
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session,
+        capture=_DotCamera(control),
+        detector=_DotDetector(),
+        max_steps=1,
+        max_attempts=1,
+        settle_timeout_s=0.0,
+    )
+
+    result = controller.tap(200, 400)
+
+    # First leg: (80,160) units at 3.0 px/unit = (240,480) observed.
+    assert controller.motion_calibration.gain(Phase.BALLISTIC) == pytest.approx((2.4, 2.4))
+    # The last segment planned was fine, and the belief integrated on that phase's gain.
+    last_phase = Phase(result.motion.phases[-1])
+    assert session.gain_x == pytest.approx(controller.motion_calibration.gain(last_phase)[0])
+    assert session.gain_y == pytest.approx(controller.motion_calibration.gain(last_phase)[1])

@@ -445,6 +445,18 @@ class SessionTapController:
         self._travel_on_belief(x, y)
         return TapResult(True, 1, None, None, "moved by pointer state; not verified")
 
+    def _advance(self, phase: Phase, units_x: int, units_y: int) -> float:
+        """Send one move with the belief integrating on that phase's own gain.
+
+        Planning uses the per-phase gain; the belief that predicts where the pointer will
+        be must use the same number, or ``prediction_error_px`` and the corridor are
+        biased by the difference between the phase gain and the base estimate.
+        """
+        self.session.gain_x, self.session.gain_y = self.motion_calibration.gain(phase)
+        started = time.monotonic()
+        self.session.move(units_x, units_y)
+        return started
+
     def _plan_segment(
         self, x: float, y: float, position: tuple[float, float]
     ) -> tuple[Phase, int, int]:
@@ -486,14 +498,18 @@ class SessionTapController:
         # detectors then latch onto coloured UI elements instead (rig bench, 2026-11-03).
         self.session.gain_x, self.session.gain_y = self._gain[0], self._gain[1]
         first_phase, first_x, first_y = self._plan_segment(x, y, self.session.position)
-        if first_x or first_y:
-            moved_at = time.monotonic()
-            self.session.move(first_x, first_y)
-            motion.segments += 1
-            motion.phases.append(first_phase.value)
+        #: The belief's position before the first leg; the first observation's
+        #: displacement (relative to it) calibrates the ballistic phase too.
+        first_start = self.session.position
         last_position: tuple[float, float] | None = None
         last_move: tuple[int, int] | None = None
         last_phase: Phase | None = None
+        if first_x or first_y:
+            moved_at = self._advance(first_phase, first_x, first_y)
+            motion.segments += 1
+            motion.phases.append(first_phase.value)
+            last_position = first_start
+            last_move, last_phase = (first_x, first_y), first_phase
         #: Where the belief says the pointer is after the last segment; the next
         #: observation's distance to it is the motion model's prediction error.
         last_prediction: tuple[float, float] | None = None
@@ -607,8 +623,7 @@ class SessionTapController:
                     motion.segments >= self.motion_config.max_segments
                 ):
                     break
-                moved_at = time.monotonic()
-                self.session.move(units_x, units_y)
+                moved_at = self._advance(phase, units_x, units_y)
                 motion.segments += 1
                 motion.phases.append(phase.value)
                 last_position, last_move, last_phase = position, (units_x, units_y), phase

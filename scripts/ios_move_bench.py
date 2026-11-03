@@ -29,7 +29,7 @@ from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
 from artemis.reflex.capture import UvcCapture
 from artemis.reflex.control import Esp32HidControl
 from artemis.reflex.motion import Phase
-from artemis.reflex.vision import CompositePointerDetector
+from artemis.reflex.vision import BluePointerDetector, CompositePointerDetector
 
 #: The move plan's acceptance: a travel must land this close, with this many observations.
 HIT_RATE_FLOOR = 0.90
@@ -88,7 +88,9 @@ async def _run(args: argparse.Namespace) -> int:
     driver = IOSUvcHidDriver(session)
     await driver.connect()
     controller = session.control[0].controller
-    detector = CompositePointerDetector()
+    # Grade with the rig's own pointer model (blue ring only): a red UI badge must not
+    # count as the pointer in the measurement either.
+    detector = CompositePointerDetector([BluePointerDetector()])
     frame_width, frame_height = ios.frame_size
     target_x, target_y = args.target
 
