@@ -99,3 +99,20 @@
 * 摘要恢复：`steps.summary` + `summary_status=ready` / `source=visual_transition`（flash 2/3、pro 5/6；末步无动作属预期）；
 * 两会话目录均有 `run_capabilities.json`：`step_summarizer.available = true`；
 * `LLMConfigUtils` / `no step-summarizer lens` / `Giving up on Step` 在两次日志中计数均为 0（复盘分析的那两次为 8 / 60 / 16）。
+
+## 8. 2026-11-03 复盘（美团珍珠奶茶询价）落地记录
+
+来源：`reports/复盘-20261103-美团珍珠奶茶询价.html`（本地未入库快照）。状态以本节为准，报告里的决策列保持交付时的“待决策”。
+
+| 报告项 | 内容 | 状态 | 证据 |
+|---|---|---|---|
+| I1 | 失败分支补齐证据并透出 incident | ✅ 已完成 | 0ec5c07 · `artemis/mcp/actuators/adb.py`（click / long_press / click_sequence 失败分支带 `metrics`）· `third_party/mobile_use/controllers/unified_controller.py`（错误串附 `· incident=<code>`）· `tests/unit/mcp/test_actuators.py`（失败 ActionResult 同时有 incident + metrics，消息含 incident） |
+| I2 | 启动验收改成“打开的是不是目标 App” | ⏳ 待决策 | — |
+| I3 | 中文应用名自动映射（中文→拼音表） | ⏳ 待决策 | — |
+| I4 | 键盘输入后回读校验（`type_text` 后核对搜索框文本） | ⏳ 待决策 | — |
+| I5 | 失败点击返回“落点 + 最近可点元素” | ⏳ 待决策 | — |
+| I6 | 跑业务任务前强制四段门禁并把证据写进运行目录 | ⏳ 待决策 | — |
+| I7 | 比价类目标加结账口径 | ⏳ 待决策 | — |
+| I8 | “可复现”成为交付前门禁 | ⏳ 待决策 | — |
+
+说明：I1 之前，失败步的 `action_metrics` 恒为空（`incident` 有、数字没有），模型只看到一句 “Tap failed”；现在两者都在，模型侧消息形如 `Tap failed at (540, 1200) · incident=pointer_not_centered`。
