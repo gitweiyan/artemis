@@ -34,6 +34,11 @@ def main() -> int:
     parser.add_argument("--max-step", type=int, default=80)
     parser.add_argument("--click", action="store_true")
     parser.add_argument(
+        "--require-detect",
+        action="store_true",
+        help="click only if the red ring was actually detected on the latest frame",
+    )
+    parser.add_argument(
         "--no-home",
         action="store_true",
         help="do not Cmd+H; aim from the current app screen",
@@ -60,11 +65,12 @@ def main() -> int:
     detector = RedPointerDetector()
     final = None
     error = None
+    last_found = False
     try:
         print("connect:", control.preflight())
         if args.no_home:
             session.connected = True
-            session.observe(21.5, 21.5)
+            session.home()  # pointer-only home; does not leave the app
         else:
             session.connect()
         for step in range(1, args.steps + 1):
@@ -74,6 +80,7 @@ def main() -> int:
                 frame.image,
                 near=(session.position[0] / 449.0, session.position[1] / 974.0),
             )
+            last_found = found is not None
             if found is not None:
                 session.observe(found.x * 449.0, found.y * 974.0)
                 print(
@@ -108,6 +115,7 @@ def main() -> int:
             frame = capture.grab()
             (out / "final.png").write_bytes(frame.image)
             found = detector.detect(frame.image)
+            last_found = found is not None
             if found is not None:
                 session.observe(found.x * 449.0, found.y * 974.0)
             error = ((tx - session.position[0]) ** 2 + (ty - session.position[1]) ** 2) ** 0.5
@@ -116,14 +124,18 @@ def main() -> int:
                 f"error={error:.1f}px"
             )
         if args.click:
-            if error is not None and error <= args.tolerance:
+            if (
+                error is not None
+                and error <= args.tolerance
+                and (not args.require_detect or last_found)
+            ):
                 before = capture.grab()
                 session.tap(*session.position)
                 time.sleep(0.4)
                 after = capture.grab()
                 print("click changed:", changed(before.image, after.image))
             else:
-                print("not clicking: pointer did not converge")
+                print("not clicking: pointer not confirmed at the target")
                 return 1
         return 0 if error is not None and error <= args.tolerance else 1
     finally:
