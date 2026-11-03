@@ -45,7 +45,7 @@ class MotionConfig:
     #: still observed and re-planned, so the left-over fifth is corrected on the next frame.
     ratios: dict[Phase, float] = field(
         default_factory=lambda: {
-            Phase.BALLISTIC: 0.80,
+            Phase.BALLISTIC: 0.90,
             Phase.APPROACH: 0.80,
             Phase.FINE: 0.80,
         }
