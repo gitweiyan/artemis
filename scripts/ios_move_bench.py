@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import os
 import statistics
 import time
@@ -28,6 +29,7 @@ from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
 from artemis.reflex.capture import UvcCapture
 from artemis.reflex.control import Esp32HidControl
 from artemis.reflex.motion import Phase
+from artemis.reflex.vision import CompositePointerDetector
 
 #: The move plan's acceptance: a travel must land this close, with this many observations.
 HIT_RATE_FLOOR = 0.90
@@ -86,6 +88,8 @@ async def _run(args: argparse.Namespace) -> int:
     driver = IOSUvcHidDriver(session)
     await driver.connect()
     controller = session.control[0].controller
+    detector = CompositePointerDetector()
+    frame_width, frame_height = ios.frame_size
     target_x, target_y = args.target
 
     runs: list[dict] = []
@@ -95,14 +99,28 @@ async def _run(args: argparse.Namespace) -> int:
         result = controller.travel_verified(target_x, target_y)
         elapsed_ms = (time.monotonic() - started) * 1000.0
         motion = getattr(result, "motion", None)
-        error = None if result.error_px is None else round(float(result.error_px), 2)
-        hit = bool(result.ok) and error is not None and error <= args.tolerance
+        # Grade with an independent post-travel grab: the controller's own `error_px` is
+        # the same observation that decided `ok`, so it cannot grade itself (review).
+        frame = capture.grab()
+        pointer = detector.detect(
+            frame.image, near=(target_x / frame_width, target_y / frame_height)
+        )
+        measured = None
+        if pointer is not None:
+            measured = math.hypot(
+                pointer.x * frame_width - target_x, pointer.y * frame_height - target_y
+            )
+        error = None if measured is None else round(measured, 2)
+        hit = error is not None and error <= args.tolerance
         record = {
             "run": index + 1,
             "hit": hit,
             "ok": bool(result.ok),
             "incident": result.incident,
             "final_error_px": error,
+            "controller_error_px": None
+            if result.error_px is None
+            else round(float(result.error_px), 2),
             "elapsed_ms": round(elapsed_ms, 1),
             "segments": getattr(motion, "segments", 0),
             "observations": getattr(motion, "observations", 0),

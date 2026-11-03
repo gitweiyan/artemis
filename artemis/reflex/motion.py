@@ -49,7 +49,8 @@ class MotionConfig:
             Phase.FINE: 0.60,
         }
     )
-    #: Hard cap on one segment, in HID units (the firmware takes at most 127/report).
+    #: Hard cap on one segment, in HID units. Esp32HidControl.mouse_move splits this into
+    #: <=127-unit reports and waits for each ack, so the cap is per segment, not per report.
     max_units: dict[Phase, int] = field(
         default_factory=lambda: {
             Phase.BALLISTIC: 300,

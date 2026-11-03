@@ -463,6 +463,9 @@ class SessionTapController:
         #: observation's distance to it is the motion model's prediction error.
         last_prediction: tuple[float, float] | None = None
         wakes = 0
+        #: A wake nudges the pointer outside the plan; the displacement it contributes must
+        #: not be attributed to the last planned segment when the next observation lands.
+        wake_since_observation = False
 
         for attempt in range(1, self.max_attempts + 1):
             for _step in range(self.max_steps):
@@ -481,6 +484,7 @@ class SessionTapController:
                     # first step; a pointer that stays gone still ends in pointer_missing.
                     wakes += 1
                     self.session.move(self.wake_step, self.wake_step)
+                    wake_since_observation = True
                     frame, pointer = self._observe(after=frame.image)
                 if pointer is None:
                     return TapResult(
@@ -513,14 +517,22 @@ class SessionTapController:
                         position[0] - last_prediction[0], position[1] - last_prediction[1]
                     )
                     # Size the next corridor by the model's actual error on this rig.
-                    self._sigma = 0.6 * self._sigma + 0.4 * motion.prediction_error_px
-                if last_position is not None and last_move is not None:
+                    self._sigma = min(
+                        200.0, max(8.0, 0.6 * self._sigma + 0.4 * motion.prediction_error_px)
+                    )
+                if (
+                    last_position is not None
+                    and last_move is not None
+                    and not wake_since_observation
+                ):
                     observed = (position[0] - last_position[0], position[1] - last_position[1])
                     # The base estimate feeds the belief's own integration; the phase
                     # calibration feeds the next segment's plan. Both learn from this
-                    # observation.
+                    # observation — but only when no wake moved the pointer in between:
+                    # its 60 units would be misattributed to the planned segment and learn
+                    # a wrong gain (review, 2026-11-03).
                     self._update_gain(last_move, observed)
-                    if last_phase is not None:
+                    if last_phase is not None and self.adaptive_gain:
                         self.motion_calibration.update(last_phase, last_move, observed)
                 self.session.observe(*position)
                 # One definition of "the pointer is on the target", shared with the
@@ -559,6 +571,7 @@ class SessionTapController:
                 motion.phases.append(phase.value)
                 last_position, last_move, last_phase = position, (units_x, units_y), phase
                 last_prediction = self.session.position
+                wake_since_observation = False
         return TapResult(
             False,
             self.max_attempts,

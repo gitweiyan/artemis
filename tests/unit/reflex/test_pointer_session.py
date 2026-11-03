@@ -1056,3 +1056,46 @@ def test_a_corridor_hit_does_not_count_a_recovery():
 
     assert pointer is not None
     assert report.global_recoveries == 0
+
+
+def test_a_wake_move_is_not_billed_to_the_last_planned_segment():
+    """The 60-unit wake must not be learned as part of the segment's gain."""
+    from artemis.reflex.motion import Phase
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class Scripted:
+        """Position 1, two misses (corridor + full frame, so the wake fires), position 2."""
+
+        def __init__(self, positions):
+            self.positions = positions
+            self.calls = 0
+
+        def detect(self, image, near=None):
+            index = min(self.calls, len(self.positions) - 1)
+            self.calls += 1
+            point = self.positions[index]
+            if point is None:
+                return None
+            return Pointer(point[0] / 449, point[1] / 974, 0.95, "fake")
+
+    control = _LinearPointer(gain=2.0)
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session,
+        capture=_DotCamera(control),
+        # call 1: first observation; calls 2-3: the corridor crop and the full-frame
+        # fallback both miss (so the wake fires); call 4: the post-wake observation.
+        detector=Scripted([(320.0, 600.0), None, None, (500.0, 700.0)]),
+        max_steps=3,
+        max_attempts=1,
+        observe_attempts=1,
+        settle_timeout_s=0.0,
+    )
+
+    controller.tap(400, 800)
+
+    # (500,700) - (320,600) includes the wake's 60 units; attributing it to the segment
+    # would move the approach gain off the initial 2.0 (the review's Critical finding).
+    assert controller.motion_calibration.gain(Phase.APPROACH) == (2.0, 2.0)
