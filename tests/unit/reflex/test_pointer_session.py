@@ -1099,3 +1099,50 @@ def test_a_wake_move_is_not_billed_to_the_last_planned_segment():
     # (500,700) - (320,600) includes the wake's 60 units; attributing it to the segment
     # would move the approach gain off the initial 2.0 (the review's Critical finding).
     assert controller.motion_calibration.gain(Phase.APPROACH) == (2.0, 2.0)
+
+
+class _TimedCapture:
+    """A capture whose frames carry a timestamp (the UVC frame's captured_at)."""
+
+    def __init__(self, frames):
+        self.frames = frames
+        self.index = 0
+        self.grabs = 0
+
+    def grab_latest(self, timeout_s=None):
+        from types import SimpleNamespace
+
+        self.grabs += 1
+        image, captured_at = self.frames[min(self.index, len(self.frames) - 1)]
+        self.index += 1
+        return SimpleNamespace(image=image, captured_at=captured_at)
+
+
+def test_one_grab_per_observation_and_the_frame_must_postdate_the_move():
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class Found:
+        def detect(self, image, near=None):
+            return Pointer(0.5, 0.5, 0.9, "fake")
+
+    capture = _TimedCapture([(_png((120, 120, 120)), 100.0)] * 6)
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connected = True
+    controller = SessionTapController(
+        session, capture=capture, detector=Found(), settle_timeout_s=0.5
+    )
+
+    frame = controller._frame_after(b"an-older-frame", not_before=50.0)
+
+    assert capture.grabs == 1, "one grab is already a live frame"
+    assert frame.captured_at == 100.0
+
+    stale = _TimedCapture([(_png((120, 120, 120)), 10.0), (_png((120, 120, 120)), 70.0)])
+    controller.capture = stale
+
+    frame = controller._frame_after(b"an-older-frame", not_before=50.0)
+
+    assert stale.grabs == 2, "a frame captured before the move is skipped"
+    assert frame.captured_at == 70.0

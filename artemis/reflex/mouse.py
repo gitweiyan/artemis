@@ -263,11 +263,25 @@ class SessionTapController:
             return None
         return f"verification frame is {age:.1f}s old (budget {self.max_frame_age_s:.1f}s)"
 
-    def _frame_after(self, previous: bytes):
-        """A frame that is not the one captured before the last move (bounded wait)."""
+    @staticmethod
+    def _frame_reflects(frame, previous: bytes, not_before: float | None) -> bool:
+        """Whether ``frame`` can show the last move: captured after it was dispatched.
+
+        A receipt timestamp proves the frame was *received* after the move; in frame mode
+        (one ffmpeg per grab) that is also when its content was taken, so the frame cannot
+        be a queued pre-move picture. Captures without a timestamp fall back to the
+        whole-frame diff, with the caveat that an animation elsewhere can satisfy it.
+        """
+        captured_at = getattr(frame, "captured_at", None)
+        if not_before is not None and captured_at is not None:
+            return float(captured_at) >= float(not_before)
+        return changed(previous, frame.image)
+
+    def _frame_after(self, previous: bytes, *, not_before: float | None = None):
+        """The newest frame that reflects the last move (bounded wait)."""
         deadline = time.monotonic() + self.settle_timeout_s
         frame = self.capture.grab_latest()
-        while not changed(previous, frame.image) and time.monotonic() < deadline:
+        while not self._frame_reflects(frame, previous, not_before) and time.monotonic() < deadline:
             frame = self.capture.grab_latest()
         return frame
 
@@ -315,26 +329,24 @@ class SessionTapController:
         self,
         after: bytes | None = None,
         *,
+        not_before: float | None = None,
         corridor: tuple[tuple[float, float], tuple[float, float]] | None = None,
         motion: MotionReport | None = None,
     ):
-        """Grab frames until a pointer is detected, or ``observe_attempts`` run out.
+        """Grab one live frame and detect the pointer on it (retrying bounded).
 
-        ``after`` is the image from before the last move: the first frame is then taken
-        only once the picture reflects that move. ``corridor`` is the segment the pointer
-        travelled (last observation -> prediction); the detector then only has to look
-        there. A corridor miss falls back to the full frame and counts a global
-        recovery, so a tight corridor can never turn a visible pointer into "missing".
+        ``after``/``not_before`` describe the frame/moment before the last move: the
+        observation frame must postdate the move. There is no discarded warm-up grab —
+        in frame mode every grab is a live frame (~0.9 s), and a second one would look at
+        the screen after the AssistiveTouch pointer has already faded.
         """
         width, height = self.session.frame_size
         near = (self.session.position[0] / width, self.session.position[1] / height)
-        if after is not None:
-            frame = self._frame_after(after)
-        else:
-            # Advance past whatever was buffered before the move we just made: a queued
-            # frame describes the previous pointer position, not this one.
-            self.capture.grab_latest()
-            frame = self.capture.grab_latest()
+        frame = (
+            self._frame_after(after, not_before=not_before)
+            if after is not None
+            else self.capture.grab_latest()
+        )
         for index in range(self.observe_attempts):
             if index > 0:
                 frame = self.capture.grab_latest()
@@ -442,10 +454,11 @@ class SessionTapController:
         last_error: float | None = None
         motion = MotionReport()
 
-        # A reference frame from before the travel: the verification frame must differ
-        # from it, which means it was captured after the moves (the pointer is drawn for
-        # only a moment after each move, so a queued frame is useless for this).
-        before = self.capture.grab_latest()
+        # A reference frame from before the travel: each observation must postdate the
+        # move it verifies (the pointer is drawn for only a moment, so a queued frame is
+        # useless for this).
+        previous_frame = self.capture.grab_latest()
+        moved_at: float | None = None
         # The first leg is planned like every other one. A full dead-reckoned travel lands
         # on the frame edge when the configured gain underestimates the rig (1.48 vs
         # 1.6–1.8 measured), and a pointer clipped by the edge is undetectable — the
@@ -453,6 +466,7 @@ class SessionTapController:
         self.session.gain_x, self.session.gain_y = self._gain[0], self._gain[1]
         first_phase, first_x, first_y = self._plan_segment(x, y, self.session.position)
         if first_x or first_y:
+            moved_at = time.monotonic()
             self.session.move(first_x, first_y)
             motion.segments += 1
             motion.phases.append(first_phase.value)
@@ -473,7 +487,8 @@ class SessionTapController:
                 if last_position is not None and last_prediction is not None:
                     corridor = (last_position, last_prediction)
                 frame, pointer = self._observe(
-                    after=before.image if _step == 0 else None,
+                    after=previous_frame.image,
+                    not_before=moved_at,
                     corridor=corridor,
                     motion=motion,
                 )
@@ -483,9 +498,12 @@ class SessionTapController:
                     # Wake it with a deliberate move (bounded) instead of only on the
                     # first step; a pointer that stays gone still ends in pointer_missing.
                     wakes += 1
+                    moved_at = time.monotonic()
                     self.session.move(self.wake_step, self.wake_step)
                     wake_since_observation = True
-                    frame, pointer = self._observe(after=frame.image)
+                    frame, pointer = self._observe(
+                        after=frame.image, not_before=moved_at, corridor=corridor, motion=motion
+                    )
                 if pointer is None:
                     return TapResult(
                         False,
@@ -497,6 +515,8 @@ class SessionTapController:
                         motion=motion,
                     )
                 motion.observations += 1
+                previous_frame = frame
+                moved_at = None
                 frame_age = self._frame_age_s(frame)
                 stale = self._stale_reason(frame)
                 if stale is not None:
@@ -566,6 +586,7 @@ class SessionTapController:
                     motion.segments >= self.motion_config.max_segments
                 ):
                     break
+                moved_at = time.monotonic()
                 self.session.move(units_x, units_y)
                 motion.segments += 1
                 motion.phases.append(phase.value)
