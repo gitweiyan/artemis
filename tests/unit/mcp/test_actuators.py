@@ -266,3 +266,30 @@ async def test_manage_app_is_refused_on_a_device_without_app_launch():
     assert res.ok is False
     assert res.code is ActionCode.UNSUPPORTED
     assert "Tap the app icon" in res.message
+
+
+@pytest.mark.asyncio
+async def test_manage_app_uses_the_ios_spotlight_launcher():
+    """iOS has no package list; the driver's Spotlight launcher is the default."""
+    from types import SimpleNamespace
+
+    from artemis.devices.capabilities import CapabilitySet
+    from artemis.mcp.actuators.adb import AdbActuator
+
+    calls = []
+
+    class IOSDriver:
+        capabilities = CapabilitySet(supports_app_launch=True)
+
+        async def open_app(self, app_name):
+            calls.append(app_name)
+            return SimpleNamespace(ok=True, error=None)
+
+    ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
+    controller = SimpleNamespace(driver=IOSDriver())
+
+    res = await AdbActuator(ctx, controller=controller).manage_app("launch", "alipay")
+
+    assert res.ok is True
+    assert calls == ["alipay"]
+    assert "iOS keyboard launcher" in res.message

@@ -129,11 +129,11 @@ def test_screen_data_reports_the_device_screen_not_the_capture_frame():
     assert len(data.screenshot_bytes) > 0, "the image itself is still the frame"
 
 
-def test_the_driver_instance_keeps_its_own_no_app_launch_declaration():
+def test_the_driver_declares_spotlight_app_launch():
     session = Session()
     driver = IOSUvcHidDriver(session)
 
-    assert driver.capabilities.supports_app_launch is False
+    assert driver.capabilities.supports_app_launch is True
     assert driver.capabilities.supports_ui_tree is False
     assert driver.capabilities.requires_pointer_precheck is True
 
@@ -271,3 +271,30 @@ def test_pointer_control_is_bound_to_the_same_controller_and_geometry():
     assert control.controller is controller
     assert control.session is pointer
     assert control.geometry is session.geometry
+
+
+def test_open_app_uses_ios_spotlight_launcher(monkeypatch):
+    from types import SimpleNamespace
+
+    calls = []
+
+    class FakeLauncher:
+        def __init__(self, control):
+            self.control = control
+
+        def open_app(self, app, *, capture=None):
+            calls.append((app, capture, self.control))
+            return SimpleNamespace(ok=True, error=None)
+
+    monkeypatch.setattr(
+        "artemis.drivers.ios.ios_uvc_hid_driver.IOSAppLauncher", FakeLauncher
+    )
+    session = Session()
+    session.control[0]._control = SimpleNamespace(name="hid")
+    driver = IOSUvcHidDriver(session)
+
+    result = asyncio.run(driver.open_app("alipay"))
+
+    assert result.ok is True
+    assert calls[0][0] == "alipay"
+    assert calls[0][2].name == "hid"

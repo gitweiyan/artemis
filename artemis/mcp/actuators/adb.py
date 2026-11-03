@@ -305,6 +305,27 @@ class AdbActuator:
 
     async def manage_app(self, action: str, app_name: str) -> ActionResult:
         driver = getattr(self.controller, "driver", None)
+        # iOS has no package manager. Its driver exposes a keyboard/Spotlight
+        # launcher; use it before any Android package lookup is attempted.
+        open_app = getattr(driver, "open_app", None)
+        if callable(open_app):
+            if action.lower() != "launch":
+                return ActionResult.failure(
+                    "manage_app",
+                    f"iOS cannot stop an app by name ({app_name!r}).",
+                    code=ActionCode.UNSUPPORTED,
+                )
+            result = await open_app(app_name)
+            if getattr(result, "ok", False):
+                return ActionResult.success(
+                    "manage_app",
+                    f"Opened {app_name!r} through the iOS keyboard launcher.",
+                )
+            return ActionResult.failure(
+                "manage_app",
+                f"Failed to open {app_name!r} on iOS: {getattr(result, 'error', 'launch failed')}",
+                code=ActionCode.DEVICE_ERROR,
+            )
         if getattr(getattr(driver, "capabilities", None), "supports_app_launch", True) is False:
             # No package manager: naming an app cannot work here, and a package lookup
             # costs a model call and a turn to say so.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 from dataclasses import dataclass, replace
@@ -16,6 +17,7 @@ from artemis.perception.incidents import (
     incident_for_error,
     incident_for_health,
 )
+from artemis.reflex.ios_apps import IOSAppLauncher, AppLaunchResult
 from artemis.reflex.vision import CompositePointerDetector
 from artemis.safety.pointer import check_in_box
 
@@ -59,7 +61,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         supports_relative_pointer=True,
         requires_pointer_precheck=True,
         supports_text_input=True,
-        supports_app_launch=False,
+        supports_app_launch=True,
     )
 
     def __init__(self, session, *, device_id: str = "ios-uvc-hid", detector=None):
@@ -252,8 +254,20 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         result = await self._relative_sink().press_key(key)
         return result.ok
 
+    async def open_app(self, app_name: str) -> AppLaunchResult:
+        """iOS app launch through Spotlight, verified by the UVC frame when available."""
+        sink = self._relative_sink()
+        control = getattr(sink, "_control", None)
+        if control is None:
+            return AppLaunchResult(False, app_name, app_name, error="no_hid_control")
+        source = self.session.perception[0] if self.session.perception else None
+        capture = getattr(source, "capture", None)
+        launcher = IOSAppLauncher(control)
+        return await asyncio.to_thread(launcher.open_app, app_name, capture=capture)
+
     async def launch_app(self, package_name) -> bool:
-        return False
+        result = await self.open_app(package_name)
+        return bool(result.ok)
 
     async def stop_app(self, package_name) -> bool:
         return False

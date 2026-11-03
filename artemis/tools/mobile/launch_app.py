@@ -75,7 +75,27 @@ class LaunchAppTool(ArtemisTool):
             if not app:
                 raise ValueError("app_name parameter is required.")
 
-            if ctx is not None:
+            platform = str(
+                getattr(getattr(ctx, "device", None), "mobile_platform", "") or ""
+            ).lower()
+            if ctx is not None and platform == "ios":
+                from artemis.drivers.factory import get_driver
+
+                opener = getattr(get_driver(ctx), "open_app", None)
+                if callable(opener):
+                    launch_result = await opener(app)
+                    success = bool(getattr(launch_result, "ok", False))
+                    error_msg = None if success else getattr(launch_result, "error", None)
+                    outcome = (
+                        f"Opened app '{app}' through the iOS keyboard launcher."
+                        if success
+                        else f"Failed to launch app '{app}': {error_msg or 'launch failed'}"
+                    )
+                else:
+                    success = False
+                    error_msg = "iOS driver has no keyboard app launcher."
+                    outcome = f"Failed to launch app '{app}': {error_msg}"
+            elif ctx is not None:
                 package_name = await find_package(ctx=ctx, app_name=app)
                 if not package_name:
                     success = False
