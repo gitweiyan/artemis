@@ -40,9 +40,27 @@ bool hid_bci_ready(void)
     return tud_hid_n_ready(HID_ITF_BCI);
 }
 
+static bool wait_bci_ready(uint32_t timeout_ms)
+{
+    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+    while (!tud_hid_n_ready(HID_ITF_BCI)) {
+        if (xTaskGetTickCount() >= deadline) {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return true;
+}
+
 bool hid_bci_pointer(int x_norm, int y_norm)
 {
-    if (!hid_bci_ready()) {
+    if (!wait_bci_ready(200)) {
+        return false;
+    }
+    // Give the host a signal-quality report first; the full BCI collection expects it.
+    uint8_t signal[2] = {0x00, 0xFF};
+    tud_hid_n_report(HID_ITF_BCI, 0x01, signal, sizeof(signal));
+    if (!wait_bci_ready(100)) {
         return false;
     }
     bci_pointer_report_t report = {
@@ -56,7 +74,7 @@ bool hid_bci_pointer(int x_norm, int y_norm)
 
 bool hid_bci_select(void)
 {
-    if (!hid_bci_ready()) {
+    if (!wait_bci_ready(200)) {
         return false;
     }
     uint8_t buttons[4] = {0x01, 0x00, 0x00, 0x00};  // button 0 = Select
@@ -65,6 +83,9 @@ bool hid_bci_select(void)
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(30));
+    if (!wait_bci_ready(100)) {
+        return false;
+    }
     uint8_t released[4] = {0};
     return tud_hid_n_report(HID_ITF_BCI, HID_REPORT_ID_BCI_BUTTON,
                             released, sizeof(released));

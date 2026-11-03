@@ -1,8 +1,10 @@
 # BCI-only HID spike
 
-Apple BCI HID reference: Report ID 3 is an absolute pointer when the HID Input
-item is declared Absolute. This build exposes **only** that BCI interface; it is
-for hardware validation on iOS 26+, not the normal robot rig.
+Apple BCI HID reference: the collection is Report 1 signal quality, Report 2
+32 buttons, Report 3 absolute pointer and Report 4 item selection plus output
+scan information. Report 3 is the pointer when the HID Input item is declared
+Absolute. This build exposes **only** that BCI interface; it is for hardware
+validation on iOS 26+, not the normal robot rig.
 
 ## Build
 
@@ -53,12 +55,17 @@ bci_click           # BCI button 0 = Select (press + release)
 help
 ```
 
-`bci <x> <y>` uses normalized 0..1000 coordinates. The firmware maps each axis
-to the BCI logical range -127..127 and sends:
+`bci <x> <y>` uses normalized 0..1000 coordinates. After waiting for the
+interface to drain, it sends the signal-quality report first and then the
+pointer report:
 
 ```text
+Report ID 1: 0x00 0xFF (signal quality; the full collection expects it first)
 Report ID 3: x, y, z = -128 (2D; z absent)
 ```
+
+Report 4 (item selection, output scan information) is declared in the descriptor
+but not sent by the firmware yet.
 
 The host maps the logical range directly to the screen, so one step is about:
 

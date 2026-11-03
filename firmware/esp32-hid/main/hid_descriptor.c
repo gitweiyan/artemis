@@ -69,15 +69,26 @@ const uint8_t hid_report_descriptor_keyboard[] = {
 };
 
 #if CONFIG_ARTEMIS_HID_BCI_ONLY
-// BCI-only spike: Report ID 2 = 32-button state; Report ID 3 = absolute x/y/z.
-//
-// Pointer axes use the BCI logical range -127..127 and Input (Absolute), so the
-// host maps them directly onto the screen. -128 (0x80) marks an absent axis; a
-// 2D report sends z = -128.
+// BCI-only spike: full Apple BCI report collection, not just a pointer collection.
+// Report 1 signal quality, Report 2 32 buttons, Report 3 absolute 2D pointer,
+// Report 4 input item selection + output scan information.
 const uint8_t hid_report_descriptor_bci[] = {
     0x05, 0x60,              // Usage Page (Brain Control Interface)
     0x09, 0x01,              // Usage (BCI Application)
     0xA1, 0x01,              // Collection (Application)
+
+    // Report ID 1: signal quality (button id, neural strength).
+    0x05, 0x60,              //   Usage Page (BCI)
+    0x09, 0x02,              //   Usage (Signal Quality)
+    0x85, 0x01,              //   Report ID (1)
+    0xA1, 0x02,              //   Collection (Logical)
+    0x09, 0x02,              //     Usage (Signal Quality)
+    0x15, 0x00,              //     Logical Minimum (0)
+    0x26, 0xFF, 0x00,        //     Logical Maximum (255)
+    0x75, 0x08,              //     Report Size (8)
+    0x95, 0x02,              //     Report Count (2)
+    0x81, 0x06,              //     Input (Data,Var,Rel)
+    0xC0,                    //   End Collection
 
     // Report ID 2: 32 buttons (button 0 = Select).
     0x05, 0x09,              //   Usage Page (Button)
@@ -103,6 +114,31 @@ const uint8_t hid_report_descriptor_bci[] = {
     0x75, 0x08,              //     Report Size (8)
     0x95, 0x03,              //     Report Count (3)
     0x81, 0x02,              //     Input (Data,Var,Abs) absolute
+    0xC0,                    //   End Collection
+
+    // Report ID 4: input item selection.
+    0x05, 0x60,              //   Usage Page (BCI)
+    0x09, 0x04,              //   Usage (Item Selection)
+    0x85, 0x04,              //   Report ID (4)
+    0xA1, 0x02,              //   Collection (Logical)
+    0x09, 0x04,              //     Usage (Item Selection)
+    0x15, 0x00,              //     Logical Minimum (0)
+    0x26, 0xFF, 0x00,        //     Logical Maximum (255)
+    0x75, 0x08,              //     Report Size (8)
+    0x95, 0x01,              //     Report Count (1)
+    0x81, 0x06,              //     Input (Data,Var,Rel)
+    0xC0,                    //   End Collection
+
+    // Report ID 4: output scan information (6 bytes).
+    0x05, 0x60,              //   Usage Page (BCI)
+    0x85, 0x04,              //   Report ID (4)
+    0xA1, 0x02,              //   Collection (Logical)
+    0x09, 0x03,              //     Usage (Number of Items)
+    0x15, 0x00,              //     Logical Minimum (0)
+    0x26, 0xFF, 0x00,        //     Logical Maximum (255)
+    0x75, 0x08,              //     Report Size (8)
+    0x95, 0x06,              //     Report Count (6)
+    0x91, 0x03,              //     Output (Const,Var,Abs)
     0xC0,                    //   End Collection
 
     0xC0,                    // End Collection
