@@ -22,6 +22,7 @@ def test_ios_prompt_contains_keyboard_first_shortcuts():
     assert "Globe" in prompt
     assert "App Switcher" in prompt
     assert "Activate" in prompt
+    assert "focused search/text field" in prompt
 
 
 def test_android_prompt_is_unchanged():

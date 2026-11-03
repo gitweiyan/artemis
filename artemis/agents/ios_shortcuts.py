@@ -61,6 +61,11 @@ Decision rules:
 3. Use Home (`Cmd+H`) or the app switcher instead of clicking system chrome.
 4. If a keyboard command is unsupported, say so and fall back to the pointer.
 5. Never claim a keyboard launch worked without checking the resulting screen.
+6. A focused search/text field consumes arrow keys: they edit suggestions, not
+   Full Keyboard Access focus. Press Escape/Tab or leave the field before using
+   arrows for UI focus; verify the focus change on screen.
+7. Spotlight can open with Cmd+Space but Escape may not close it on the first
+   press. Check the frame before assuming the overlay is gone.
 """
 
 
