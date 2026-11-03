@@ -19,10 +19,12 @@ def test_ios_prompt_contains_keyboard_first_shortcuts():
     assert "keyboard before pointer" in prompt
     assert "Cmd+Space" in prompt
     assert "Cmd+H" in prompt
-    assert "Globe" in prompt
-    assert "App Switcher" in prompt
     assert "Activate" in prompt
+    assert "Shift+Tab" in prompt
     assert "focused search/text field" in prompt
+    # No Globe/Fn chord is sendable from the ESP32 HID keyboard, so the prompt must
+    # not advertise the Full Keyboard Access command table as executable.
+    assert "Globe" not in prompt
 
 
 def test_android_prompt_is_unchanged():

@@ -21,50 +21,22 @@ Currently executable by the ESP32 HID keyboard:
 ```text
 Cmd+Space  Spotlight (search)
 Cmd+H      Home
-Cmd+Tab    App Switcher
-Cmd+W      close sheet/window
-Esc, Tab, Up, Down, Left, Right, Space, Enter
-```
-
-Full Keyboard Access commands (Settings > Accessibility > Keyboards & Typing >
-Full Keyboard Access > Commands). The Globe key is shown as "->" in the screenshots;
-use these when the keyboard layer can send Globe/Fn:
-
-```text
-Help                 Globe+H
-Move forward/back    Globe+Right / Globe+Shift+Right
-Move up/down/left    Arrow keys
-Move to beginning    Globe+Left
-Move to end          Globe+Right
-Next item            Control+Right
-Previous item        Control+Shift+Right
-Find                 Globe+F
-Activate             Space
-Back                 Globe+B
-Context menu         Globe+M
-Actions              Globe+Z
-Home                 Fn+H
-App Switcher         Fn+Up
-Control Center       Fn+C
-Notification Center  Fn+N
-Lock screen          Globe+L
-Siri                 Fn+S
-Accessibility        Globe+X
-Rotate device        Globe+R
-Keyboard gestures    Globe+G
+Space      Activate (click)
+Tab        Move forward
+Shift+Tab  Move backward
+Up, Down, Left, Right   Move in the direction
 ```
 
 Decision rules:
 
 1. Launch an app with `Cmd+Space`, type its name, then Down + Enter.
 2. Navigate and activate with Tab/arrows/Space before touching the pointer.
-3. Use Home (`Cmd+H`) or the app switcher instead of clicking system chrome.
-4. If a keyboard command is unsupported, say so and fall back to the pointer.
-5. Never claim a keyboard launch worked without checking the resulting screen.
-6. A focused search/text field consumes arrow keys: they edit suggestions, not
+3. If a keyboard command is unsupported, say so and fall back to the pointer.
+4. Never claim a keyboard launch worked without checking the resulting screen.
+5. A focused search/text field consumes arrow keys: they edit suggestions, not
    Full Keyboard Access focus. Press Escape/Tab or leave the field before using
    arrows for UI focus; verify the focus change on screen.
-7. Spotlight can open with Cmd+Space but Escape may not close it on the first
+6. Spotlight can open with Cmd+Space but Escape may not close it on the first
    press. Check the frame before assuming the overlay is gone.
 """
 
