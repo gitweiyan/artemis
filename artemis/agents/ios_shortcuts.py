@@ -29,7 +29,9 @@ Up, Down, Left, Right   Move in the direction
 
 Decision rules:
 
-1. Launch an app with `Cmd+Space`, type its name, then Down + Enter.
+1. Launch an app with always use `manage_app(action="launch", app_name="...")`. The HID
+   keyboard types ASCII only: use the English name or the pinyin (e.g. `meituan`
+   for 美团), never the Chinese display name.
 2. Navigate and activate with Tab/arrows/Space before touching the pointer.
 3. If a keyboard command is unsupported, say so and fall back to the pointer.
 4. Never claim a keyboard launch worked without checking the resulting screen.

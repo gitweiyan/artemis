@@ -614,13 +614,20 @@ _SPECS: tuple[ActionSpec, ...] = (
     ActionSpec(
         name="manage_app",
         operator=OperatorDialect(
-            description="[ACTION] Launch or force stop a specified application.",
+            description=(
+                "[ACTION] Launch or force stop a specified application.\n"
+                "\n"
+                "On iOS the app is opened through Spotlight with the HID keyboard, which"
+                " types ASCII only: pass the English name or the pinyin (e.g. 'meituan')"
+                " instead of the Chinese display name."
+            ),
             params=(
                 ParamSpec("action", Literal["launch", "stop"], "The action type."),
                 ParamSpec(
                     "app_name",
                     str,
-                    "Display name or package name of the application.",
+                    "Display name or package name of the application."
+                    " iOS: English or pinyin, ASCII only.",
                 ),
             ),
         ),

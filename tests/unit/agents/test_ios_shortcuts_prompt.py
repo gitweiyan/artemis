@@ -21,6 +21,7 @@ def test_ios_prompt_contains_keyboard_first_shortcuts():
     assert "Cmd+H" in prompt
     assert "Activate" in prompt
     assert "Shift+Tab" in prompt
+    assert "pinyin" in prompt, "iOS app names are typed with an ASCII-only keyboard"
     assert "focused search/text field" in prompt
     # No Globe/Fn chord is sendable from the ESP32 HID keyboard, so the prompt must
     # not advertise the Full Keyboard Access command table as executable.

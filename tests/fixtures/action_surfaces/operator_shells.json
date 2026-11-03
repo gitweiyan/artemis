@@ -269,7 +269,7 @@
     "type": "function",
     "function": {
       "name": "manage_app",
-      "description": "[ACTION] Launch or force stop a specified application.",
+      "description": "[ACTION] Launch or force stop a specified application.\n\nOn iOS the app is opened through Spotlight with the HID keyboard, which types ASCII only: pass the English name or the pinyin (e.g. 'meituan') instead of the Chinese display name.",
       "parameters": {
         "properties": {
           "action": {
@@ -281,7 +281,7 @@
             "type": "string"
           },
           "app_name": {
-            "description": "Display name or package name of the application.",
+            "description": "Display name or package name of the application. iOS: English or pinyin, ASCII only.",
             "type": "string"
           }
         },

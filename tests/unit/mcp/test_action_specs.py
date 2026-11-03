@@ -75,6 +75,13 @@ def test_operator_shells_match_fixture():
         assert generated == expected[name], f"operator shell '{name}': {FIXTURE_HINT}"
 
 
+def test_manage_app_tells_ios_that_the_name_is_typed_as_ascii():
+    """iOS opens apps through Spotlight and the HID keyboard types ASCII only."""
+    declaration = tool_declaration("manage_app")
+    assert "pinyin" in declaration.description
+    assert "ASCII" in declaration.description
+
+
 def test_tool_declarations_match_fixture():
     expected = _fixture("tool_declarations.json")
     by_constant = {
