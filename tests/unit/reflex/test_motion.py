@@ -35,3 +35,13 @@ def test_zero_unit_axes_and_implausible_ratios_leave_the_gain_alone():
     for _ in range(50):
         cal.update(Phase.FINE, (10, 10), (10_000.0, 10_000.0))  # a mis-detection, not a gain
     assert cal.gain(Phase.FINE) == pytest.approx((2.0, 2.0))
+
+
+def test_the_fine_ratio_does_not_need_seven_observations():
+    """At ~0.9 s per observation the ratios must close a residual in 2-3 segments."""
+    from artemis.reflex.motion import MotionConfig, Phase
+
+    cfg = MotionConfig()
+    assert cfg.ratios[Phase.APPROACH] == pytest.approx(0.75)
+    assert cfg.ratios[Phase.FINE] == pytest.approx(0.70)
+    assert cfg.min_units_for_calibration == 4

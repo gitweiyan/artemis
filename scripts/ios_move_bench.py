@@ -101,8 +101,12 @@ async def _run(args: argparse.Namespace) -> int:
         result = controller.travel_verified(target_x, target_y)
         elapsed_ms = (time.monotonic() - started) * 1000.0
         motion = getattr(result, "motion", None)
-        # Grade with an independent post-travel grab: the controller's own `error_px` is
-        # the same observation that decided `ok`, so it cannot grade itself (review).
+        # Grade with an independent reading, taken while the pointer is still drawn: a
+        # grab right after the travel sees an already-faded pointer ~half the time. A
+        # symmetric out-and-back nudge redraws it and cancels itself, so what is detected
+        # is the travel's own endpoint, not a shifted one.
+        session.pointer.move(60, 60)
+        session.pointer.move(-60, -60)
         frame = capture.grab()
         pointer = detector.detect(
             frame.image, near=(target_x / frame_width, target_y / frame_height)

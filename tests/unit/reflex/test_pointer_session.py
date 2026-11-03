@@ -1197,3 +1197,26 @@ def test_the_first_leg_is_calibrated_and_the_belief_uses_the_phase_gain():
     last_phase = Phase(result.motion.phases[-1])
     assert session.gain_x == pytest.approx(controller.motion_calibration.gain(last_phase)[0])
     assert session.gain_y == pytest.approx(controller.motion_calibration.gain(last_phase)[1])
+
+
+def test_a_tiny_segment_does_not_teach_the_phase_gain():
+    """A few units are dominated by rounding; calibrating on them drifts the gain."""
+    from artemis.reflex.motion import Phase
+    from artemis.reflex.mouse import SessionTapController
+
+    control = _LinearPointer(gain=3.0)
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session,
+        capture=_DotCamera(control),
+        detector=_DotDetector(),
+        max_steps=2,
+        max_attempts=1,
+        settle_timeout_s=0.0,
+    )
+    # At the target the remaining error is one or two units per axis: below the guard.
+    result = controller.tap(2, 4)
+
+    assert result.motion.segments >= 1
+    assert controller.motion_calibration.gain(Phase.BALLISTIC) == (2.0, 2.0)

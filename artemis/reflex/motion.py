@@ -45,8 +45,8 @@ class MotionConfig:
     ratios: dict[Phase, float] = field(
         default_factory=lambda: {
             Phase.BALLISTIC: 0.80,
-            Phase.APPROACH: 0.70,
-            Phase.FINE: 0.60,
+            Phase.APPROACH: 0.75,
+            Phase.FINE: 0.70,
         }
     )
     #: Hard cap on one segment, in HID units. Esp32HidControl.mouse_move splits this into
@@ -60,6 +60,10 @@ class MotionConfig:
     )
     #: Segments per travel before the controller gives up (with an incident, no click).
     max_segments: int = 12
+    #: A segment smaller than this teaches nothing about the gain: the pointer's own
+    #: rounding dominates the observed displacement, which is how the fine phase drifted
+    #: to ~0.85 px/unit on the rig (bench, 2026-11-03).
+    min_units_for_calibration: int = 4
     #: Below this expected displacement a segment is not worth sending.
     min_segment_px: float = 4.0
 

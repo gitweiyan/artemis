@@ -588,9 +588,13 @@ class SessionTapController:
                     # observation — but only when no wake moved the pointer in between:
                     # its 60 units would be misattributed to the planned segment and learn
                     # a wrong gain (review, 2026-11-03).
-                    self._update_gain(last_move, observed)
-                    if last_phase is not None and self.adaptive_gain:
-                        self.motion_calibration.update(last_phase, last_move, observed)
+                    big_enough = max(abs(last_move[0]), abs(last_move[1])) >= (
+                        self.motion_config.min_units_for_calibration
+                    )
+                    if big_enough:
+                        self._update_gain(last_move, observed)
+                        if last_phase is not None and self.adaptive_gain:
+                            self.motion_calibration.update(last_phase, last_move, observed)
                 self.session.observe(*position)
                 # One definition of "the pointer is on the target", shared with the
                 # driver's read-only precheck (artemis.safety.pointer).
