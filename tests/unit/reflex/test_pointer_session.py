@@ -890,3 +890,70 @@ def test_travel_uses_the_online_gain_not_the_configured_default():
 
     assert control.moves == [(25, 25)], "100 px at the measured 4.0 px/unit, not the 2.0 default"
     assert remaining <= controller.tolerance_px
+
+
+class _LinearPointer:
+    """A control whose pointer moves by ``units * gain`` (the rig's model, no acceleration)."""
+
+    def __init__(self, gain=2.0, start=(0.0, 0.0)):
+        self.gain = gain
+        self.x, self.y = start
+        self.moves = []
+        self.clicks = 0
+
+    def preflight(self):
+        return {"mounted": 1, "suspended": 0, "mouse": 1, "keyboard": 1, "touch": 0}
+
+    def ios_home(self):
+        pass
+
+    def mouse_home(self):
+        self.x = self.y = 0.0
+
+    def mouse_move(self, dx, dy):
+        self.moves.append((dx, dy))
+        self.x += dx * self.gain
+        self.y += dy * self.gain
+
+    def mouse_click(self):
+        self.clicks += 1
+
+
+class _PointerAtControl:
+    """A detector that reports the virtual pointer's real position."""
+
+    def __init__(self, control, frame_size=(449, 974)):
+        self.control = control
+        self.frame_size = frame_size
+
+    def detect(self, image, near=None):
+        from artemis.reflex.vision import Pointer
+
+        x = min(self.frame_size[0], max(0.0, self.control.x)) / self.frame_size[0]
+        y = min(self.frame_size[1], max(0.0, self.control.y)) / self.frame_size[1]
+        return Pointer(x, y, 0.95, "fake")
+
+
+def test_a_far_target_converges_in_phases_and_reports_them():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = _LinearPointer(gain=2.0)
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    capture = FakeCapture([_png((120, 120, 120))] * 30, control=control)
+    controller = SessionTapController(
+        session,
+        capture=capture,
+        detector=_PointerAtControl(control),
+        max_step=20,  # a deliberately short first leg: the planner owns the travel
+        settle_timeout_s=0.0,
+    )
+
+    result = controller.tap(449, 974)
+
+    assert result.ok is True
+    assert control.clicks == 1
+    assert result.motion is not None
+    assert result.motion.segments >= 2
+    assert result.motion.observations == result.motion.segments + 1
+    assert "ballistic" in result.motion.phases

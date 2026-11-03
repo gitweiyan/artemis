@@ -13,11 +13,23 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from artemis.reflex.motion import MotionCalibration, MotionConfig, Phase, choose_phase
 from artemis.reflex.vision import Pointer, changed
 from artemis.safety.pixel import verify_effect
 from artemis.safety.pointer import check_point
+
+
+@dataclass
+class MotionReport:
+    """What the phased planner did during one travel (logs, metrics, the bench)."""
+
+    segments: int = 0
+    observations: int = 0
+    phases: list[str] = field(default_factory=list)
+    prediction_error_px: float | None = None
+    global_recoveries: int = 0
 
 
 @dataclass(frozen=True)
@@ -40,6 +52,8 @@ class TapResult:
     frame_age_s: float | None = None
     #: How much of the target crop changed after the click (0..1), when it could be read.
     crop_change: float | None = None
+    #: The phased movement's record, when the verified path ran (never on the legacy path).
+    motion: MotionReport | None = None
 
 
 class PointerSession:
@@ -177,6 +191,8 @@ class SessionTapController:
         tracker=None,
         diff_nudge: int = 20,
         adaptive_gain: bool = True,
+        motion_config: MotionConfig | None = None,
+        motion_calibration: MotionCalibration | None = None,
     ):
         if detector is not None and capture is None:
             raise ValueError("pre-click pointer verification needs a capture")
@@ -214,6 +230,12 @@ class SessionTapController:
         #: themselves (exponential smoothing, clamped to a plausible band).
         self.adaptive_gain = bool(adaptive_gain)
         self._gain = [float(session.gain_x), float(session.gain_y)]
+        #: The phased movement policy and its per-phase gains (see artemis.reflex.motion).
+        #: The calibration starts from the session's gain and is learned from observations.
+        self.motion_config = motion_config or MotionConfig()
+        self.motion_calibration = motion_calibration or MotionCalibration(
+            (self._gain[0], self._gain[1])
+        )
 
     def _frame_age_s(self, frame) -> float | None:
         """Seconds between capture and now, when the frame can be dated."""
@@ -341,10 +363,35 @@ class SessionTapController:
         self._travel_on_belief(x, y)
         return math.hypot(x - self.session.position[0], y - self.session.position[1])
 
+    def _plan_segment(
+        self, x: float, y: float, position: tuple[float, float]
+    ) -> tuple[Phase, int, int]:
+        """One planned segment: its phase and the HID units that serve it.
+
+        The phase sizes the step against the target's effective width; the phase's own
+        gain converts frame pixels to units; the phase's cap keeps a segment short
+        enough that its acceleration stays in the band that gain was learned at.
+        """
+        error_x = x - position[0]
+        error_y = y - position[1]
+        distance = math.hypot(error_x, error_y)
+        phase = choose_phase(distance, self.motion_config)
+        if distance <= 0.0:
+            return phase, 0, 0
+        wanted = max(
+            self.motion_config.min_segment_px,
+            distance * self.motion_config.ratios[phase],
+        )
+        scale = wanted / distance
+        units_x, units_y = self.motion_calibration.units(phase, error_x * scale, error_y * scale)
+        cap = self.motion_config.max_units[phase]
+        return phase, max(-cap, min(cap, units_x)), max(-cap, min(cap, units_y))
+
     def _verified_tap(self, x: float, y: float) -> TapResult:
         width, height = self.session.frame_size
         last_pointer: Pointer | None = None
         last_error: float | None = None
+        motion = MotionReport()
 
         # A reference frame from before the travel: the verification frame must differ
         # from it, which means it was captured after the moves (the pointer is drawn for
@@ -353,6 +400,10 @@ class SessionTapController:
         self._travel_on_belief(x, y)
         last_position: tuple[float, float] | None = None
         last_move: tuple[int, int] | None = None
+        last_phase: Phase | None = None
+        #: Where the belief says the pointer is after the last segment; the next
+        #: observation's distance to it is the motion model's prediction error.
+        last_prediction: tuple[float, float] | None = None
 
         for attempt in range(1, self.max_attempts + 1):
             for _step in range(self.max_steps):
@@ -370,7 +421,9 @@ class SessionTapController:
                         None,
                         "pointer not detected before click; refusing to click",
                         "pointer_missing",
+                        motion=motion,
                     )
+                motion.observations += 1
                 frame_age = self._frame_age_s(frame)
                 stale = self._stale_reason(frame)
                 if stale is not None:
@@ -382,14 +435,22 @@ class SessionTapController:
                         f"{stale}; refusing to click on a frame we cannot trust",
                         "stale_frame",
                         frame_age,
+                        motion=motion,
                     )
                 last_pointer = pointer
                 position = (pointer.x * width, pointer.y * height)
-                if last_position is not None and last_move is not None:
-                    self._update_gain(
-                        last_move,
-                        (position[0] - last_position[0], position[1] - last_position[1]),
+                if last_prediction is not None:
+                    motion.prediction_error_px = math.hypot(
+                        position[0] - last_prediction[0], position[1] - last_prediction[1]
                     )
+                if last_position is not None and last_move is not None:
+                    observed = (position[0] - last_position[0], position[1] - last_position[1])
+                    # The base estimate feeds the belief's own integration; the phase
+                    # calibration feeds the next segment's plan. Both learn from this
+                    # observation.
+                    self._update_gain(last_move, observed)
+                    if last_phase is not None:
+                        self.motion_calibration.update(last_phase, last_move, observed)
                 self.session.observe(*position)
                 # One definition of "the pointer is on the target", shared with the
                 # driver's read-only precheck (artemis.safety.pointer).
@@ -403,22 +464,19 @@ class SessionTapController:
                 error = verdict.error_px if verdict.error_px is not None else 0.0
                 last_error = error
                 if verdict.ok:
-                    return self._click_and_verify(x, y, pointer, error, frame, frame_age, attempt)
-                # Correct with the *measured* gain rather than the configured one: iOS
-                # accelerates the pointer, so the configured ratio is only a starting
-                # guess and a fixed one stops the loop short of the target.
-                dx = max(
-                    -self.max_step,
-                    min(self.max_step, round((x - position[0]) / self._gain[0])),
-                )
-                dy = max(
-                    -self.max_step,
-                    min(self.max_step, round((y - position[1]) / self._gain[1])),
-                )
-                if dx == 0 and dy == 0:
+                    return self._click_and_verify(
+                        x, y, pointer, error, frame, frame_age, attempt, motion
+                    )
+                phase, units_x, units_y = self._plan_segment(x, y, position)
+                if (units_x == 0 and units_y == 0) or (
+                    motion.segments >= self.motion_config.max_segments
+                ):
                     break
-                self.session.move(dx, dy)
-                last_position, last_move = position, (dx, dy)
+                self.session.move(units_x, units_y)
+                motion.segments += 1
+                motion.phases.append(phase.value)
+                last_position, last_move, last_phase = position, (units_x, units_y), phase
+                last_prediction = self.session.position
         return TapResult(
             False,
             self.max_attempts,
@@ -426,9 +484,12 @@ class SessionTapController:
             last_error,
             "pointer did not converge to the target; refusing to click",
             "pointer_not_centered",
+            motion=motion,
         )
 
-    def _click_and_verify(self, x, y, pointer, error, frame, frame_age, attempt) -> TapResult:
+    def _click_and_verify(
+        self, x, y, pointer, error, frame, frame_age, attempt, motion=None
+    ) -> TapResult:
         """Click a verified pointer and demand that the screen reacts."""
         width, height = self.session.frame_size
         before = frame.image
@@ -447,6 +508,7 @@ class SessionTapController:
                 None,
                 frame_age,
                 effect.crop_change,
+                motion,
             )
         return TapResult(
             False,
@@ -457,6 +519,7 @@ class SessionTapController:
             "no_effect",
             frame_age,
             effect.crop_change,
+            motion,
         )
 
     def tap(self, x: float, y: float) -> TapResult:

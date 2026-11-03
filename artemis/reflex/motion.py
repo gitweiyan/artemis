@@ -39,11 +39,14 @@ class MotionConfig:
     ballistic_factor: float = 4.0
     approach_factor: float = 1.5
     #: Fraction of the *remaining* distance each phase tries to cover in one segment.
+    #: The proposal's 75/55/30 assumes cheap video observations; here one observation is
+    #: a ~0.9 s frame grab, so fine corrections must close most of the gap per step or a
+    #: tap costs 7-8 frames. Every segment is still observed and re-planned.
     ratios: dict[Phase, float] = field(
         default_factory=lambda: {
-            Phase.BALLISTIC: 0.75,
-            Phase.APPROACH: 0.55,
-            Phase.FINE: 0.30,
+            Phase.BALLISTIC: 0.80,
+            Phase.APPROACH: 0.70,
+            Phase.FINE: 0.60,
         }
     )
     #: Hard cap on one segment, in HID units (the firmware takes at most 127/report).
