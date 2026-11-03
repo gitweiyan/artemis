@@ -87,6 +87,8 @@ yarn-error.log*
 # Artemis Runtime & Telemetry
 traces/
 scratch/
+captures/
+reports/
 .artemis_paused
 .artemis_server.json
 *.log
