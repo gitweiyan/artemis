@@ -271,6 +271,8 @@ class SessionTapController:
             if not (0.3 <= ratio <= 4.0):
                 continue  # a mis-detection, not a gain
             self._gain[index] = min(4.0, max(0.3, 0.6 * self._gain[index] + 0.4 * ratio))
+        # Mirror the measurement into the session so `session.move` integrates with it.
+        self.session.gain_x, self.session.gain_y = self._gain[0], self._gain[1]
 
     def _observe(self, after: bytes | None = None):
         """Grab frames until a pointer is detected, or ``observe_attempts`` run out.
@@ -309,13 +311,20 @@ class SessionTapController:
         Relative moves are exactly predictable, so travel is dead reckoning; the frame is
         used to *verify* the arrival, which is the part that must not be blind.
         """
+        # One estimate for both planning and the belief's own integration; a different
+        # pair makes the planned delta and the belief drift apart (measured Task 1).
+        self.session.gain_x, self.session.gain_y = self._gain[0], self._gain[1]
         for _step in range(self.max_steps):
             error_x = x - self.session.position[0]
             error_y = y - self.session.position[1]
             if math.hypot(error_x, error_y) <= self.tolerance_px:
                 return
-            dx = max(-self.max_step, min(self.max_step, round(error_x / self.session.gain_x)))
-            dy = max(-self.max_step, min(self.max_step, round(error_y / self.session.gain_y)))
+            # Travel and correction must use the same estimate: the configured gain is
+            # only a starting guess (this rig measures 1.63–1.82 against a 1.48 config),
+            # so a first leg on `session.gain` undershoots or overshoots every time the
+            # rig disagrees with the config.
+            dx = max(-self.max_step, min(self.max_step, round(error_x / self._gain[0])))
+            dy = max(-self.max_step, min(self.max_step, round(error_y / self._gain[1])))
             if dx == 0 and dy == 0:
                 return
             self.session.move(dx, dy)

@@ -875,3 +875,18 @@ def test_the_loop_learns_a_gain_the_configuration_guessed_wrong():
     assert truth.clicks >= 1, "the loop clicked on a verified pointer"
     assert reached <= 8.0, f"the pointer truly reached the target (off by {reached:.1f})"
     assert controller._gain[0] < 1.8, "the measured ratio replaced the configured guess"
+
+
+def test_travel_uses_the_online_gain_not_the_configured_default():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(session, capture=None)
+    controller._gain = [4.0, 4.0]  # what observations have measured on this rig
+
+    remaining = controller.travel(100, 100)
+
+    assert control.moves == [(25, 25)], "100 px at the measured 4.0 px/unit, not the 2.0 default"
+    assert remaining <= controller.tolerance_px
