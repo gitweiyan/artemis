@@ -1,5 +1,6 @@
 import asyncio
 
+
 from artemis.control.hid import HidControlSink
 from artemis.reflex.mouse import TapResult
 
@@ -240,3 +241,104 @@ def test_a_failed_swipe_is_an_incident_not_an_exception():
     assert result.ok is False
     assert result.incident == "swipe_failed"
     assert "serial write failed" in result.detail
+
+
+# --- iOS drag positioning ------------------------------------------------------------
+#
+# A relative-pointer swipe is a mouse drag: press, walk the pointer, release. iOS reads
+# a drag that starts on an edge as a system gesture (pull down from the top opens
+# Control Center, swipe up from the bottom leaves the app), and a pointer parked on an
+# edge has no room to drag at all. The sink therefore re-anchors the pointer and starts
+# every drag from a fixed point that is safe for its direction.
+
+
+class PlacingSession(FakeSession):
+    """A session with the pointer belief a real ``PointerSession`` carries."""
+
+    def __init__(self, frame_size=(449, 974), gain=(1.48, 1.48), connected=True):
+        super().__init__()
+        self.frame_size = frame_size
+        self.gain_x, self.gain_y = gain
+        self.connected = connected
+        self.placements = []
+
+    def home(self):
+        self.placements.append("home")
+
+    def move(self, dx, dy):
+        self.placements.append(("move", dx, dy))
+        return (0, 0)
+
+
+class RecordingSwipeControl(FakeControl):
+    def __init__(self, events=None):
+        super().__init__()
+        self.swipes = []
+        self.events = events
+
+    def swipe_mouse(self, dx, dy, *, duration_ms=400):
+        self.swipes.append((dx, dy, duration_ms))
+        if self.events is not None:
+            self.events.append(("swipe", dx, dy, duration_ms))
+
+
+FRAME = (449, 974)
+GAIN = 1.48
+
+
+def _placing_sink(session=None):
+    events = []
+    session = session or PlacingSession()
+    session.placements = events
+    session.control = RecordingSwipeControl(events)
+    sink = HidControlSink(session, FakeController(TapResult(True, 1, None, 0, "ok")))
+    return sink, session, events
+
+
+def test_an_upward_swipe_homes_and_starts_low_but_clear_of_the_home_edge():
+    sink, _session, events = _placing_sink()
+
+    result = asyncio.run(sink.swipe(100, 900, 100, 300, duration_ms=300))
+
+    assert result.ok is True
+    assert events[0] == "home", "a true origin makes the anchor predictable"
+    assert events[1] == ("move", round(100 / GAIN), round(FRAME[1] * 0.65 / GAIN))
+    assert events[2] == ("swipe", 0, -600, 300)
+
+
+def test_a_downward_swipe_starts_high_and_a_horizontal_one_in_the_middle():
+    sink, _session, events = _placing_sink()
+
+    asyncio.run(sink.swipe(100, 100, 100, 700))
+    asyncio.run(sink.swipe(100, 900, 400, 900))
+
+    moves = [event for event in events if isinstance(event, tuple) and event[0] == "move"]
+    assert moves[0] == ("move", round(100 / GAIN), round(FRAME[1] * 0.35 / GAIN))
+    assert moves[1] == ("move", round(100 / GAIN), round(FRAME[1] * 0.5 / GAIN))
+
+
+def test_a_disconnected_session_is_connected_before_the_pointer_is_placed():
+    session = PlacingSession(connected=False)
+    connects = []
+    session.connect = lambda: connects.append("connect")
+    sink, _session, events = _placing_sink(session)
+
+    asyncio.run(sink.swipe(100, 900, 100, 300))
+
+    assert connects == ["connect"]
+    assert events[0] == "home"
+
+
+def test_a_failed_placement_is_an_incident_not_an_exception():
+    class BrokenHome(PlacingSession):
+        def home(self):
+            raise RuntimeError("serial write failed")
+
+    sink, session, _events = _placing_sink(BrokenHome())
+
+    result = asyncio.run(sink.swipe(100, 900, 100, 300))
+
+    assert result.ok is False
+    assert result.incident == "swipe_failed"
+    assert "serial write failed" in result.detail
+    assert session.control.swipes == []
