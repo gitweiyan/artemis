@@ -135,3 +135,13 @@ def test_the_session_backs_the_colour_detector_with_the_nudge_diff():
 def test_the_assistive_button_box_is_forwarded_to_the_tracker():
     session = build_ios_uvc_session(Capture(), Control(), assistive_button_box=(380, 200, 449, 280))
     assert session.control[0].controller.tracker.menu_box == (380, 200, 449, 280)
+
+
+def test_the_ios_session_trusts_only_the_blue_ring():
+    """The legacy red detector must not drive an iOS pointer (bench: red UI badges)."""
+    from artemis.reflex.vision import BluePointerDetector
+
+    session = build_ios_uvc_session(Capture(), Control())
+    detector = session.control[0].controller.detector
+
+    assert [type(item) for item in detector.detectors] == [BluePointerDetector]

@@ -1146,3 +1146,26 @@ def test_one_grab_per_observation_and_the_frame_must_postdate_the_move():
 
     assert stale.grabs == 2, "a frame captured before the move is skipped"
     assert frame.captured_at == 70.0
+
+
+def test_a_detection_outside_the_corridor_is_counted_as_a_recovery():
+    from artemis.reflex.mouse import MotionReport, SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class Outside:
+        def detect(self, image, near=None):
+            return Pointer(0.9, 0.9, 0.9, "fake")  # (404, 876): not on the corridor
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connected = True
+    capture = FakeCapture([_png((120, 120, 120))] * 6)
+    controller = SessionTapController(
+        session, capture=capture, detector=Outside(), settle_timeout_s=0.0
+    )
+    report = MotionReport()
+
+    frame, pointer = controller._observe(corridor=((100.0, 100.0), (300.0, 600.0)), motion=report)
+
+    assert pointer is not None, "the full frame still finds the pointer"
+    assert report.global_recoveries == 1

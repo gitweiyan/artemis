@@ -321,6 +321,19 @@ class SessionTapController:
         # Mirror the measurement into the session so `session.move` integrates with it.
         self.session.gain_x, self.session.gain_y = self._gain[0], self._gain[1]
 
+    def _inside_corridor(
+        self, pointer: Pointer, corridor: tuple[tuple[float, float], tuple[float, float]]
+    ) -> bool:
+        """Whether a detection lies on the segment the motion model predicted."""
+        width, height = self.session.frame_size
+        x, y = pointer.x * width, pointer.y * height
+        (x1, y1), (x2, y2) = corridor
+        margin = self._corridor_radius()
+        return (
+            min(x1, x2) - margin <= x <= max(x1, x2) + margin
+            and min(y1, y2) - margin <= y <= max(y1, y2) + margin
+        )
+
     def _corridor_radius(self) -> float:
         """How wide the search corridor is: the pointer plus the prediction's error."""
         return max(24.0, 2.5 * POINTER_RADIUS_PX + 3.0 * self._sigma)
@@ -350,8 +363,18 @@ class SessionTapController:
         for index in range(self.observe_attempts):
             if index > 0:
                 frame = self.capture.grab_latest()
-            pointer = None
-            if corridor is not None:
+            # The full frame is the arbiter: a crop can hide the real pointer behind a
+            # decoy that happens to sit inside the corridor. The corridor only says
+            # whether the detection agrees with the motion model.
+            pointer = self.detector.detect(frame.image, near=near)
+            if pointer is not None:
+                if corridor is not None and not self._inside_corridor(pointer, corridor):
+                    if motion is not None:
+                        motion.global_recoveries += 1
+            elif corridor is not None:
+                # Second chance for a pointer the full frame missed: look only where the
+                # model says it should be (counted as a recovery, because the model was
+                # wrong about the full-frame result).
                 roi = corridor_roi(
                     corridor[0],
                     corridor[1],
@@ -359,10 +382,8 @@ class SessionTapController:
                     frame_size=(width, height),
                 )
                 pointer = detect_in_roi(self.detector, frame.image, roi, near=near)
-                if pointer is None and motion is not None:
+                if pointer is not None and motion is not None:
                     motion.global_recoveries += 1
-            if pointer is None:
-                pointer = self.detector.detect(frame.image, near=near)
             if pointer is not None:
                 return frame, pointer
         if self.tracker is not None:
