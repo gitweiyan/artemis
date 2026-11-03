@@ -487,3 +487,25 @@ def test_a_focus_ring_is_not_mistaken_for_a_scroll():
     assert result.ok is True
     assert control.keys, "the keys are still tried first"
     assert control.swipes, "a ring-only change still falls back to the drag"
+
+
+def test_a_tap_reports_the_motion_counts_in_its_metrics():
+    """The step record must show how the pointer travelled, not only that it arrived."""
+    motion = SimpleNamespace(
+        segments=3,
+        observations=2,
+        phases=["ballistic", "approach"],
+        prediction_error_px=6.5,
+        global_recoveries=0,
+    )
+    pointer = SimpleNamespace(x=0.5, y=0.25, confidence=0.9)
+    controller = FakeController(TapResult(True, 1, pointer, 3.0, "ok", motion=motion))
+    sink = HidControlSink(FakeSession(), controller)
+
+    result = asyncio.run(sink.tap_abs(540, 1200))
+
+    assert result.metrics["motion_segments"] == 3
+    assert result.metrics["motion_observations"] == 2
+    assert result.metrics["motion_phases"] == "ballistic,approach"
+    assert result.metrics["motion_prediction_error_px"] == 6.5
+    assert result.metrics["motion_global_recoveries"] == 0

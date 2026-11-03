@@ -83,6 +83,21 @@
 4. 点击后验证优先看**目标 crop**（按压高亮/弹层就在那里），整帧变化作为兜底；
    状态栏时钟变化不算。
 
+### 3.1 指针运动模型（2026-11-03，V1+V2）
+
+- **分阶段**：按剩余距离相对“目标有效宽”（`MotionConfig.target_width_px=96`）的倍数选阶段——
+  `>4W` ballistic、`≥1.5W` approach、其余 fine；每段走剩余距离的 80% / 70% / 60%，每段之后
+  抓帧、观测、重规划（`max_segments=12`），不再用固定的 100 单位步长。
+- **分阶段增益**：每个阶段一份 px/HID 单位，从观测在线学习（EMA 0.4，钳制 0.3–4.0，越界比值视为
+  误检丢弃）；`ARTEMIS_IOS_POINTER_GAIN` / `ios-calibrate` 只提供起点。规划与信仰积分共用同一个估计。
+- **走廊观察**：从“上次观测点 → 本次预测点”建 ROI（半径 `max(24, 2.5R+3σ)`，R=20、σ 为预测误差
+  EMA），先裁图检测；ROI 没找到才全屏重捕获（计入 `motion_global_recoveries`），所以走廊不会把
+  可见指针判成缺失。
+- **指标**：step 的 `action_metrics` 里看 `motion_segments` / `motion_observations` /
+  `motion_phases` / `motion_prediction_error_px` / `motion_global_recoveries`。
+- **基准**：`scripts/ios_move_bench.py --target X,Y --runs 10`（只移动、不点击；命中率 <90% 或
+  中位观察数 >4 时退出码 1，同时打印每阶段学到的增益）。
+
 ## 4. 采集与健康
 
 - 默认 `ARTEMIS_IOS_CAPTURE=frame`：每次抓帧一个 ffmpeg（~0.9s，帧一定是活的）。

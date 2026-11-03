@@ -245,6 +245,8 @@ class SessionTapController:
         #: Expected prediction error of the motion model, in frame pixels. Sizes the
         #: observation corridor: too tight and a real pointer falls outside it.
         self._sigma = 8.0
+        #: How many times one tap may nudge a faded pointer back into sight.
+        self.max_wakes = 2
 
     def _frame_age_s(self, frame) -> float | None:
         """Seconds between capture and now, when the frame can be dated."""
@@ -397,6 +399,19 @@ class SessionTapController:
         self._travel_on_belief(x, y)
         return math.hypot(x - self.session.position[0], y - self.session.position[1])
 
+    def travel_verified(self, x: float, y: float) -> TapResult:
+        """Move the pointer to the target and verify it, without clicking.
+
+        The same phased loop as :meth:`tap` minus the click: the move bench and any
+        caller that needs a positioned pointer (a drag) use it before their own gesture.
+        """
+        if not self.session.connected:
+            self.session.connect()
+        if self.capture is not None and self.detector is not None:
+            return self._verified_tap(x, y, click=False)
+        self._travel_on_belief(x, y)
+        return TapResult(True, 1, None, None, "moved by pointer state; not verified")
+
     def _plan_segment(
         self, x: float, y: float, position: tuple[float, float]
     ) -> tuple[Phase, int, int]:
@@ -421,7 +436,7 @@ class SessionTapController:
         cap = self.motion_config.max_units[phase]
         return phase, max(-cap, min(cap, units_x)), max(-cap, min(cap, units_y))
 
-    def _verified_tap(self, x: float, y: float) -> TapResult:
+    def _verified_tap(self, x: float, y: float, *, click: bool = True) -> TapResult:
         width, height = self.session.frame_size
         last_pointer: Pointer | None = None
         last_error: float | None = None
@@ -431,13 +446,23 @@ class SessionTapController:
         # from it, which means it was captured after the moves (the pointer is drawn for
         # only a moment after each move, so a queued frame is useless for this).
         before = self.capture.grab_latest()
-        self._travel_on_belief(x, y)
+        # The first leg is planned like every other one. A full dead-reckoned travel lands
+        # on the frame edge when the configured gain underestimates the rig (1.48 vs
+        # 1.6–1.8 measured), and a pointer clipped by the edge is undetectable — the
+        # detectors then latch onto coloured UI elements instead (rig bench, 2026-11-03).
+        self.session.gain_x, self.session.gain_y = self._gain[0], self._gain[1]
+        first_phase, first_x, first_y = self._plan_segment(x, y, self.session.position)
+        if first_x or first_y:
+            self.session.move(first_x, first_y)
+            motion.segments += 1
+            motion.phases.append(first_phase.value)
         last_position: tuple[float, float] | None = None
         last_move: tuple[int, int] | None = None
         last_phase: Phase | None = None
         #: Where the belief says the pointer is after the last segment; the next
         #: observation's distance to it is the motion model's prediction error.
         last_prediction: tuple[float, float] | None = None
+        wakes = 0
 
         for attempt in range(1, self.max_attempts + 1):
             for _step in range(self.max_steps):
@@ -449,9 +474,12 @@ class SessionTapController:
                     corridor=corridor,
                     motion=motion,
                 )
-                if pointer is None and last_position is None:
-                    # Wake the faded pointer with a deliberate move, then look for a frame
-                    # that reflects it.
+                if pointer is None and wakes < self.max_wakes:
+                    # The pointer fades within ~1 s of the last move, so a *second*
+                    # observation after a correction segment is exactly when it has gone.
+                    # Wake it with a deliberate move (bounded) instead of only on the
+                    # first step; a pointer that stays gone still ends in pointer_missing.
+                    wakes += 1
                     self.session.move(self.wake_step, self.wake_step)
                     frame, pointer = self._observe(after=frame.image)
                 if pointer is None:
@@ -507,6 +535,17 @@ class SessionTapController:
                 error = verdict.error_px if verdict.error_px is not None else 0.0
                 last_error = error
                 if verdict.ok:
+                    if not click:
+                        return TapResult(
+                            True,
+                            attempt,
+                            pointer,
+                            error,
+                            "pointer verified at target; not clicked",
+                            None,
+                            frame_age,
+                            motion=motion,
+                        )
                     return self._click_and_verify(
                         x, y, pointer, error, frame, frame_age, attempt, motion
                     )

@@ -80,6 +80,18 @@ class HidControlSink:
         crop_change = getattr(result, "crop_change", None)
         if isinstance(crop_change, (int, float)):
             metrics["crop_change"] = float(crop_change)
+        motion = getattr(result, "motion", None)
+        if motion is not None:
+            metrics["motion_segments"] = float(getattr(motion, "segments", 0) or 0)
+            metrics["motion_observations"] = float(getattr(motion, "observations", 0) or 0)
+            phases = getattr(motion, "phases", None) or []
+            metrics["motion_phases"] = ",".join(str(phase) for phase in phases)
+            prediction = getattr(motion, "prediction_error_px", None)
+            if isinstance(prediction, (int, float)):
+                metrics["motion_prediction_error_px"] = float(prediction)
+            metrics["motion_global_recoveries"] = float(
+                getattr(motion, "global_recoveries", 0) or 0
+            )
         return metrics
 
     async def tap_abs(self, x: int, y: int) -> ActionResult:
