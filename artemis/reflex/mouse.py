@@ -535,8 +535,12 @@ class SessionTapController:
                     # Wake it with a deliberate move (bounded) instead of only on the
                     # first step; a pointer that stays gone still ends in pointer_missing.
                     wakes += 1
+                    # Redraw the faded pointer in place: a one-way nudge leaves it ~100 px
+                    # away, so the next segment spends itself undoing the wake (one extra
+                    # observation per wake on the rig). A symmetric pair cancels out.
                     moved_at = time.monotonic()
                     self.session.move(self.wake_step, self.wake_step)
+                    self.session.move(-self.wake_step, -self.wake_step)
                     wake_since_observation = True
                     frame, pointer = self._observe(
                         after=frame.image, not_before=moved_at, corridor=corridor, motion=motion
