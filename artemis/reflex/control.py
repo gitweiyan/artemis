@@ -316,6 +316,7 @@ class Esp32HidControl(Control):
                 raise RuntimeError(
                     f"ESP32 serial port {self.port} could not be opened: {exc}"
                 ) from exc
+            logger.info(f"firmware port={self.port} baudrate={self.baudrate} opened")
         return self._fd
 
     def _send_with_response(self, command: str, *, timeout: float | None = None) -> str:
@@ -358,6 +359,39 @@ class Esp32HidControl(Control):
                 return
 
     def _send_once(self, command: str, *, timeout: float | None = None) -> str:
+        """One serial exchange, logged with its name, arguments and reply.
+
+        The log is the run's low-level trajectory: every command the host sends the
+        board, its arguments, and what came back (``OK`` or the state listing), so a
+        retrospective can reconstruct the exact serial traffic. A failed exchange logs
+        the same fields at WARNING and re-raises unchanged.
+        """
+        started = time.monotonic()
+        try:
+            reply = self._exchange(command, timeout=timeout)
+        except Exception as exc:  # noqa: BLE001 - logged, then re-raised unchanged
+            self._log_firmware(command, None, started, error=exc)
+            raise
+        self._log_firmware(command, reply, started)
+        return reply
+
+    @staticmethod
+    def _log_firmware(
+        command: str, reply: str | None, started: float, *, error: Exception | None = None
+    ) -> None:
+        name, _, args = command.partition(" ")
+        elapsed_ms = (time.monotonic() - started) * 1000.0
+        if error is not None:
+            logger.warning(
+                f"firmware name={name} args={args!r} failed in {elapsed_ms:.1f}ms: {error}"
+            )
+            return
+        text = " ".join(str(reply or "").split())
+        if len(text) > 160:
+            text = text[:160] + "…"
+        logger.info(f"firmware name={name} args={args!r} reply={text!r} ms={elapsed_ms:.1f}")
+
+    def _exchange(self, command: str, *, timeout: float | None = None) -> str:
         line = command + "\n"
         if len(line.encode("ascii")) > MAX_ESP32_LINE:
             raise ValueError(

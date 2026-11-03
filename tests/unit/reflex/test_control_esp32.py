@@ -497,3 +497,44 @@ def test_dispatch_routes_ios_swipes_through_the_mouse_path():
 
     assert lines and lines[0].startswith("mswipe ")
     assert lines[0].split()[1] == "0" and lines[0].split()[2] == "600"
+
+
+# --- firmware call trace --------------------------------------------------------------
+#
+# A run's trajectory is reconstructed from its log, so every firmware exchange prints
+# the command name, its arguments and the reply that came back; a failure keeps the
+# same fields and adds the error.
+
+
+def test_a_firmware_command_logs_its_name_arguments_and_reply(caplog):
+    import logging
+
+    control = Esp32HidControl("FAKE", reader=lambda command: "ACK\nOK\n")
+
+    with caplog.at_level(logging.INFO):
+        control._send_with_response("key 40")
+
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "name=key" in logged
+    assert "args='40'" in logged
+    assert "reply='ACK OK'" in logged
+    assert "ms=" in logged
+
+
+def test_a_failed_firmware_command_logs_a_warning_with_the_error(caplog):
+    import logging
+
+    def reader(command):
+        raise RuntimeError(f"ESP32 command {command!r} got no OK ack within 3.0s")
+
+    control = Esp32HidControl("FAKE", reader=reader)
+
+    with caplog.at_level(logging.INFO), pytest.raises(RuntimeError):
+        control._send_with_response("mswipe 0 -648 600")
+
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert warnings, "a failed exchange must be visible at the default console level"
+    message = warnings[0].getMessage()
+    assert "name=mswipe" in message
+    assert "args='0 -648 600'" in message
+    assert "no OK ack" in message
