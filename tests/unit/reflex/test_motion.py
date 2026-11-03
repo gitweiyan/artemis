@@ -42,6 +42,6 @@ def test_the_fine_ratio_does_not_need_seven_observations():
     from artemis.reflex.motion import MotionConfig, Phase
 
     cfg = MotionConfig()
-    assert cfg.ratios[Phase.APPROACH] == pytest.approx(0.75)
-    assert cfg.ratios[Phase.FINE] == pytest.approx(0.70)
+    assert cfg.ratios[Phase.APPROACH] == pytest.approx(0.80)
+    assert cfg.ratios[Phase.FINE] == pytest.approx(0.80)
     assert cfg.min_units_for_calibration == 4

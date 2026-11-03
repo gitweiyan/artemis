@@ -107,6 +107,10 @@ async def _run(args: argparse.Namespace) -> int:
         # is the travel's own endpoint, not a shifted one.
         session.pointer.move(60, 60)
         session.pointer.move(-60, -60)
+        # The second move restarts the pointer's fade timer; a frame grabbed in the same
+        # instant can catch the ring mid-fade (semi-transparent, below the HSV threshold),
+        # which is how 2/10 runs measured "no pointer" after a travel that had converged.
+        time.sleep(0.25)
         frame = capture.grab()
         pointer = detector.detect(
             frame.image, near=(target_x / frame_width, target_y / frame_height)

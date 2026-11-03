@@ -40,13 +40,14 @@ class MotionConfig:
     approach_factor: float = 1.5
     #: Fraction of the *remaining* distance each phase tries to cover in one segment.
     #: The proposal's 75/55/30 assumes cheap video observations; here one observation is
-    #: a ~0.9 s frame grab, so fine corrections must close most of the gap per step or a
-    #: tap costs 7-8 frames. Every segment is still observed and re-planned.
+    #: a ~0.9 s frame grab. The rig bench (Settings screen, 2026-11-03) measured a residual
+    #: closing in 4 observations at 0.70 and 3 at 0.80, with no overshoot; every segment is
+    #: still observed and re-planned, so the left-over fifth is corrected on the next frame.
     ratios: dict[Phase, float] = field(
         default_factory=lambda: {
             Phase.BALLISTIC: 0.80,
-            Phase.APPROACH: 0.75,
-            Phase.FINE: 0.70,
+            Phase.APPROACH: 0.80,
+            Phase.FINE: 0.80,
         }
     )
     #: Hard cap on one segment, in HID units. Esp32HidControl.mouse_move splits this into
