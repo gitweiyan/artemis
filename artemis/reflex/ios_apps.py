@@ -32,23 +32,27 @@ class IOSAppLauncher:
         self.control = control
         self.wait_s = max(0.0, float(wait_s))
 
-    def open_app(self, app: str, *, query: str | None = None, capture=None, verify=None) -> AppLaunchResult:
+    def open_app(
+        self, app: str, *, query: str | None = None, capture=None, verify=None
+    ) -> AppLaunchResult:
         query = (query or app).strip()
         if not query:
             return AppLaunchResult(False, app, query, error="empty_query")
         try:
-            # Dismiss Spotlight/a sheet, then start from Home so Cmd+Space always
-            # opens a fresh search rather than toggling an old overlay closed.
-            self.control.press_named_key("escape")
-            self.control.ios_home()
-            time.sleep(self.wait_s)
+            # Spotlight opens over the current screen: no Home/Escape reset, so a
+            # launch does not discard the app the run was working in. Backspace
+            # clears a query left over from an earlier Spotlight session (Cmd+Space
+            # reopens the old search); Enter twice opens the highlighted result and
+            # covers the cases where Spotlight still shows the query instead.
             before = capture.grab() if capture is not None else None
 
             self.control.press_named_key("spotlight")
             time.sleep(self.wait_s)
+            self.control.press_named_key("backspace")
+            time.sleep(self.wait_s)
             self.control.type_text(query)
             time.sleep(self.wait_s)
-            self.control.press_named_key("down")
+            self.control.press_named_key("enter")
             self.control.press_named_key("enter")
             time.sleep(self.wait_s)
 
