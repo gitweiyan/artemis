@@ -156,6 +156,7 @@ class AdbActuator:
                     f"Error executing click at step {i + 1}: {err}",
                     detail=str(err),
                     incident=self._incident(result),
+                    metrics=self._metrics(result),
                 )
             outcomes.append(f"[{nx}, {ny}]")
             if i < len(points) - 1:
@@ -178,6 +179,7 @@ class AdbActuator:
                 f"Error executing click: {err}",
                 detail=str(err),
                 incident=self._incident(result),
+                metrics=self._metrics(result),
             )
         return ActionResult.success(
             "click",
@@ -198,6 +200,7 @@ class AdbActuator:
                 f"Error executing long press: {err}",
                 detail=str(err),
                 incident=self._incident(result),
+                metrics=self._metrics(result),
             )
         return ActionResult.success(
             "long_press",

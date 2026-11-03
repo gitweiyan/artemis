@@ -60,21 +60,25 @@ class UnifiedMobileControllerBase:
             # A driver implementing ``tap_with_result`` knows *why* a tap failed
             # (pointer precheck refused, click had no effect). Its structured
             # ActionResult rides out as ``TapOutput.incident`` so the action layer and
-            # the Validator can report an incident instead of a bare bool.
+            # the Validator can report an incident instead of a bare bool. The reason
+            # is repeated in the error string because *that* is what reaches the model:
+            # a failure that only says "Tap failed" leaves it guessing coordinates.
             tap_with_result = getattr(self._driver, "tap_with_result", None)
             if callable(tap_with_result):
                 result = await tap_with_result(x, y)
                 if result.ok:
                     return TapOutput(metrics=getattr(result, "metrics", None))
+                incident = getattr(result, "incident", None)
+                message = f"Tap failed at ({x}, {y})"
+                if incident:
+                    message = f"{message} · incident={incident}"
                 return TapOutput(
-                    error=f"Tap failed at ({x}, {y})",
-                    incident=getattr(result, "incident", None),
+                    error=message,
+                    incident=incident,
                     metrics=getattr(result, "metrics", None),
                 )
 
-            success = await self._driver.tap(
-                x, y, duration_ms=100, times=times, delay_ms=delay_ms
-            )
+            success = await self._driver.tap(x, y, duration_ms=100, times=times, delay_ms=delay_ms)
             return TapOutput(error=None if success else f"Tap failed at ({x}, {y})")
         except Exception as e:
             return TapOutput(error=str(e))
