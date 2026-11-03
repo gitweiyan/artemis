@@ -21,6 +21,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from artemis.agents.ios_shortcuts import append_ios_shortcuts
 from artemis.context import ArtemisContext
 from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.data_engine.trace import CURRENT_TRACE_ID, TraceSpan, trace
@@ -153,6 +154,7 @@ async def run_async_planner_validation(
             midway_checks=midway,
             final_check=final,
         )
+        system_message = append_ios_shortcuts(system_message, ctx)
 
         history_str = "No history available."
         if ctx.data_engine:
@@ -237,6 +239,7 @@ class PlannerNode:
             midway_checks=midway,
             final_check=final,
         )
+        system_message = append_ios_shortcuts(system_message, self.ctx)
 
         # Get screenshot
         screenshot_b64 = None

@@ -54,6 +54,7 @@ from langchain_core.messages import (
 )
 
 from artemis.agents.flash.summarizer import VisualStepSummarizer, build_focus_context
+from artemis.agents.ios_shortcuts import append_ios_shortcuts
 from artemis.agents.operator.prompts import REASONING_REMINDER, UserGuidance, render_user_guidance
 from artemis.agents.validator.tool_declarations import (
     ASK_EXPLORER_TOOL,
@@ -326,7 +327,10 @@ class FlashRunner:
         prompt_path = Path(__file__).parent / "flash_runner.md"
         prompt_template = prompt_path.read_text(encoding="utf-8")
         available_tools = frozenset(t.name for t in tools_declaration)
-        return Template(prompt_template).render(goal=self.goal, available_tools=available_tools)
+        rendered = Template(prompt_template).render(
+            goal=self.goal, available_tools=available_tools
+        )
+        return append_ios_shortcuts(rendered, self.ctx)
 
     # ------------------------------------------------------------------
     # Per-turn helpers (observe / think)

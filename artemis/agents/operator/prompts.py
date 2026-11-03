@@ -38,6 +38,7 @@ from third_party.mobile_use.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+from artemis.agents.ios_shortcuts import append_ios_shortcuts
 from artemis.agents.prompt_assembly import render_tool_enum, resolve_available
 from artemis.mcp.action_specs import OPERATOR_SHELL_ORDER
 
@@ -316,7 +317,7 @@ def render_transcript_static_system(
 
     available = resolve_operator_prompt_tools(ctx)
     static_template = apply_operator_prompt_contract(static_template, available_tools=available)
-    return Template(static_template).render(
+    rendered = Template(static_template).render(
         initial_goal=state.initial_goal,
         subgoals_status="",
         plan_and_history="",
@@ -326,6 +327,7 @@ def render_transcript_static_system(
         max_tool_calls=OPERATOR_MAX_TOOL_ITERATIONS,
         **_grammar_render_context(ctx),
     )
+    return append_ios_shortcuts(rendered, ctx)
 
 
 def _legacy_elapsed_suffix(ctx: ArtemisContext | None) -> str:
@@ -367,6 +369,7 @@ class TemplatePromptComponent(PromptComponent):
             max_tool_calls=OPERATOR_MAX_TOOL_ITERATIONS,
             **_grammar_render_context(ctx),
         )
+        full_prompt = append_ios_shortcuts(full_prompt, ctx)
 
         parts = full_prompt.split("# CURRENT OBSERVATION")
         builder.add_system_text(parts[0] + f"# CURRENT OBSERVATION{_legacy_elapsed_suffix(ctx)}\n")
