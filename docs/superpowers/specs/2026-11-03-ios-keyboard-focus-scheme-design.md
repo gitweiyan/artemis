@@ -88,11 +88,15 @@ def locate_focus(before: bytes, after: bytes, *, frame_size, ignore_top=0.06) ->
 算法（样式无关，颜色只作提示）：
 
 1. 两帧逐像素差，阈值 25；忽略顶部 6%（状态栏时钟）。
-2. 连通域；对每个连通域求外轮廓，要求"细、闭合、中空"：填充率 < 0.55、最小边 ≥ 24 px、周长/面积
-   符合描边特征；矩形成分高的优先。
-3. 返回得分最高的 bbox，`style="outline"`；没有合格轮廓时，若最大连通域 ≥ 一定面积，返回其 bbox 但
-   `style="changed-region"`（只用于继续搜索，**不允许**据此按 Space）。
-4. 允许传入 `hint`（如白色/支付宝蓝）提高优先级，但不作为唯一判据。
+2. 对每个连通域判断描边"出现在哪一帧"：只在 after 出现 = **appeared（新焦点）**；只在 before 出现 =
+   **vacated（旧焦点）**。只有 appeared 能成为焦点，vacated 一律忽略——否则焦点滞后一步，迟到的旧 bbox
+   一旦罩住目标就会在错误的元素上按 Space（spike 实测：一次 Tab 的差异里有两个描边，日历与搜索框）。
+3. 轮廓判据：细、闭合、中空（填充率 < 0.55）、最小边 ≥ 24 px、周长/面积符合描边。**容器规则**：bbox 宽
+   > 帧宽 60% 或高 > 帧高 60% 的描边是页面容器/整块高亮，不是焦点，直接丢弃——spike 里支付宝一次 Tab 会
+   给整页加一圈 2px 蓝框（x≈2–5, y≈62–880），它罩住页面上任意目标点，不丢弃就必然误判"已选中"。
+4. 多个 appeared 候选时，取"包含目标点且面积最小"的那个。
+5. 没有合格 appeared 轮廓时返回 `None`；不再用 changed-region 这类弱证据兜底（弱证据不允许触发 Space）。
+6. 允许传入 `hint`（如白色/支付宝蓝）提高优先级，但不作为唯一判据。
 
 `selected(focus_box, target_point, margin_px) -> bool`：目标点落在 bbox + margin 内；有目标框时要求框与
 bbox 的重叠比 ≥ 阈值。
@@ -106,16 +110,21 @@ state: focus: FocusBox | None, previous_frame: bytes
 loop up to focus_max_steps (默认 8):
     key = "tab" if focus is None else direction(focus.center -> target)
     press(key); frame = grab(after=press, fresh)
-    box = locate_focus(previous_frame, frame)
-    if box is None or box.style != "outline":
-        连续无高亮计数 +1；>=2 则返回 focus_not_found（FKA 关/页面不可聚焦）
+    if page_moved(previous_frame, frame, focus, target):  # 结构变化：整页滚动/切换
+        return page_moved                                 # 不回退指针：坐标已经失效
+    box = locate_focus(previous_frame, frame)             # 只返回 appeared 的描边
+    if box is None:
+        连续无 appeared 计数 +1；>=2 则返回 focus_not_found（FKA 关/页面不可聚焦）
         continue
     focus = box
     if selected(focus, target):
         press("space")
-        verify_effect(前帧, 后帧, target) -> ok / activate_no_effect
+        changed_inside(前帧, 后帧, inset(focus, ring_band=8px)) -> ok / activate_no_effect
         return
 返回 focus_not_on_target
+
+焦点起点未知：第一下 Tab 之后若差异里只有 vacated（旧焦点离开）、没有 appeared，说明旧焦点还在屏幕上；
+继续按 Tab（最多 3 次）直到出现 appeared 描边，再进入正常循环。
 ```
 
 方向选择：以焦点 bbox 中心到目标点的向量取主轴（|dx|≥|dy| 则左/右，否则上/下）。焦点跳转是空间邻接，
@@ -131,7 +140,8 @@ loop up to focus_max_steps (默认 8):
 | `focus_unavailable` | 探测阶段 Tab 两次无高亮 | `auto` 下直接走指针；`keyboard` 下报错 |
 | `focus_not_found` | 循环中连续 2 次无高亮 | `auto` 回退指针 |
 | `focus_not_on_target` | 达到步数上限仍未选中 | `auto` 回退指针 |
-| `activate_no_effect` | Space 后目标区域无变化 | **不回退**（可能已生效，避免二次触发）；返回 incident |
+| `page_moved` | 差异中焦点框以外的区域变化超过帧面积 8% | **不回退**（目标坐标已失效）；返回 incident |
+| `activate_no_effect` | Space 后**焦点框内缩进 8px 的区域**无变化 | **不回退**（可能已生效，避免二次触发）；返回 incident |
 
 回退到指针时，指针位置不受键盘操作影响（键盘只移动焦点），指针路径会自行 home/移动，安全。
 
@@ -139,7 +149,9 @@ loop up to focus_max_steps (默认 8):
 
 无 API 可查"全键盘控制"开关，用行为探测：连接后（或首次使用键盘方案前）按一次 Tab、抓帧；无变化则再
 按一次并抓帧；两次都无变化 → `keyboard_unavailable`，本次会话缓存。探测只按 Tab（不激活任何东西），
-在任意页面安全。也可用配置 `ARTEMIS_IOS_KEYBOARD_SCHEME=auto|on|off` 覆盖（`on` 跳过探测）。
+在任意页面安全。配置 `ARTEMIS_IOS_KEYBOARD_SCHEME=auto|on|off`：`auto` 探测后决定；`on` 跳过探测、允许
+键盘路径；`off` 禁用。该配置**只影响探测与允许性**，不改变 `tap_abs` 的默认 `scheme`（默认仍是 `pointer`；
+默认值是否改由下面第 1 个未决问题决定）。
 
 ### 5.6 集成点
 
@@ -153,8 +165,11 @@ loop up to focus_max_steps (默认 8):
 
 ### 5.7 指标与测试
 
-- 单元：`locate_focus` 的合成图（深底白描边、浅底蓝描边、无描边、动画干扰）；`selected` 的边界；
-  控制器用假 capture/control 走完"第 2 步选中→Space→生效""始终无高亮→focus_not_found""Space 无效"。
+- 单元：`locate_focus` 的合成图（深底白描边、浅底蓝描边、无描边、动画干扰）；**移动焦点**的两描边样本
+  （必须选 appeared 而不是 vacated）；**整页容器描边**（必须被丢弃）；`selected` 的边界；`page_moved`；
+  `changed_inside`（Space 前后只有描边变化 → 视为未生效）。
+- 控制器用假 capture/control 走完"第 2 步选中→Space→生效""始终无高亮→focus_not_found""Space 无效"
+  "页面滚动→page_moved 且不回退"。
 - 真机：先做一次性脚本量 1–2 个页面（设置页开关列表、支付宝搜索栏）：Tab 到目标 → Space → 效果，
   记录步数/耗时/命中率；据此决定要不要做 `scripts/ios_focus_bench.py`。
 
@@ -168,9 +183,8 @@ loop up to focus_max_steps (默认 8):
 
 ## 7. 未决问题（需要你拍板）
 
-1. `auto` 模式默认是否对**所有**目标先试键盘？在支付宝首页这类只有搜索栏可聚焦的页面，每个不可聚焦
-   目标会先浪费约 2 s 才回退；默认值是"先试最多 2 步再回退"，还是"只有调用方显式标了 focusable 才试"？
-2. 键盘方案的成功判据除了"目标区域变化"，是否需要确认"变化发生在焦点 bbox 内"（更严格，但搜索栏这类
-   激活后整页跳转的场景可能不满足）？
-3. 首屏焦点状态未知（可能是上次遗留的焦点）：是否允许在开始前按 Escape 重置（Escape 在 iOS 可能关闭弹层，
-   有副作用），还是接受"从当前焦点开始、靠闭环纠偏"？
+1. **谁来决定这一个点击走键盘还是指针**：由 Agent/动作层显式标记（`click` 的 schema、提示词、评测都要
+   改，Agent 需要知道"这个目标可聚焦"），还是由 harness 策略自动决定（env/knob，Agent 不感知；默认只
+   对少数页面开）？以及 `ARTEMIS_IOS_KEYBOARD_SCHEME=on` 时 `tap_abs` 的默认 scheme 是否改成键盘。
+2. **验收标准**：在 1–2 个页面上，命中率、中位步数、单次耗时达到什么算"值得保留"（例如 ≥90%、中位 ≤3 步、
+   ≤4 s），以及不可聚焦目标上最多允许多少秒的"先试键盘再回退"浪费？
