@@ -509,3 +509,34 @@ def test_a_tap_reports_the_motion_counts_in_its_metrics():
     assert result.metrics["motion_phases"] == "ballistic,approach"
     assert result.metrics["motion_prediction_error_px"] == 6.5
     assert result.metrics["motion_global_recoveries"] == 0
+
+
+def test_the_drag_start_is_placed_absolutely_when_the_control_supports_it():
+    """The firmware's mswipe presses through the absolute report; the drag start must be
+    the absolute position it keeps (iOS ignores the relative report's buttons)."""
+    calls = []
+
+    class AbsoluteSession:
+        frame_size = (449, 974)
+        gain_x = 2.0
+        gain_y = 2.0
+        connected = True
+
+        def __init__(self):
+            self.control = SimpleNamespace(mouse_move_abs=lambda x, y: None)
+
+        def home(self):
+            calls.append(("home",))
+
+        def move(self, dx, dy):
+            calls.append(("move", dx, dy))
+
+        def move_abs(self, x, y):
+            calls.append(("abs", x, y))
+
+    sink = HidControlSink(AbsoluteSession(), SimpleNamespace())
+
+    sink._place_for_drag((200, 400), -100)
+
+    assert calls and calls[0][0] == "abs", "one absolute placement, no home/gain dance"
+    assert calls[0][1] == 200

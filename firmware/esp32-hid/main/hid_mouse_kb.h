@@ -11,8 +11,8 @@ bool hid_mouse_move(int dx, int dy);
 bool hid_mouse_swipe(int dx, int dy, uint32_t duration_ms);
 bool hid_mouse_home(void);    // slam the pointer to the top-left corner
 void hid_mouse_click(void);   // left button press + release
-void hid_mouse_down(void);
-void hid_mouse_up(void);
+bool hid_mouse_down(void);
+bool hid_mouse_up(void);
 bool hid_mouse_ready(void);
 
 // Absolute pointer (report ID 2): the host maps x/y 0..32767 onto the screen.

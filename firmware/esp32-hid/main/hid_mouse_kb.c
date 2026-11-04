@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "class/hid/hid_device.h"
+#include "device/usbd.h"
 
 #define KEY_TAP_MS   30
 // Absolute pointer: let iOS settle the move before pressing, hold the button long
@@ -126,7 +127,12 @@ bool hid_mouse_abs_move(uint16_t x, uint16_t y)
         .y = y,
         .wheel = 0,
     };
-    if (!hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report))) {
+    bool sent = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report));
+    // A single absolute report can be ignored when the host is between polls ("amove did
+    // nothing until retried"); the position is idempotent, so send it once more.
+    vTaskDelay(pdMS_TO_TICKS(30));
+    bool again = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report));
+    if (!(sent || again)) {
         return false;
     }
     g_abs_mouse_x = x;
@@ -149,16 +155,30 @@ static bool hid_mouse_abs_button(uint8_t buttons)
         .y = g_abs_mouse_y,
         .wheel = 0,
     };
-    hid_mouse_rel_report_t rel_report = {
-        .buttons = buttons,
-        .x = 0,
-        .y = 0,
-        .wheel = 0,
-        .pan = 0,
-    };
     bool abs_ok = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &abs_report, sizeof(abs_report));
-    bool rel_ok = hid_mouse_send_report(HID_REPORT_ID_MOUSE, &rel_report, sizeof(rel_report));
-    return abs_ok && rel_ok;
+    // The relative mirror is best-effort: this rig's iOS accepts the absolute report's
+    // buttons, and right after an absolute report the endpoint can be busy (ready=0)
+    // for longer than the wait allows. Its failure must not turn a working click into
+    // an error, nor leave the button down (the absolute release is what matters).
+    int rel = -1;
+    if (wait_mouse_ready()) {
+        rel = tud_hid_n_mouse_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE, buttons, 0, 0, 0, 0) ? 1 : 0;
+    }
+    printf("[abs_btn %d] abs=%d rel=%d ready=%d mounted=%d\n",
+           buttons, abs_ok, rel, tud_hid_n_ready(HID_ITF_MOUSE), tud_mounted());
+    return abs_ok;
+}
+
+//: Release both reports, retrying for ~1 s: a click must never leave the button down.
+static bool hid_mouse_release_all(void)
+{
+    for (int attempt = 0; attempt < 20; attempt++) {
+        if (hid_mouse_abs_button(0)) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    return false;
 }
 
 bool hid_mouse_abs_click(void)
@@ -170,39 +190,51 @@ bool hid_mouse_abs_click(void)
     // click; 60 ms and up was stable).
     vTaskDelay(pdMS_TO_TICKS(ABS_SETTLE_MS));
     if (!hid_mouse_abs_button(MOUSE_BUTTON_LEFT)) {
-        hid_mouse_abs_button(0);  // never leave a button stuck down
+        hid_mouse_release_all();
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(ABS_CLICK_HOLD_MS));
     if (!hid_mouse_abs_button(0)) {
-        hid_mouse_abs_button(0);
+        hid_mouse_release_all();
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(ABS_RELEASE_MS));
     return true;
 }
 
-void hid_mouse_down(void)
+//: Retry a relative button report: right after an absolute report the endpoint can be
+//: busy, and a silently dropped press is why mswipe did not hold the button.
+static bool hid_mouse_rel_button(uint8_t buttons)
 {
-    if (!wait_mouse_ready()) {
-        return;
+    for (int attempt = 0; attempt < 30; attempt++) {
+        if (wait_mouse_ready() &&
+            tud_hid_n_mouse_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE, buttons, 0, 0, 0, 0)) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
-    tud_hid_n_mouse_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE, MOUSE_BUTTON_LEFT, 0, 0, 0, 0);
+    return false;
 }
 
-void hid_mouse_up(void)
+bool hid_mouse_down(void)
 {
-    if (!wait_mouse_ready()) {
-        return;
-    }
-    tud_hid_n_mouse_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE, 0, 0, 0, 0, 0);
+    return hid_mouse_rel_button(MOUSE_BUTTON_LEFT);
+}
+
+bool hid_mouse_up(void)
+{
+    return hid_mouse_rel_button(0);
 }
 
 void hid_mouse_click(void)
 {
-    hid_mouse_down();
+    if (!hid_mouse_down()) {
+        return;  // no press was delivered: do not leave a release-only sequence behind
+    }
     vTaskDelay(pdMS_TO_TICKS(KEY_TAP_MS));
-    hid_mouse_up();
+    if (!hid_mouse_up()) {
+        hid_mouse_up();  // best effort: never leave the button down
+    }
     vTaskDelay(pdMS_TO_TICKS(MOUSE_GAP_MS));
 }
 
@@ -229,7 +261,19 @@ bool hid_mouse_swipe(int dx, int dy, uint32_t duration_ms)
         steps = 200;
     }
 
-    hid_mouse_down();
+    // iOS ignores the relative report's button bits (measured: a relative `click` does
+    // nothing while `aclick` works), so a drag must be pressed through the absolute
+    // report - keeping its last position - just like the click. The relative moves keep
+    // buttons=1, which is what Ghosthand does for the stroke itself.
+    bool abs_buttons = g_abs_mouse_position_valid;
+    if (abs_buttons) {
+        if (!hid_mouse_abs_button(MOUSE_BUTTON_LEFT)) {
+            hid_mouse_abs_button(0);
+            return false;
+        }
+    } else if (!hid_mouse_down()) {
+        return false;  // a drag without a held button would just move the pointer
+    }
     vTaskDelay(pdMS_TO_TICKS(KEY_TAP_MS));
 
     int sent_x = 0;
@@ -254,7 +298,15 @@ bool hid_mouse_swipe(int dx, int dy, uint32_t duration_ms)
     }
 
     vTaskDelay(pdMS_TO_TICKS(MOUSE_GAP_MS));
-    hid_mouse_up();
+    if (abs_buttons) {
+        if (!hid_mouse_abs_button(0)) {
+            hid_mouse_abs_button(0);
+            ok = false;
+        }
+    } else if (!hid_mouse_up()) {
+        hid_mouse_up();
+        ok = false;
+    }
     vTaskDelay(pdMS_TO_TICKS(MOUSE_GAP_MS));
     return ok;
 }

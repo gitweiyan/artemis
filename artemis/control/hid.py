@@ -186,6 +186,14 @@ class HidControlSink:
             y = round(height * (1.0 - DRAG_START_RATIO))  # downward: clear of Control Center
         else:
             y = round(height / 2)  # horizontal drag: the middle
+        # An absolute pointer places the drag start in one command, and the firmware's
+        # mswipe then presses through the absolute report (iOS ignores the relative
+        # report's buttons). The relative fallback needs the home + gain dance.
+        move_abs = getattr(self.session, "move_abs", None)
+        control = getattr(self.session, "control", None)
+        if callable(move_abs) and hasattr(control, "mouse_move_abs"):
+            move_abs(x, y)
+            return
         home()
         gain_x = float(getattr(self.session, "gain_x", 1.0)) or 1.0
         gain_y = float(getattr(self.session, "gain_y", 1.0)) or 1.0
