@@ -105,14 +105,20 @@ class PointerSession:
         """Preflight, return to iOS Home, then re-anchor the pointer to the top-left."""
         self.control.preflight()
         self.ensure_home_screen()
-        self.control.mouse_home()
-        self._x = 0.0
-        self._y = 0.0
+        self.home()
         self.connected = True
 
     def home(self) -> None:
-        """Re-anchor to the top-left (home is verified to zero repeatedly)."""
-        self.control.mouse_home()
+        """Re-anchor to the top-left.
+
+        An absolute control homes with one absolute report: iOS drops an absolute
+        report that arrives right after relative moves (measured 2026-11-04, 5/5
+        failures), so the absolute path never sends a relative home first.
+        """
+        if hasattr(self.control, "mouse_move_abs"):
+            self.control.mouse_move_abs(0, 0)
+        else:
+            self.control.mouse_home()
         self._x = 0.0
         self._y = 0.0
 

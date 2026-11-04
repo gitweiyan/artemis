@@ -1250,6 +1250,7 @@ def test_an_absolute_tap_is_one_move_and_one_click():
     control = _AbsolutePointer()
     session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
     session.connect()
+    control.absolute_moves.clear()  # connect homes absolutely; the tap is the next move
     controller = SessionTapController(
         session, capture=_DotCamera(control), detector=_DotDetector(), settle_timeout_s=0.0
     )
@@ -1279,3 +1280,17 @@ def test_an_ignored_absolute_move_falls_back_to_relative_segments():
     assert controller._absolute_supported is False
     assert control.absolute_clicks == 0, "the relative click is the one that runs"
     assert result.motion.segments >= 2
+
+
+def test_home_uses_the_absolute_report_when_the_control_supports_it():
+    """Mixing a relative home before an absolute move makes iOS drop the absolute
+    report; the absolute path must home absolutely too."""
+    control = _AbsolutePointer()
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    control.absolute_moves.clear()
+
+    session.home()
+
+    assert control.absolute_moves == [(0, 0)]
+    assert control.moves == [], "no relative move before an absolute one"
