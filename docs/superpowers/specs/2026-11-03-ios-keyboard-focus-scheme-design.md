@@ -1,243 +1,297 @@
-# iOS 键盘焦点方案设计（2026-11-03）
+# iOS 键盘焦点方案设计（2026-11-04 修订版）
 
-## 1. 意图与为什么
+> 修订说明：按评审意见重写。P0 全部吸收（常驻采集/新鲜帧接口、容器过滤改为多维评分、输入框方向键保护、
+> Space 验证三态、设备/页面组/目标三级能力缓存），P1 全部吸收（Shift+Tab、循环与无进展检测、步数与时间
+> 双预算），P2 保留（Tab-F Find、键盘命令）。两处按机台实测做了限定：常驻采集在本采集卡上会冻结、
+> `kind` 无 UI 树只能启发式——见 §3 与 §5.3。全文提到的"键盘"均指 iOS 全键盘控制（FKA）。
 
-iOS 机台现在的操控链是 `locate → move → click`：`move` 用相对 HID 指针、`click` 在验证过的坐标上点击。
-指针方案慢（一次 841 px 的移动约 3.6 s）、依赖指针可见、且蓝环压在蓝色界面上会检测不到（2026-11-03
-真机基准：淘宝页刷新后同一条路径 0/10）。
+## 1. 意图与定位
 
-用户提出的第二套方案：**打开"全键盘控制"（Full Keyboard Access）后，用 Tab/方向键移动焦点、Space 激活**。
-本质是给 `move + click` 增加一种操控方案，与指针方案并存，指针方案仍是回退。
+iOS 机台现在有三种操控机制，它们不是替代关系：
 
-真机 spike（2026-11-03，`/tmp/focus_*.png`、`/tmp/alipay_*.png`）确认了前提：
+| 机制 | 本质 | 能力 |
+|---|---|---|
+| Relative Mouse（现状） | 物理位移 | 点击、拖动、滚动；有增益标定与闭环 |
+| Absolute Mouse（待验证） | 坐标直接定位 | 快速精确定位；ghosthand 实测 iOS 17+ 约 0.3 s/次 |
+| Full Keyboard Access（本方案） | UI 焦点导航 | 遍历/激活可聚焦控件；语义化，不依赖像素坐标 |
 
-- 机台已开启全键盘控制；无焦点时按一次 Tab 就会出现焦点高亮。
-- 高亮是**元素外的一圈细圆角描边**：主屏是白色（日历图标、搜索框、Dock 图标），支付宝首页是蓝色
-  （搜索栏整条），没有高亮时同一位置无描边。**颜色随 App 变，不能写死**。
-- Tab 走辅助功能顺序（首页：日历 → 搜索），方向键走空间跳转（搜索框 ↓ → Dock 的 Safari）。
-- 单步耗时：按键 35–50 ms，抓帧约 0.95 s（frame 模式），合计约 1 s/步。
-- **覆盖有限**：支付宝首页连按 5 次 Tab/方向键，焦点始终停在顶部（搜索栏、+ 按钮），正文宫格/商品卡片
-  没有焦点。键盘只能到达"可聚焦元素"，不是所有点击目标都能走这条路。
+**定位：FKA 是具有语义优势的补充通道，不是通用点击引擎。** 焦点覆盖取决于 App 是否让自定义视图参与
+FKA（Apple WWDC 2021 "Support Full Keyboard Access in your iOS app"，session 10120；控件可用
+`accessibilityUserInputLabels` 提供可搜索别名）。支付宝首页实测：搜索栏与 `+` 可聚焦，宫格与商品卡片
+不可聚焦——这就是本方案的边界，不是缺陷。
 
 ## 2. 目标 / 非目标 / 反目标
 
 **目标**
 
-- 给 `move + click` 增加第二套实现：单步按键 → 抓帧 → 判断目标是否被焦点选中 → 是则 Space。
-- 与现有 `locate` 结果（目标点/框）共用输入；与指针方案共用"动作是否生效"的验证语义。
-- 失败时安全回退到指针方案；全程不产生盲点。
+- 在不改 Agent 动作语义的前提下，让 harness 能给"点某个控件"自动选择键盘或指针。
+- 键盘路径：单步导航 → 视觉确认目标被焦点选中 → Space → 效果验证；失败安全回退指针。
+- 零误激活：没有确认焦点在目标上时，绝不按 Space。
 
 **非目标**
 
-- 不替换指针方案，不改 `SessionTapController` 的移动模型。
-- 不做拖拽/滑动（指针专属）；不改文本输入（已走键盘）；不改 `locate`。
-- 不尝试用代码打开全键盘控制（系统设置项，只能由人开启）。
+- 不替换指针；不做拖拽/滑动/多击；不改 `locate`；不改 Agent schema。
+- 不在 V1 做通用焦点规划器（不做全页面焦点图，不做 Tab-F Find，不做命令绑定）。
+- 不尝试用代码打开 FKA 开关（系统设置，人工开启一次）。
 
-**反目标（技术上成立但不可接受）**
+**反目标**
 
-- 没有确认焦点在目标上就按 Space（可能触发支付、删除、开关切换）。
-- 键盘尝试失败后自动按 Space 作为"补救"。
-- 为没有焦点高亮的页面做盲目的 Tab 遍历点击。
+- 未确认焦点就按 Space（支付/删除/开关不可逆）。
+- Space 已发送后因"没看到效果"而回退指针再点一次（重复激活）。
+- 页面内容已变化仍沿用旧坐标（滚动/跳转后盲点）。
 
-## 3. 约束（实测）
+## 3. 约束（实测，2026-11-03/04）
 
-| 约束 | 数值/事实 |
-|---|---|
-| 单步耗时 | 键 35–50 ms + 抓帧 ~0.95 s ≈ 1 s |
-| 高亮样式 | 细圆角描边；主屏白、支付宝蓝；颜色不固定 |
-| 焦点顺序 | Tab = 辅助功能顺序；方向键 = 空间跳转；文本域里方向键移光标 |
-| 可聚焦范围 | 系统控件/表单/搜索栏；自绘宫格与卡片通常不可聚焦 |
-| 帧 | 449×974，frame 模式每次抓帧都是一次新 ffmpeg 调用 |
-| 设备开关 | 全键盘控制无 API 可查，只能行为探测 |
-| 现有按键能力 | `Esp32HidControl.press_named_key` 已支持 `tab/space/up/down/left/right/enter/escape`（`artemis/reflex/control.py:539`） |
+| 约束 | 事实 | 影响 |
+|---|---|---|
+| 单帧延迟 | frame 模式每次抓帧 ~0.95 s（ffmpeg 启动+UVC） | 单步 ≈1 s；150 ms 目标是**有条件**的 |
+| 常驻采集 | 本采集卡上常驻 AVFoundation 会话返回**冻结帧**（playbook §4） | 先重测；不行就保持 frame 模式 + 时间预算 |
+| 焦点框 | 蓝/白细圆角描边；可能罩住**整屏**；会 Auto-Hide | 容器过滤必须保留；按键后要立即抓帧 |
+| 单步行为 | Tab 切组、方向键组内移动、文本域里方向键移光标 | 导航要区分元素类型 |
+| 首键空转 | 第一次按键可能什么都不做（ghosthand 实测） | 连续 2 次无新焦点才算失败 |
+| 危险组合 | `ctrl+alt+shift+cmd+s` = 紧急 SOS、`...r` = 重启 | 按键白名单，绝不发 |
+| 键盘输入 | 只能发 US-ASCII（无中文 IME） | Tab-F Find 仅限拉丁名（P2） |
+| 聚合 | App 内不同页面焦点能力差异大 | 能力缓存必须到"页面组/目标"级 |
 
-## 4. 已定的做法（用户决定）
+## 4. 已定（用户决定）
 
-1. **步数只用单步**：按一次键（Tab 或朝目标方向的箭头），抓帧检查是否选中目标。
-2. **选中即 Space**；未选中继续用方向键单步调整。
-3. **优先级**：键盘方案与指针方案并存；键盘失败退回指针方案。
+1. Agent 只表达"点某个控件"，**不感知** keyboard/pointer；方案由 harness 配置决定。
+2. 键盘优先、失败降级指针（可配置）。
+3. 验收看**操作完成率**与**时长**。
 
 ## 5. 设计
 
-### 5.1 两套方案，一个契约
-
-调用方（Agent/动作层）**只表达"我要点这个控件"**（目标点/框 + 期望效果），不选方案。方案由 harness 的
-`HidControlSink` 按配置决定，动作 schema 与提示词不变：
+### 5.1 契约：Agent 动作不变，harness 内部选路
 
 ```python
-# 内部接口；Agent 不传 scheme
-async def tap_abs(self, x, y) -> ActionResult
+@dataclass(frozen=True)
+class TapRequest:
+    target_point: tuple[float, float]
+    target_bbox: tuple[float, float, float, float] | None = None
+    expected_effect: str | None = None      # "screen_change" | "region_change" | None
+
+@dataclass(frozen=True)
+class ActionResult:
+    success: bool
+    scheme: str                             # "pointer" | "keyboard"
+    elapsed_ms: int
+    incident: str | None
+    metrics: dict
 ```
 
-`ARTEMIS_IOS_KEYBOARD_SCHEME`（默认 `auto`，只影响 harness）：
+`HidControlSink.tap_abs(x, y)` 签名不变；`TapRequest`/`ActionResult` 是内部结构化结果。**scheme 只存在于
+harness 配置层**（`ARTEMIS_IOS_KEYBOARD_SCHEME=pointer|keyboard|auto`），不进入动作 schema；测试用
+`_scheme_override` 仅内部可见。
 
-| 值 | 行为 |
-|---|---|
-| `pointer` | 只走指针，现状不变（回退开关） |
-| `keyboard` | 只走键盘；失败返回 incident，不回退（调试/固定场景用） |
-| `auto` | **先键盘**，最多 `focus_first_steps`（默认 2）步；未选中即回退指针（用户选的"先 keyboard，失败降级 mouse"） |
+### 5.2 观测：新鲜帧接口（P0）
 
-**页面级熔断**：同一页面连续 3 次 `focus_not_found` / `focus_not_on_target` 后，本会话该页面直接走指针，
-避免在不可聚焦页面（如支付宝首页）每次点击都先浪费约 2 s。
+`Frame` 增加 `sequence: int`；`Capture` 增加：
 
-### 5.2 焦点高亮检测（新模块）
+```python
+async def wait_next_frame(self, after_sequence: int, timeout_s: float) -> Frame
+```
 
-新增 `artemis/reflex/focus.py`，纯函数 + 一个轻量检测器：
+- `UvcStream`（常驻）：从环形缓冲取**序号大于** `after_sequence` 的最新完整帧；返回前不早于按键时刻。
+- `UvcCapture`（frame 模式）：实现为"一次 `grab()` + `captured_at >= 按键时刻` 校验"（已有 `not_before` 逻辑）。
+- 按键与抓帧之间不得复用按键前的缓存帧；拿不到新帧返回 `capture_timeout`，不计入焦点失败。
+
+**本采集卡的现实**：常驻会话冻结是已知问题。V1 先重测 `ARTEMIS_IOS_CAPTURE=stream`；若复现冻结，保持
+frame 模式，走时间预算（§5.7），性能目标相应放宽（§6）。不把"150 ms"当成未经验证的承诺。
+
+### 5.3 焦点检测（P0 修正容器过滤）
+
+新增 `artemis/reflex/focus.py`：
 
 ```python
 @dataclass(frozen=True)
 class FocusBox:
     x1: int; y1: int; x2: int; y2: int
     confidence: float
-    style: str  # "outline" | "changed-region"（后者是弱证据）
+    kind: str          # "input" | "button" | "list_item" | "group" | "unknown"
+    appeared: bool     # 必须是 after 帧新出现的；vacated 只作证据
 
-def locate_focus(before: bytes, after: bytes, *, frame_size, ignore_top=0.06) -> FocusBox | None
+def locate_focus(before: bytes, after: bytes, *, frame_size) -> FocusBox | None
 ```
 
-算法（样式无关，颜色只作提示）：
+- **appeared / vacated 分离**：一次按键的差异通常含两个描边（旧焦点消失、新焦点出现）。只有 appeared 能
+  成为当前焦点；vacated 记录为"焦点确实转移"的证据，绝不用于 Space。
+- **容器判定改为多维评分**（评审 P0，原单轴 60% 规则会误杀全宽搜索栏）：
 
-1. 两帧逐像素差，阈值 25；忽略顶部 6%（状态栏时钟）。
-2. 对每个连通域判断描边"出现在哪一帧"：只在 after 出现 = **appeared（新焦点）**；只在 before 出现 =
-   **vacated（旧焦点）**。只有 appeared 能成为焦点，vacated 一律忽略——否则焦点滞后一步，迟到的旧 bbox
-   一旦罩住目标就会在错误的元素上按 Space（spike 实测：一次 Tab 的差异里有两个描边，日历与搜索框）。
-3. 轮廓判据：细、闭合、中空（填充率 < 0.55）、最小边 ≥ 24 px、周长/面积符合描边。**容器规则**：bbox 宽
-   > 帧宽 60% 或高 > 帧高 60% 的描边是页面容器/整块高亮，不是焦点，直接丢弃——spike 里支付宝一次 Tab 会
-   给整页加一圈 2px 蓝框（x≈2–5, y≈62–880），它罩住页面上任意目标点，不丢弃就必然误判"已选中"。
-4. 多个 appeared 候选时，取"包含目标点且面积最小"的那个。
-5. 没有合格 appeared 轮廓时返回 `None`；不再用 changed-region 这类弱证据兜底（弱证据不允许触发 Space）。
-6. 允许传入 `hint`（如白色/支付宝蓝）提高优先级，但不作为唯一判据。
-
-`selected(focus_box, target_point, margin_px) -> bool`：目标点落在 bbox + margin 内；有目标框时要求框与
-bbox 的重叠比 ≥ 阈值。
-
-### 5.3 焦点移动控制器
-
-新增 `FocusTapController`（与 `SessionTapController` 平级，复用同一个 capture/control）：
-
-```
-state: focus: FocusBox | None, previous_frame: bytes
-loop up to focus_max_steps (默认 8):
-    key = "tab" if focus is None else direction(focus.center -> target)
-    press(key); frame = grab(after=press, fresh)
-    if page_moved(previous_frame, frame, focus, target):  # 结构变化：整页滚动/切换
-        return page_moved                                 # 不回退指针：坐标已经失效
-    box = locate_focus(previous_frame, frame)             # 只返回 appeared 的描边
-    if box is None:
-        连续无 appeared 计数 +1；>=2 则返回 focus_not_found（FKA 关/页面不可聚焦）
-        continue
-    focus = box
-    if selected(focus, target):
-        press("space")
-        changed_inside(前帧, 后帧, inset(focus, ring_band=8px)) -> ok / activate_no_effect
-        return
-返回 focus_not_on_target
-
-焦点起点未知：第一下 Tab 之后若差异里只有 vacated（旧焦点离开）、没有 appeared，说明旧焦点还在屏幕上；
-继续按 Tab（最多 3 次）直到出现 appeared 描边，再进入正常循环。
-
-已知行为（来自 ghosthand 的实测，与本方案兼容）：iOS 的某次按键可能**什么都不做**（首次 Tab/命令无反应），
-所以"连续 2 次无 appeared"才判失败；焦点框会 Auto-Hide，按键后要在约 1 s 内抓帧（frame 模式一次抓帧
-~0.95 s，正好在窗口内）；焦点框是蓝色且**可能罩住整屏**，容器规则必须保留。
-```
-
-方向选择：以焦点 bbox 中心到目标点的向量取主轴（|dx|≥|dy| 则左/右，否则上/下）。焦点跳转是空间邻接，
-不是连续移动；闭环负责纠偏。
-
-**Space 的确认条件**：`focus.style == "outline"` 且 `selected(...)` 为真。任何弱证据（`changed-region`）
-都不允许触发 Space。
-
-### 5.4 错误与回退
-
-| incident | 触发 | 回退 |
+| 特征 | 容器倾向 | 正常控件 |
 |---|---|---|
-| `focus_unavailable` | 探测阶段 Tab 两次无高亮 | `auto` 下直接走指针；`keyboard` 下报错 |
-| `focus_not_found` | 循环中连续 2 次无高亮 | `auto` 回退指针 |
-| `focus_not_on_target` | 达到步数上限仍未选中 | `auto` 回退指针 |
-| `page_moved` | 差异中焦点框以外的区域变化超过帧面积 8% | **不回退**（目标坐标已失效）；返回 incident |
-| `activate_no_effect` | Space 后**焦点框内缩进 8px 的区域**无变化 | **不回退**（可能已生效，避免二次触发）；返回 incident |
+| 同时占据大部分宽与高（宽 ≥85% 且高 ≥50%） | 是 | 否 |
+| 与 ≥3 条屏幕边重合 | 是 | 否 |
+| 内部包含 ≥2 个其他 appeared 候选 | 是 | 否 |
+| 与目标框/目标点匹配 | 否 | 是 |
 
-回退到指针时，指针位置不受键盘操作影响（键盘只移动焦点），指针路径会自行 home/移动，安全。
+  判定为容器才丢弃；全宽但矮的搜索栏（如宽 100%、高 10%）是**有效焦点**。多个候选时取"包含目标点且
+  面积最小"的那个。
+- **kind 分类**（无 UI 树，启发式）：宽而矮且激活后底部出现键盘 → `input`；与已记录的列表行高度一致 →
+  `list_item`；被多个候选包围的焦点 → `group`；其余 `unknown`。分类错误时按 `unknown` 走安全策略。
+- 置信度不足（轮廓不闭合/面积异常/与目标框重叠为 0）→ 不返回 FocusBox，**不允许 Space**。
 
-### 5.5 能力探测
+### 5.4 导航策略（P0/P1）
 
-无 API 可查"全键盘控制"开关，用行为探测：连接后（或首次使用键盘方案前）按一次 Tab、抓帧；无变化则再
-按一次并抓帧；两次都无变化 → `keyboard_unavailable`，本次会话缓存。探测只按 Tab（不激活任何东西），
-在任意页面安全。`ARTEMIS_IOS_KEYBOARD_SCHEME` 的取值见 5.1；`auto` 在探测不可用时静默走指针，`keyboard`
-则报 `focus_unavailable`。探测结果按会话缓存，失败不重复探测。
+```python
+def choose_key(focus: FocusBox | None, target, history) -> str:
+    if focus is None:
+        return "tab"                      # 首次建立焦点
+    if focus.kind in ("input", "unknown"):
+        return "tab"                      # 输入框里方向键会移光标/改选择
+    if focus.kind in ("list_item", "group"):
+        if last_arrow_made_no_progress:
+            return "tab"                  # 方向无进展 → 换 Tab 组导航
+        return direction(focus, target)   # 主轴方向
+    return "tab"
+```
 
-### 5.6 集成点
+- **Shift+Tab**：`press_named_key` 增加 `shift+tab`（固件 `keymod 2 43`），用于回退焦点。
+- **无进展/循环检测**：同一方向连续 2 次无 appeared；或当前 bbox 与历史 bbox 重合（容差 8px）→ 判循环，
+  先试 Tab，再失败则 `focus_not_on_target`。
+- **输入框识别**：Space 后底部区域出现键盘/大幅变化 → 把该元素标为 `input` 并停止方向键。
+- **焦点框 Auto-Hide**：每步按键后立即取新帧（§5.2），帧龄超预算按 `capture_timeout` 处理。
 
-- `artemis/reflex/focus.py`：`locate_focus` / `selected` / `FocusBox`。
-- `artemis/reflex/focus_controller.py`（或并入 `artemis/control/hid.py`）：`FocusTapController`，持有
-  `capture`、`control`（`press_named_key`）、`verify_effect`。
-- `HidControlSink.tap_abs(..., scheme=...)`；`ActionResult.metrics` 增加
-  `scheme`、`focus_steps`、`focus_style`、`activate_effect`、`fallback_reason`。
-- `build_ios_uvc_session` 把 capture/control 也交给 `FocusTapController`（或由 sink 懒构造）。
-- 动作层：`tap` 动作透传 `scheme`（默认 `pointer`，保持现有行为）。
+### 5.5 激活与验证（P0：三态，不再只看焦点框内部）
 
-### 5.7 指标与测试
+状态机：
 
-- 单元：`locate_focus` 的合成图（深底白描边、浅底蓝描边、无描边、动画干扰）；**移动焦点**的两描边样本
-  （必须选 appeared 而不是 vacated）；**整页容器描边**（必须被丢弃）；`selected` 的边界；`page_moved`；
-  `changed_inside`（Space 前后只有描边变化 → 视为未生效）。
-- 控制器用假 capture/control 走完"第 2 步选中→Space→生效""始终无高亮→focus_not_found""Space 无效"
-  "页面滚动→page_moved 且不回退"。
-- 真机：先做一次性脚本量 1–2 个页面（设置页开关列表、支付宝搜索栏）：Tab 到目标 → Space → 效果，
-  记录步数/耗时/命中率；据此决定要不要做 `scripts/ios_focus_bench.py`。
+```
+UNPROBED → PROBING → FOCUSING → TARGET_CONFIRMED → ACTIVATION_PENDING → VERIFIED
+                                                   ├→ NOT_CONFIRMED（UNKNOWN，不重试）
+                                                   ├→ UNEXPECTED_TRANSITION（INCIDENT）
+                                                   └→ 仅 TARGET_CONFIRMED 之前允许 FALLBACK
+```
 
-## 6. 留给构建者的判断（我的默认值，可改）
+Space 后的验证：取 Space 前帧与之后 1 帧（必要时再 1 帧）：
 
-- 高亮检测的具体阈值与轮廓判据（用 spike 存下的帧做回归样本）。
-- 方向键 vs Tab 的优先级：默认"无焦点先 Tab，有焦点按主轴方向；方向无变化时试 Tab"。
-- `auto` 的默认策略：默认先探测，可用则尝试键盘（最多 8 步），失败回退指针；调用方可用 `scheme` 强制。
-- 每页覆盖记录放哪：默认不建表，靠运行时闭环判定；如果实测发现某页频繁浪费步数，再加页面级开关。
-- 控制器放 `artemis/reflex/` 还是并入 `hid.py`：默认新文件，便于单测。
+- `SUCCESS`：目标框扩展区（target_bbox 外扩 8px）变化 ≥ 阈值，**或**全屏结构变化（键盘弹出、页面跳转）。
+- `UNEXPECTED_TRANSITION`：目标区域没变但页面发生大幅变化（可能是**别的**元素被激活）→ 返回 incident，
+  不重试。
+- `NOT_CONFIRMED`：目标与全屏都无变化 → 返回 `activation_unknown`（UNKNOWN），**不重试、不回退指针**；
+  等待下一次 Agent 观察再决策。
 
-## 7. 业界实践参考（2026-11-04 调研）
+硬规则：Space 已发送后，任何路径都不允许再次点击同一目标。`expected_effect` 可选地要求"区域变化"，
+缺省用上表。
 
-- **ghosthand**（用 AI Agent 通过 USB 截图 + 蓝牙 HID 操控真机，开源/商业）：
-  <https://github.com/ghosthand-dev/ghosthand/blob/main/README.md>
-  - 它的主力方案是**绝对坐标 HID 鼠标**（report 1，X/Y 0–32767）：iOS 17+ 点击约 0.3 s、位置精确。
-    这比我们的"相对移动 + 相位增益"更直接，是指针方案的更好参照（需固件支持绝对报文，属后续项）。
-  - 全键盘控制它**不用**，只作为可选：文中确认焦点框是**蓝色、可能罩住整屏**、默认关闭、Auto-Hide
-    会在一段时间后隐藏；`tab`/`shift+tab` 切组、方向键在组内移动（文本域里是移光标）、`space` 激活；
-    **第一次按键可能什么都不做**（`tab+f`、`tab+b` 首次无反应，第二次生效）。
-  - 危险的组合键：`ctrl+alt+shift+cmd+s` 触发紧急 SOS、`...r` 重启手机，**绝不能发**。
-- **iEasyClick**（国内手机自动化平台，iOS 免越狱）：
-  <https://blog.ieasyclick.net/blog/ios-shortcuts-keyboard-control/>
-  - 它用全键盘控制的**命令**（Settings > 全键盘控制 > 命令），把 `Cmd+字母` 绑到"快捷指令"和系统命令
-    （通知中心、控制中心、主屏）。手机侧手工绑一次，之后脚本发 `Cmd+字母` 即可，稳定、不依赖焦点顺序。
-- **Apple 文档**：Tab/方向键移动焦点、Space 激活（<https://support.apple.com/en-euro/guide/iphone/ipha4375873f/ios>）；
-  iOS UITest 里硬件键盘焦点行为不稳定（Apple 开发者论坛 thread 780494），所以业界的自动化很少把"焦点遍历"
-  当主方案。
+### 5.6 能力缓存：设备 / 页面组 / 目标（P0）
 
-**对本设计的结论**
+```python
+capability = {
+  "device": "enabled" | "unavailable",
+  "pages": {
+     "<page_fingerprint>": {          # 帧降采样 dhash，排除焦点框区域
+        "header": "reachable",
+        "content_grid": "unreachable",
+     }
+  },
+  "targets": {
+     ("<page_fingerprint>", "<target_label 或量化坐标>"): "reachable" | "unreachable" | "unknown"
+  }
+}
+```
 
-1. 焦点遍历是"能点任意可聚焦控件"的唯一途径，但业界不把它当主方案——与我们的定位一致：**harness 自动策略里
-   键盘优先、失败回退指针**，且要有熔断。
-2. 两个可以直接采纳的实践：**首次按键可能空转**（我们的"连续 2 次无 appeared 才算失败"正好覆盖）；
-   **焦点框会 Auto-Hide 且可能是整屏蓝框**（我们已有容器丢弃规则，实测与 ghosthand 一致）。
-3. 可选增强（不在 v1 硬性范围）：
-   - `tab+f` 查找：输入控件名后 Enter 直接激活（ghosthand 实测 Settings 可用、主屏无效）。我们的键盘只能
-     发 US-ASCII，中文控件名无法输入，所以仅对拉丁字母名称可用，且需要目标名可 OCR 得到。
-   - 全键盘"命令"（`Cmd+字母` 绑快捷指令）：适合固定动作（打开 App、回主屏、通知中心），需要在手机侧
-     手工绑定一次，作为独立于焦点遍历的第三条路径。
-4. 安全：本方案的按键集合只有 tab/方向键/space/enter/esc，不含任何危险组合键；新增按键时必须过白名单。
+- 页面身份用**稳定指纹**（降采样 dhash + 可选 OCR 标题），不能只用 App Bundle ID。
+- 熔断按**目标组/目标**记录：支付宝搜索栏失败 3 次不影响宫格；宫格失败不封锁整页。
+- 记录内容：失败分类（§5.7）+ 次数 + 最近一次时间；页面重新加载（指纹变化）时失效。
 
-## 8. 已定（用户决定）
+### 5.7 `auto` 策略：能力驱动，双预算
 
-1. **方案选择在 harness**：Agent 只表达"点某个控件"，不感知键盘/鼠标；由 harness 按配置决定键盘优先、
-   失败降级鼠标，或直接用鼠标。
-2. **验收看操作完成率和时长**，不看"键盘步数"本身。
+```python
+AUTO_FOCUS_MAX_STEPS = 2          # 未知目标的低成本探测
+AUTO_FOCUS_TIMEOUT_MS = 2500      # 步数或时间，先到即回退
+KEYBOARD_DEBUG_MAX_STEPS = 8      # 仅 keyboard 模式/调试
 
-## 9. 验收（操作完成率 + 时长）
+async def tap_auto(req, capability):
+    state = capability.for_target(req)
+    if state == "unreachable": return await pointer_tap(req)
+    if state == "reachable":   return await keyboard_tap(req, timeout=AUTO_FOCUS_TIMEOUT_MS)
+    result = await keyboard_probe(req, max_steps=2, timeout_ms=2500)
+    if result == "verified":  return result
+    if result == "page_moved": return RELOCATE_REQUIRED      # 不回退，重新 locate
+    if result == "activation_unknown": return UNKNOWN        # 不回退
+    capability.record(req, "unreachable")
+    return await pointer_tap(req)
+```
 
-| 指标 | 标准 | 说明 |
+失败分类（熔断按分类计数，不按单一 `focus_not_found`）：`focus_unavailable`、`focus_not_found`、
+`focus_not_on_target`、`capture_timeout`、`focus_detection_error`、`page_moved`、`activation_unknown`、
+`activate_unexpected`。只有确认为"目标不可聚焦/反复不可达"才降级该目标组。
+
+### 5.8 集成点与预算
+
+- 新文件：`artemis/reflex/focus.py`（检测/评分/kind）、`artemis/reflex/focus_controller.py`（状态机）。
+- 改：`artemis/reflex/capture.py`（`Frame.sequence`、`wait_next_frame`）、`artemis/reflex/control.py`
+  （`shift+tab`）、`artemis/control/hid.py`（harness 选路、`tap_abs` 不变）、`artemis/devices/ios_uvc.py`
+  （构造 focus 控制器）。
+- 配置：`ARTEMIS_IOS_KEYBOARD_SCHEME=pointer|keyboard|auto`（默认 `auto`）；预算常量见 §5.7。
+- 指标：`scheme`、`focus_steps`、`focus_kind`、`focus_confidence`、`activation_state`、`elapsed_ms`、
+  `fallback_reason`、`page_fingerprint`。
+
+## 6. 性能目标（有条件）
+
+| 指标 | 目标 | 前提 |
 |---|---|---|
-| 完成率（不回归） | 键盘路径与指针路径在同页面的"点击并验证生效"成功率不低于指针基线（现有 bench 10/10） | 两个页面各 10 次；任一路径失败都算失败 |
-| 键盘路径时长 | 单次操作（Tab 到选中 → Space → 验证）中位 ≤ 4 s | 指针基线：841 px 移动约 3.6 s |
-| 回退惩罚 | 键盘尝试失败后改指针，总时长中位 ≤ 指针基线 + 2.5 s | 熔断后该页面不再付这个代价 |
-| 指针路径时长 | 不因本方案退化（仍约 3.6 s / 841 px） | 现有 move bench 复测 |
+| 按键发送 | ≤50 ms | 现状满足（35–50 ms） |
+| 按键→新帧 P50 / P95 | ≤150 / ≤300 ms | **仅当常驻采集可用**；本卡若仍冻结，V1 用 ~0.95 s，不承诺该值 |
+| 焦点检测 P95 | ≤30 ms | 纯 CPU，可测 |
+| 键盘单次 P50 | ≤4 s | 含 2–4 步、Space 与验证 |
+| 回退额外耗时 | ≤2.5 s | 熔断后不再付 |
 
-验收页面：设置页的开关/列表（焦点丰富）、支付宝搜索栏（单个大控件）。不可聚焦页面不在键盘覆盖验收内，
-由页面级熔断保证不拖慢。
+## 7. 业界实践与整体优先级
+
+- **ghosthand**（<https://github.com/ghosthand-dev/ghosthand/blob/main/README.md>）：主力是**绝对 HID 指针**
+  （iOS 17+ ~0.3 s，精确）；FKA 可选、默认关闭；确认焦点框蓝色/可罩整屏/Auto-Hide、首键可空转、危险组合键。
+- **iEasyClick**（<https://blog.ieasyclick.net/blog/ios-shortcuts-keyboard-control/>）：用 FKA **命令**
+  （`Cmd+字母` 绑快捷指令/系统命令），手机侧手工绑一次，确定性强，适合固定动作。
+- **Apple**：FKA 的 Tab/Space 文档化（<https://support.apple.com/en-ie/guide/iphone/ipha4375873f/26/ios/26>）；
+  WWDC 2021 session 10120 要求 App 主动让自定义视图参与 FKA 并支持 `accessibilityUserInputLabels`。
+
+**优先级**（评审建议，采纳）：Absolute HID **先验证**（若 ESP32-S3 绝对报文被 iOS 接受，通用点击最直接）；
+FKA 并行（列表/表单/搜索栏）；Relative HID 保留（拖动/滚动/绝对定位不支持的交互）。
+
+## 8. 验收（三组，误激活为硬门槛）
+
+**1. 基础能力**（每场景 ≥10 次）：Settings 列表（Tab/方向键）、支付宝搜索栏（单个大控件）、支付宝宫格
+（不可聚焦 → 回退）、Safari 搜索框（文本域）、滚动列表（焦点导致滚动）、连续导航（Auto-Hide/首键空转）。
+
+**2. 安全性**（硬门槛，任一不满足即不发布）：
+
+| 场景 | 预期 |
+|---|---|
+| 目标附近多个焦点框 | 不误激活 |
+| 旧焦点框残留 | 不误激活 |
+| 页面跳转 | 不使用旧坐标（RELOCATE_REQUIRED） |
+| Space 无可观察效果 | 不再次点击，返回 UNKNOWN |
+| 焦点置信度不足 | 不激活 |
+| 搜索框获得焦点 | 不误用方向键编辑文本 |
+| **False Activation Rate** | **必须为 0** |
+
+**3. 性能**（每类 ≥30 次，关键场景 100 次）：
+
+| 指标 | V1 |
+|---|---|
+| 键盘命中率 | ≥ 同场景 Pointer 基线（分页面测，不混合） |
+| 键盘 P50 / P95 | ≤4 s / 记录并逐步优化 |
+| 回退额外耗时 | ≤2.5 s |
+| 不可聚焦目标回退率 | 100% |
+
+## 9. 分阶段与后续
+
+| 优先级 | 项 | V1 |
+|---|---|---|
+| P0 | 常驻采集 + `wait_next_frame`（含本卡冻结的复测与降级） | 是 |
+| P0 | 容器多维评分 + appeared/vacated | 是 |
+| P0 | 输入框/未知元素不走方向键 | 是 |
+| P0 | Space 三态验证 + 不重试/不回退 | 是 |
+| P0 | 三级能力缓存 + 分类熔断 | 是 |
+| P1 | Shift+Tab、循环/无进展检测、步数+时间双预算 | 是 |
+| P2 | Tab-F Find（仅拉丁名）、FKA 命令绑定 | 否 |
+| 前置 | **Absolute HID 可行性 spike**（ESP32-S3 绝对报文 → iOS） | 先做 |
+
+## 10. 我的默认值（构建者可改，改前说一声）
+
+- 容器评分阈值：宽 ≥85% 且高 ≥50%、或触边 ≥3、或包含 ≥2 个候选；其余按有效焦点。
+- 置信度门槛：轮廓闭合且与目标框重叠 >0；低于此不 Space。
+- 激活验证：目标框外扩 8px 变化 ≥0.5% 区域像素，或全屏变化 ≥2%（排除焦点描边带）。
+- 能力缓存过期：页面指纹变化即失效；同一目标连续 3 次失败标记 unreachable。
+- `auto` 探测预算：2 步 / 2500 ms；`keyboard` 调试预算 8 步。
