@@ -61,15 +61,24 @@ iOS 机台现在的操控链是 `locate → move → click`：`move` 用相对 H
 
 ### 5.1 两套方案，一个契约
 
-调用方仍然给"目标点（可选目标框）+ 期望效果"。`HidControlSink` 增加一个方案选择：
+调用方（Agent/动作层）**只表达"我要点这个控件"**（目标点/框 + 期望效果），不选方案。方案由 harness 的
+`HidControlSink` 按配置决定，动作 schema 与提示词不变：
 
 ```python
-async def tap_abs(self, x, y, *, scheme: Literal["pointer", "keyboard", "auto"] = "pointer")
+# 内部接口；Agent 不传 scheme
+async def tap_abs(self, x, y) -> ActionResult
 ```
 
-- `pointer`：现有路径，不动。
-- `keyboard`：只走焦点方案；失败返回 incident，不悄悄改走指针。
-- `auto`：先探测（见 5.5），可用则最多尝试 `focus_max_steps` 步，失败再回退指针。
+`ARTEMIS_IOS_KEYBOARD_SCHEME`（默认 `auto`，只影响 harness）：
+
+| 值 | 行为 |
+|---|---|
+| `pointer` | 只走指针，现状不变（回退开关） |
+| `keyboard` | 只走键盘；失败返回 incident，不回退（调试/固定场景用） |
+| `auto` | **先键盘**，最多 `focus_first_steps`（默认 2）步；未选中即回退指针（用户选的"先 keyboard，失败降级 mouse"） |
+
+**页面级熔断**：同一页面连续 3 次 `focus_not_found` / `focus_not_on_target` 后，本会话该页面直接走指针，
+避免在不可聚焦页面（如支付宝首页）每次点击都先浪费约 2 s。
 
 ### 5.2 焦点高亮检测（新模块）
 
@@ -149,9 +158,8 @@ loop up to focus_max_steps (默认 8):
 
 无 API 可查"全键盘控制"开关，用行为探测：连接后（或首次使用键盘方案前）按一次 Tab、抓帧；无变化则再
 按一次并抓帧；两次都无变化 → `keyboard_unavailable`，本次会话缓存。探测只按 Tab（不激活任何东西），
-在任意页面安全。配置 `ARTEMIS_IOS_KEYBOARD_SCHEME=auto|on|off`：`auto` 探测后决定；`on` 跳过探测、允许
-键盘路径；`off` 禁用。该配置**只影响探测与允许性**，不改变 `tap_abs` 的默认 `scheme`（默认仍是 `pointer`；
-默认值是否改由下面第 1 个未决问题决定）。
+在任意页面安全。`ARTEMIS_IOS_KEYBOARD_SCHEME` 的取值见 5.1；`auto` 在探测不可用时静默走指针，`keyboard`
+则报 `focus_unavailable`。探测结果按会话缓存，失败不重复探测。
 
 ### 5.6 集成点
 
@@ -181,10 +189,20 @@ loop up to focus_max_steps (默认 8):
 - 每页覆盖记录放哪：默认不建表，靠运行时闭环判定；如果实测发现某页频繁浪费步数，再加页面级开关。
 - 控制器放 `artemis/reflex/` 还是并入 `hid.py`：默认新文件，便于单测。
 
-## 7. 未决问题（需要你拍板）
+## 7. 已定（用户决定）
 
-1. **谁来决定这一个点击走键盘还是指针**：由 Agent/动作层显式标记（`click` 的 schema、提示词、评测都要
-   改，Agent 需要知道"这个目标可聚焦"），还是由 harness 策略自动决定（env/knob，Agent 不感知；默认只
-   对少数页面开）？以及 `ARTEMIS_IOS_KEYBOARD_SCHEME=on` 时 `tap_abs` 的默认 scheme 是否改成键盘。
-2. **验收标准**：在 1–2 个页面上，命中率、中位步数、单次耗时达到什么算"值得保留"（例如 ≥90%、中位 ≤3 步、
-   ≤4 s），以及不可聚焦目标上最多允许多少秒的"先试键盘再回退"浪费？
+1. **方案选择在 harness**：Agent 只表达"点某个控件"，不感知键盘/鼠标；由 harness 按配置决定键盘优先、
+   失败降级鼠标，或直接用鼠标。
+2. **验收看操作完成率和时长**，不看"键盘步数"本身。
+
+## 8. 验收（操作完成率 + 时长）
+
+| 指标 | 标准 | 说明 |
+|---|---|---|
+| 完成率（不回归） | 键盘路径与指针路径在同页面的"点击并验证生效"成功率不低于指针基线（现有 bench 10/10） | 两个页面各 10 次；任一路径失败都算失败 |
+| 键盘路径时长 | 单次操作（Tab 到选中 → Space → 验证）中位 ≤ 4 s | 指针基线：841 px 移动约 3.6 s |
+| 回退惩罚 | 键盘尝试失败后改指针，总时长中位 ≤ 指针基线 + 2.5 s | 熔断后该页面不再付这个代价 |
+| 指针路径时长 | 不因本方案退化（仍约 3.6 s / 841 px） | 现有 move bench 复测 |
+
+验收页面：设置页的开关/列表（焦点丰富）、支付宝搜索栏（单个大控件）。不可聚焦页面不在键盘覆盖验收内，
+由页面级熔断保证不拖慢。
