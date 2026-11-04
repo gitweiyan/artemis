@@ -62,7 +62,7 @@ const uint8_t hid_report_descriptor_touch[] = {
 // second top-level collection (Report ID 2). The boot report stays unnumbered and
 // untouched; iOS 17+ maps the absolute collection onto the AssistiveTouch pointer.
 const uint8_t hid_report_descriptor_mouse[] = {
-    TUD_HID_REPORT_DESC_MOUSE(),
+    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_REPORT_ID_MOUSE)),
     // --- Absolute pointer (spike) -----------------------------------------
     0x05, 0x01,              // Usage Page (Generic Desktop)
     0x09, 0x02,              // Usage (Mouse)
@@ -215,7 +215,9 @@ const uint8_t hid_configuration_descriptor[] = {
 #endif
 #if !CONFIG_ARTEMIS_HID_BCI_ONLY
     // mouse (boot protocol)
-    TUD_HID_DESCRIPTOR(HID_ITF_MOUSE, 4, HID_ITF_PROTOCOL_MOUSE,
+    // Report protocol: the mouse interface carries two numbered reports (relative 7,
+    // absolute 2), which a boot-protocol interface cannot express.
+    TUD_HID_DESCRIPTOR(HID_ITF_MOUSE, 4, HID_ITF_PROTOCOL_NONE,
                        sizeof(hid_report_descriptor_mouse), 0x82, 16, 10),
     // keyboard (boot protocol)
     TUD_HID_DESCRIPTOR(HID_ITF_KEYBOARD, 4, HID_ITF_PROTOCOL_KEYBOARD,

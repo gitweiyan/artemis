@@ -9,8 +9,8 @@
 // Absolute pointer: let iOS settle the move before pressing, hold the button long
 // enough for a click (not a long press), and leave a short gap after the release.
 #define ABS_SETTLE_MS     100
-#define ABS_CLICK_HOLD_MS 60
-#define ABS_RELEASE_MS    20
+#define ABS_CLICK_HOLD_MS 240  // Ghosthand's documented click hold is 220-260 ms
+#define ABS_RELEASE_MS    30
 // HID interrupt endpoints use a 10 ms polling interval. Leave enough time for
 // the host to receive each key-down before sending the key-up report.
 #define TYPE_GAP_MS  20
@@ -48,7 +48,8 @@ bool hid_mouse_ready(void)
     return tud_hid_n_ready(HID_ITF_MOUSE);
 }
 
-bool hid_mouse_move(int dx, int dy)
+//: Relative move with an explicit button state (a drag keeps the left button down).
+static bool hid_mouse_move_with_buttons(int dx, int dy, uint8_t buttons)
 {
     // The HID report carries int8 deltas. Split here so the host can express the
     // intent once (e.g. move 600 800) without ever wrapping at +/-127.
@@ -58,7 +59,7 @@ bool hid_mouse_move(int dx, int dy)
         }
         int step_x = dx > 127 ? 127 : (dx < -127 ? -127 : dx);
         int step_y = dy > 127 ? 127 : (dy < -127 ? -127 : dy);
-        if (!tud_hid_n_mouse_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE, 0,
+        if (!tud_hid_n_mouse_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE, buttons,
                                     (int8_t) step_x, (int8_t) step_y, 0, 0)) {
             return false;
         }
@@ -67,6 +68,11 @@ bool hid_mouse_move(int dx, int dy)
         vTaskDelay(pdMS_TO_TICKS(MOUSE_GAP_MS));
     }
     return dx == 0 && dy == 0;
+}
+
+bool hid_mouse_move(int dx, int dy)
+{
+    return hid_mouse_move_with_buttons(dx, dy, 0);
 }
 
 bool hid_mouse_home(void)
@@ -88,7 +94,8 @@ bool hid_mouse_abs_ready(void)
     return tud_hid_n_ready(HID_ITF_MOUSE);
 }
 
-//: Last absolute position that was accepted by the host, for the click reports.
+//: Last absolute position queued to the host (not proof iOS applied it), used so a
+//: click report carries the target instead of defaulting X/Y to 0.
 static uint16_t g_abs_mouse_x = 0;
 static uint16_t g_abs_mouse_y = 0;
 static bool g_abs_mouse_position_valid = false;
@@ -110,6 +117,9 @@ static bool hid_mouse_send_report(uint8_t report_id, const void *report, uint16_
 
 bool hid_mouse_abs_move(uint16_t x, uint16_t y)
 {
+    if (x > 32767 || y > 32767) {
+        return false;  // outside the descriptor's logical range
+    }
     hid_mouse_abs_report_t report = {
         .buttons = 0,
         .x = x,
@@ -144,6 +154,7 @@ static bool hid_mouse_abs_button(uint8_t buttons)
         .x = 0,
         .y = 0,
         .wheel = 0,
+        .pan = 0,
     };
     bool abs_ok = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &abs_report, sizeof(abs_report));
     bool rel_ok = hid_mouse_send_report(HID_REPORT_ID_MOUSE, &rel_report, sizeof(rel_report));
@@ -230,21 +241,9 @@ bool hid_mouse_swipe(int dx, int dy, uint32_t duration_ms)
         int step_x = target_x - sent_x;
         int step_y = target_y - sent_y;
 
-        if (step_x > 127) {
-            step_x = 127;
-        }
-        if (step_x < -127) {
-            step_x = -127;
-        }
-        if (step_y > 127) {
-            step_y = 127;
-        }
-        if (step_y < -127) {
-            step_y = -127;
-        }
-
         if (step_x != 0 || step_y != 0) {
-            if (!hid_mouse_move(step_x, step_y)) {
+            // Keep the button down for the whole stroke; the helper splits >127.
+            if (!hid_mouse_move_with_buttons(step_x, step_y, MOUSE_BUTTON_LEFT)) {
                 ok = false;
                 break;
             }

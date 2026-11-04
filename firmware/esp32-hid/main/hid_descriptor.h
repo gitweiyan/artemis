@@ -32,7 +32,9 @@
 // Report IDs (one per interface). Keyboard and mouse are boot interfaces and
 // use report ID 0 (no report-ID prefix); only the digitizer needs an ID.
 #define HID_REPORT_ID_TOUCH    1
-#define HID_REPORT_ID_MOUSE    0
+//: Relative mouse report. The old unnumbered boot report (ID 0) is illegal once the
+//: same interface contains Report IDs (HID 1.11 6.2.2.7); 7 matches Ghosthand.
+#define HID_REPORT_ID_MOUSE    7
 //: Absolute-pointer report on the same mouse interface (second collection).
 #define HID_REPORT_ID_MOUSE_ABS 2
 #define HID_REPORT_ID_KEYBOARD 0
