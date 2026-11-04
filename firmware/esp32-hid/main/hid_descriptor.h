@@ -33,6 +33,8 @@
 // use report ID 0 (no report-ID prefix); only the digitizer needs an ID.
 #define HID_REPORT_ID_TOUCH    1
 #define HID_REPORT_ID_MOUSE    0
+//: Absolute-pointer report on the same mouse interface (second collection).
+#define HID_REPORT_ID_MOUSE_ABS 2
 #define HID_REPORT_ID_KEYBOARD 0
 
 // BCI report IDs (Apple BCI HID reference).

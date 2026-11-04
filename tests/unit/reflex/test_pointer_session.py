@@ -447,8 +447,10 @@ def test_pointer_missing_only_after_every_observation_attempt():
 
     result = controller.tap(100, 100)
 
-    # Two rounds of observe_attempts: the initial look, then the look after a wake move.
-    assert detector.calls == 6
+    # Two rounds of observe_attempts (the initial look, then the look after a wake
+    # move); each attempt tries the full frame and then the corridor crop, so two
+    # detector calls per attempt.
+    assert detector.calls == 12
     assert control.moves, "the wake move happened before giving up"
     assert result.incident == "pointer_missing"
     assert control.clicks == 0
@@ -1220,3 +1222,60 @@ def test_a_tiny_segment_does_not_teach_the_phase_gain():
 
     assert result.motion.segments >= 1
     assert controller.motion_calibration.gain(Phase.BALLISTIC) == (2.0, 2.0)
+
+
+class _AbsolutePointer(_LinearPointer):
+    """A control with the absolute report; moves land at the requested frame point."""
+
+    def __init__(self, gain=2.0, *, honor_absolute=True):
+        super().__init__(gain=gain)
+        self.honor_absolute = honor_absolute
+        self.absolute_moves = []
+        self.absolute_clicks = 0
+
+    def mouse_move_abs(self, nx, ny):
+        self.absolute_moves.append((nx, ny))
+        if self.honor_absolute:
+            self.x = nx / 1000 * 449
+            self.y = ny / 1000 * 974
+
+    def mouse_click_abs(self):
+        self.absolute_clicks += 1
+        self.clicks += 1  # the camera repaints when a click lands
+
+
+def test_an_absolute_tap_is_one_move_and_one_click():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = _AbsolutePointer()
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session, capture=_DotCamera(control), detector=_DotDetector(), settle_timeout_s=0.0
+    )
+
+    result = controller.tap(224, 487)
+
+    assert result.ok is True
+    assert control.absolute_moves == [(499, 500)], "one normalized absolute move"
+    assert control.absolute_clicks == 1
+    assert result.motion.phases[0] == "absolute"
+    assert result.motion.segments == 1
+
+
+def test_an_ignored_absolute_move_falls_back_to_relative_segments():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = _AbsolutePointer(honor_absolute=False)
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session, capture=_DotCamera(control), detector=_DotDetector(), settle_timeout_s=0.0
+    )
+
+    result = controller.tap(224, 487)
+
+    assert result.ok is True
+    assert controller._absolute_supported is False
+    assert control.absolute_clicks == 0, "the relative click is the one that runs"
+    assert result.motion.segments >= 2

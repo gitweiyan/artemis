@@ -37,6 +37,8 @@ static void print_help(void)
     printf("  mswipe <dx> <dy> [ms]          # mouse: press, move, release (iOS swipe/drag)\n"
            "  home                           # mouse: slam pointer to top-left\n"
            "  move       <dx> <dy>          # mouse: relative cursor move\n"
+           "  amove      <x> <y>            # mouse: absolute pointer (normalized 0..1000)\n"
+           "  aclick                         # mouse: click at the absolute pointer\n"
            "  click                          # mouse: left click\n"
            "  mdown / mup                    # mouse: press/release left button\n"
            "  key        <usage>             # keyboard: press+release one HID key (decimal)\n"
@@ -86,6 +88,7 @@ static void handle_line(char *line)
     if (strcmp(cmd, "move") == 0 || strcmp(cmd, "home") == 0 ||
         strcmp(cmd, "click") == 0 || strcmp(cmd, "mdown") == 0 ||
         strcmp(cmd, "mup") == 0 || strcmp(cmd, "mswipe") == 0 ||
+        strcmp(cmd, "amove") == 0 || strcmp(cmd, "aclick") == 0 ||
         strcmp(cmd, "key") == 0 || strcmp(cmd, "keymod") == 0 ||
         strcmp(cmd, "kdown") == 0 || strcmp(cmd, "kup") == 0 ||
         strcmp(cmd, "type") == 0) {
@@ -164,6 +167,22 @@ static void handle_line(char *line)
                            (uint16_t) d, (uint32_t) e);
         } else {
             printf("usage: drag <x1> <y1> <x2> <y2> <duration_ms>\n");
+        }
+    } else if (strcmp(cmd, "amove") == 0) {
+        if (sscanf(line, "%*s %d %d", &a, &b) == 2 && a >= 0 && a <= 1000 &&
+            b >= 0 && b <= 1000) {
+            printf("[cmd] amove %d %d\n", a, b);
+            if (!hid_mouse_abs_move((uint16_t) ((long) a * 32767 / 1000),
+                                    (uint16_t) ((long) b * 32767 / 1000))) {
+                printf("ERR abs mouse not ready (check usb)\n");
+            }
+        } else {
+            printf("usage: amove <x 0..1000> <y 0..1000>\n");
+        }
+    } else if (strcmp(cmd, "aclick") == 0) {
+        printf("[cmd] aclick\n");
+        if (!hid_mouse_abs_click()) {
+            printf("ERR abs mouse not ready (check usb)\n");
         }
     } else if (strcmp(cmd, "home") == 0) {
         printf("[cmd] home\n");

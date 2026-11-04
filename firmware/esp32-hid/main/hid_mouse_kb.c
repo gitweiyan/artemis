@@ -74,6 +74,51 @@ bool hid_mouse_home(void)
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Absolute pointer (report ID 2). The payload excludes the report-ID byte,
+// which TinyUSB prepends.
+// ---------------------------------------------------------------------------
+bool hid_mouse_abs_ready(void)
+{
+    return tud_hid_n_ready(HID_ITF_MOUSE);
+}
+
+bool hid_mouse_abs_move(uint16_t x, uint16_t y)
+{
+    if (!wait_mouse_ready()) {
+        return false;
+    }
+    hid_mouse_abs_report_t report = {
+        .buttons = 0,
+        .x = x,
+        .y = y,
+        .wheel = 0,
+    };
+    // A single absolute report can be dropped if the endpoint is between polls; one
+    // lost position leaves the pointer at the previous point (seen once in the spike).
+    for (int attempt = 0; attempt < 5; attempt++) {
+        if (tud_hid_n_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report))) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return false;
+}
+
+bool hid_mouse_abs_click(void)
+{
+    if (!wait_mouse_ready()) {
+        return false;
+    }
+    hid_mouse_abs_report_t report = { .buttons = MOUSE_BUTTON_LEFT };
+    if (!tud_hid_n_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report))) {
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(KEY_TAP_MS));
+    report.buttons = 0;
+    return tud_hid_n_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report));
+}
+
 void hid_mouse_down(void)
 {
     if (!wait_mouse_ready()) {

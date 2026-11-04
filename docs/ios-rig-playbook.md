@@ -98,6 +98,18 @@
 - **基准**：`scripts/ios_move_bench.py --target X,Y --runs 10`（只移动、不点击；命中率 <90% 或
   中位观察数 >4 时退出码 1，同时打印每阶段学到的增益）。
 
+### 3.2 绝对坐标指针（2026-11-04）
+
+- 固件在 boot mouse 接口上追加了一个绝对 pointer collection（Report ID 2，X/Y 0..32767）；串口命令
+  `amove <x> <y>`（归一化 0..1000）与 `aclick`；原有 `move/click/home` 与键盘命令不变。
+- 实测（iPhone 14 Pro Max，iOS 18）：随机 20 点中 18 点可检出，误差中位 **1.6 px**、最大 **3.1 px**；
+  `aclick` 在绝对位置点击生效；相对鼠标回归正常。
+- 上位机：`SessionTapController` 默认先走一步绝对定位（`PointerSession.move_abs`），第一次观测兼作能力
+  探测（误差 > `max(3×tolerance, 24)` 则本会话标记不支持并改用相对分段）；点击在绝对路径用 `aclick`，
+  回退路径用 `click`。绝对路径不需要增益标定，单次点击约 1 s（含一次抓帧验证）。
+- 固件的 `hid_mouse_abs_move` 对"报告未就绪"重发最多 5 次（每次 5 ms），避免单条报文丢失导致指针停在
+  上一个点。
+
 ## 4. 采集与健康
 
 - 默认 `ARTEMIS_IOS_CAPTURE=frame`：每次抓帧一个 ffmpeg（~0.9s，帧一定是活的）。

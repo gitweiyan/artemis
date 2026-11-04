@@ -621,6 +621,21 @@ class Esp32HidControl(Control):
             remaining_y -= step_y
         return (time.monotonic() - started) * 1000.0
 
+    def mouse_move_abs(self, x: int, y: int) -> float:
+        """Move the pointer to an absolute position, normalized 0..1000.
+
+        This is the firmware's absolute collection: no gain, no calibration, no
+        integration. One command lands the pointer within a few pixels on iOS 17+.
+        """
+        x, y = int(x), int(y)
+        if not (0 <= x <= 1000 and 0 <= y <= 1000):
+            raise ValueError(f"absolute coordinates must be 0..1000, got ({x}, {y})")
+        return self._timed(f"amove {x} {y}")
+
+    def mouse_click_abs(self) -> float:
+        """Click at the absolute pointer's current position (absolute report)."""
+        return self._timed("aclick")
+
     def mouse_home(self) -> float:
         """Walk the pointer back to the top-left corner, paced by the ack channel.
 

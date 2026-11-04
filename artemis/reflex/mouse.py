@@ -124,6 +124,31 @@ class PointerSession:
         self._y = max(0.0, min(float(self.frame_size[1]), self._y + int(dy) * self.gain_y))
         return self.position
 
+    def move_abs(self, x: float, y: float) -> tuple[float, float]:
+        """Place the pointer at an absolute frame position (no gain, no integration)."""
+        if not self.connected:
+            raise RuntimeError("pointer session is not connected; call connect() first")
+        move = getattr(self.control, "mouse_move_abs", None)
+        if move is None:
+            raise AttributeError("control has no absolute pointer support")
+        width, height = self.frame_size
+        move(
+            max(0, min(1000, round(float(x) / width * 1000))),
+            max(0, min(1000, round(float(y) / height * 1000))),
+        )
+        self._x = max(0.0, min(float(width), float(x)))
+        self._y = max(0.0, min(float(height), float(y)))
+        return self.position
+
+    def click_abs(self) -> None:
+        """Left-click at the absolute position (the absolute report's buttons)."""
+        if not self.connected:
+            raise RuntimeError("pointer session is not connected; call connect() first")
+        click = getattr(self.control, "mouse_click_abs", None)
+        if click is None:
+            raise AttributeError("control has no absolute click support")
+        click()
+
     def _target(self, x: float, y: float) -> tuple[int, int]:
         width, height = self.frame_size
         if not (0.0 <= x <= width and 0.0 <= y <= height):
@@ -199,6 +224,7 @@ class SessionTapController:
         adaptive_gain: bool = True,
         motion_config: MotionConfig | None = None,
         motion_calibration: MotionCalibration | None = None,
+        absolute: bool = True,
     ):
         if detector is not None and capture is None:
             raise ValueError("pre-click pointer verification needs a capture")
@@ -247,6 +273,10 @@ class SessionTapController:
         self._sigma = 8.0
         #: How many times one tap may nudge a faded pointer back into sight.
         self.max_wakes = 2
+        #: Whether this tap may start with one absolute move, and the session's probe
+        #: result (None = not probed yet; the first observation decides).
+        self.absolute = bool(absolute)
+        self._absolute_supported: bool | None = None
 
     def _frame_age_s(self, frame) -> float | None:
         """Seconds between capture and now, when the frame can be dated."""
@@ -445,6 +475,22 @@ class SessionTapController:
         self._travel_on_belief(x, y)
         return TapResult(True, 1, None, None, "moved by pointer state; not verified")
 
+    def _absolute_ready(self) -> bool:
+        """Whether this tap may start with one absolute move.
+
+        ``_absolute_supported`` is the session's probe result; ``None`` means "not
+        probed yet" and lets the first tap try the absolute path (its observation
+        decides). A control without the methods is a definitive no.
+        """
+        if self._absolute_supported is not None:
+            return self._absolute_supported
+        control = getattr(self.session, "control", None)
+        return (
+            self.absolute
+            and hasattr(control, "mouse_move_abs")
+            and hasattr(control, "mouse_click_abs")
+        )
+
     def _advance(self, phase: Phase, units_x: int, units_y: int) -> float:
         """Send one move with the belief integrating on that phase's own gain.
 
@@ -497,22 +543,39 @@ class SessionTapController:
         # 1.6–1.8 measured), and a pointer clipped by the edge is undetectable — the
         # detectors then latch onto coloured UI elements instead (rig bench, 2026-11-03).
         self.session.gain_x, self.session.gain_y = self._gain[0], self._gain[1]
-        first_phase, first_x, first_y = self._plan_segment(x, y, self.session.position)
         #: The belief's position before the first leg; the first observation's
         #: displacement (relative to it) calibrates the ballistic phase too.
         first_start = self.session.position
         last_position: tuple[float, float] | None = None
         last_move: tuple[int, int] | None = None
         last_phase: Phase | None = None
-        if first_x or first_y:
-            moved_at = self._advance(first_phase, first_x, first_y)
-            motion.segments += 1
-            motion.phases.append(first_phase.value)
-            last_position = first_start
-            last_move, last_phase = (first_x, first_y), first_phase
         #: Where the belief says the pointer is after the last segment; the next
         #: observation's distance to it is the motion model's prediction error.
         last_prediction: tuple[float, float] | None = None
+        used_absolute = False
+        if self._absolute_ready():
+            # One command puts the pointer on the target: no gain, no first-leg
+            # overshoot, no edge clipping. The observation that follows verifies it and,
+            # on the first tap, doubles as the capability probe.
+            moved_at = time.monotonic()
+            try:
+                self.session.move_abs(x, y)
+            except (AttributeError, RuntimeError, OSError, ValueError):
+                self._absolute_supported = False
+            else:
+                used_absolute = True
+                motion.segments += 1
+                motion.phases.append("absolute")
+                last_prediction = self.session.position
+        if not used_absolute:
+            first_phase, first_x, first_y = self._plan_segment(x, y, self.session.position)
+            if first_x or first_y:
+                moved_at = self._advance(first_phase, first_x, first_y)
+                motion.segments += 1
+                motion.phases.append(first_phase.value)
+                last_position = first_start
+                last_move, last_phase = (first_x, first_y), first_phase
+                last_prediction = self.session.position
         wakes = 0
         #: A wake nudges the pointer outside the plan; the displacement it contributes must
         #: not be attributed to the last planned segment when the next observation lands.
@@ -611,6 +674,10 @@ class SessionTapController:
                 )
                 error = verdict.error_px if verdict.error_px is not None else 0.0
                 last_error = error
+                if used_absolute and self._absolute_supported is None:
+                    # The probe: an iOS build without absolute support leaves the pointer
+                    # where it was, which the observation shows as a large error.
+                    self._absolute_supported = error <= max(3.0 * self.tolerance_px, 24.0)
                 if verdict.ok:
                     if not click:
                         return TapResult(
@@ -653,7 +720,10 @@ class SessionTapController:
         """Click a verified pointer and demand that the screen reacts."""
         width, height = self.session.frame_size
         before = frame.image
-        self.session.click()
+        if self._absolute_supported:
+            self.session.click_abs()
+        else:
+            self.session.click()
         after = self.capture.grab_latest()
         # The target crop decides first; a change elsewhere on the screen is still proof
         # the click landed (a sheet can open away from the target).

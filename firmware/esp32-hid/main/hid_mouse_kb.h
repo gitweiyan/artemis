@@ -15,6 +15,20 @@ void hid_mouse_down(void);
 void hid_mouse_up(void);
 bool hid_mouse_ready(void);
 
+// Absolute pointer (report ID 2): the host maps x/y 0..32767 onto the screen.
+bool hid_mouse_abs_ready(void);
+bool hid_mouse_abs_move(uint16_t x, uint16_t y);
+bool hid_mouse_abs_click(void);
+
+//: Absolute mouse report payload (report ID is prepended by TinyUSB).
+#define HID_MOUSE_ABS_REPORT_LEN 6
+typedef struct __attribute__((packed)) {
+    uint8_t  buttons;
+    uint16_t x;
+    uint16_t y;
+    int8_t   wheel;
+} hid_mouse_abs_report_t;
+
 // Keyboard — used by iOS/Android for typing and navigation.
 void hid_keyboard_press(uint8_t modifier, uint8_t keycode);
 void hid_keyboard_release(void);

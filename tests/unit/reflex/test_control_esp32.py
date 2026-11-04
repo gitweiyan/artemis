@@ -538,3 +538,28 @@ def test_a_failed_firmware_command_logs_a_warning_with_the_error(caplog):
     assert "name=mswipe" in message
     assert "args='0 -648 600'" in message
     assert "no OK ack" in message
+
+
+def test_an_absolute_move_is_the_firmware_amove_command(esp32):
+    control, recorder = esp32()
+
+    control.mouse_move_abs(500, 250)
+
+    assert recorder.lines == ["amove 500 250\n"]
+
+
+def test_absolute_coordinates_are_normalized_and_checked(esp32):
+    control, recorder = esp32()
+
+    with pytest.raises(ValueError):
+        control.mouse_move_abs(1001, 0)
+
+    assert recorder.lines == []
+
+
+def test_an_absolute_click_is_the_firmware_aclick_command(esp32):
+    control, recorder = esp32()
+
+    control.mouse_click_abs()
+
+    assert recorder.lines == ["aclick\n"]
