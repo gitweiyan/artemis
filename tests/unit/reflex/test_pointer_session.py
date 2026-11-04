@@ -947,7 +947,9 @@ class _DotCamera:
 
         from PIL import Image, ImageDraw
 
-        base = (240, 240, 240) if self.control.clicks else (200, 200, 200)
+        # Flip the background on every click, so a before/after pair around a click
+        # always differs (the effect verifier needs a real change).
+        base = (240, 240, 240) if self.control.clicks % 2 else (200, 200, 200)
         image = Image.new("RGB", self.frame_size, base)
         x = int(min(self.frame_size[0] - 8, max(8.0, self.control.x)))
         y = int(min(self.frame_size[1] - 8, max(8.0, self.control.y)))
@@ -960,7 +962,11 @@ class _DotCamera:
 class _DotDetector:
     """Finds the red dot in whatever image it is handed (full frame or corridor crop)."""
 
+    def __init__(self):
+        self.calls = 0
+
     def detect(self, image, near=None):
+        self.calls += 1
         from io import BytesIO
 
         import numpy as np
@@ -1277,7 +1283,7 @@ def test_an_ignored_absolute_move_falls_back_to_relative_segments():
     result = controller.tap(224, 487)
 
     assert result.ok is True
-    assert controller._absolute_supported is False
+    assert controller._absolute_supported is None, "a failed probe stays unprobed"
     assert control.absolute_clicks == 0, "the relative click is the one that runs"
     assert result.motion.segments >= 2
 
@@ -1294,3 +1300,50 @@ def test_home_uses_the_absolute_report_when_the_control_supports_it():
 
     assert control.absolute_moves == [(0, 0)]
     assert control.moves == [], "no relative move before an absolute one"
+
+
+def test_a_verified_absolute_path_clicks_without_pointer_detection():
+    """After the probe, an absolute tap must not wait for the blue-ring detector."""
+    from artemis.reflex.mouse import SessionTapController
+
+    control = _AbsolutePointer()
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    detector = _DotDetector()
+    controller = SessionTapController(
+        session, capture=_DotCamera(control), detector=detector, settle_timeout_s=0.0
+    )
+
+    assert controller.tap(224, 487).ok is True
+    calls_after_first = detector.calls
+    second = controller.tap(300, 500)
+
+    assert second.ok is True
+    assert second.motion.observations == 0, "no pointer detection on the fast path"
+    assert detector.calls == calls_after_first
+
+
+def test_a_static_detection_stops_the_loop_instead_of_twelve_segments():
+    """A blue ring that never moves is an icon/focus outline, not the pointer."""
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    class StuckDetector:
+        def detect(self, image, near=None):
+            return Pointer(0.5, 0.5, 0.9, "fake")  # (224, 487), never moves
+
+    control = _LinearPointer(gain=2.0)
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session,
+        capture=_DotCamera(control),
+        detector=StuckDetector(),
+        settle_timeout_s=0.0,
+    )
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is False
+    assert result.incident == "pointer_static"
+    assert result.motion.observations <= 4

@@ -533,7 +533,58 @@ class SessionTapController:
         cap = self.motion_config.max_units[phase]
         return phase, max(-cap, min(cap, units_x)), max(-cap, min(cap, units_y))
 
+    def _absolute_click(self, x: float, y: float) -> TapResult:
+        """One absolute move + click, verified by the target region's change.
+
+        The pointer detector is deliberately not involved: on the rig it latched onto
+        static blue rings (app icons, the FKA focus outline) and the relative loop then
+        aimed at a phantom (2026-11-04 run: 12 segments, no click on the target). The
+        absolute report's position is deterministic, so the click's effect is the honest
+        check. Returns None when the move itself fails, so the caller can fall back.
+        """
+        before = self.capture.grab_latest()
+        motion = MotionReport(segments=1, phases=["absolute"])
+        try:
+            self.session.move_abs(x, y)
+            self.session.click_abs()
+        except (AttributeError, RuntimeError, OSError, ValueError):
+            self._absolute_supported = False
+            return None
+        after = self.capture.grab_latest()
+        effect = verify_effect(before.image, after.image, (x, y))
+        if effect.ok:
+            self._absolute_failures = 0
+            return TapResult(
+                True,
+                1,
+                None,
+                0.0,
+                "absolute move + click changed the target region",
+                None,
+                None,
+                effect.crop_change,
+                motion,
+            )
+        self._absolute_failures += 1
+        if self._absolute_failures >= 2:
+            self._absolute_supported = False
+        return TapResult(
+            False,
+            1,
+            None,
+            0.0,
+            "absolute click did not change the target region; not retrying",
+            "no_effect",
+            None,
+            effect.crop_change,
+            motion,
+        )
+
     def _verified_tap(self, x: float, y: float, *, click: bool = True) -> TapResult:
+        if click and self._absolute_supported is True:
+            result = self._absolute_click(x, y)
+            if result is not None:
+                return result
         width, height = self.session.frame_size
         last_pointer: Pointer | None = None
         last_error: float | None = None
@@ -559,6 +610,7 @@ class SessionTapController:
         #: observation's distance to it is the motion model's prediction error.
         last_prediction: tuple[float, float] | None = None
         used_absolute = False
+        probe_pending = False
         if self._absolute_ready():
             # One command puts the pointer on the target: no gain, no first-leg
             # overshoot, no edge clipping. The observation that follows verifies it and,
@@ -570,6 +622,7 @@ class SessionTapController:
                 self._absolute_supported = False
             else:
                 used_absolute = True
+                probe_pending = True
                 motion.segments += 1
                 motion.phases.append("absolute")
                 last_prediction = self.session.position
@@ -586,6 +639,10 @@ class SessionTapController:
         #: A wake nudges the pointer outside the plan; the displacement it contributes must
         #: not be attributed to the last planned segment when the next observation lands.
         wake_since_observation = False
+        #: How many consecutive observations reported the pointer at the same spot after a
+        #: move. Two in a row means the "pointer" is a static blue ring (an app icon, the
+        #: FKA focus outline), not the AssistiveTouch pointer.
+        static_observations = 0
 
         for attempt in range(1, self.max_attempts + 1):
             for _step in range(self.max_steps):
@@ -642,6 +699,14 @@ class SessionTapController:
                     )
                 last_pointer = pointer
                 position = (pointer.x * width, pointer.y * height)
+                if (
+                    last_position is not None
+                    and math.hypot(position[0] - last_position[0], position[1] - last_position[1])
+                    <= 1.0
+                ):
+                    static_observations += 1
+                else:
+                    static_observations = 0
                 if last_prediction is not None:
                     motion.prediction_error_px = math.hypot(
                         position[0] - last_prediction[0], position[1] - last_prediction[1]
@@ -680,10 +745,27 @@ class SessionTapController:
                 )
                 error = verdict.error_px if verdict.error_px is not None else 0.0
                 last_error = error
-                if used_absolute and self._absolute_supported is None:
-                    # The probe: an iOS build without absolute support leaves the pointer
-                    # where it was, which the observation shows as a large error.
-                    self._absolute_supported = error <= max(3.0 * self.tolerance_px, 24.0)
+                if probe_pending:
+                    # The probe, exactly once: an iOS build without absolute support
+                    # leaves the pointer where it was, which this observation shows as a
+                    # large error. A miss may also be the detector's own false negative
+                    # (static blue rings), so a failed probe stays unprobed instead of
+                    # disabling the absolute path for the whole session.
+                    probe_pending = False
+                    if error <= max(3.0 * self.tolerance_px, 24.0):
+                        self._absolute_supported = True
+                if static_observations >= 2:
+                    return TapResult(
+                        False,
+                        attempt,
+                        pointer,
+                        error,
+                        "pointer did not move after two segments; the detection is a"
+                        " static blue ring, not the pointer",
+                        "pointer_static",
+                        frame_age,
+                        motion=motion,
+                    )
                 if verdict.ok:
                     if not click:
                         return TapResult(

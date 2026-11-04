@@ -41,6 +41,7 @@ def test_launch_uses_keyboard_spotlight_sequence():
         ("type", "taobao"),
         ("key", "enter"),
         ("key", "enter"),
+        ("key", "escape"),
     ]
 
 
@@ -61,5 +62,33 @@ def test_launch_reports_no_screen_change():
     result = launcher.open_app(
         "wechat", query="wechat", capture=capture, verify=lambda before, after: False
     )
+    assert result.ok is False
+    assert result.error == "no_screen_change"
+
+
+def _png(color, size=(100, 100)):
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", size, color).save(out, "PNG")
+    return out.getvalue()
+
+
+def test_launch_requires_a_real_change_after_dismissing_spotlight():
+    control = FakeControl()
+    capture = FakeCapture([_png((200, 200, 200)), _png((20, 20, 20))])
+    result = IOSAppLauncher(control, wait_s=0).open_app("wechat", query="wechat", capture=capture)
+
+    assert result.ok is True
+    assert ("key", "escape") in control.calls, "a leftover Spotlight is dismissed first"
+
+
+def test_an_unchanged_screen_after_escape_is_not_a_launch():
+    control = FakeControl()
+    capture = FakeCapture([_png((200, 200, 200)), _png((200, 200, 200))])
+    result = IOSAppLauncher(control, wait_s=0).open_app("wechat", query="wechat", capture=capture)
+
     assert result.ok is False
     assert result.error == "no_screen_change"

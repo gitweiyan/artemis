@@ -55,12 +55,26 @@ class IOSAppLauncher:
             self.control.press_named_key("enter")
             self.control.press_named_key("enter")
             time.sleep(self.wait_s)
+            # A failed launch often leaves Spotlight open, and Spotlight-vs-Home is a
+            # full-screen change: "the screen changed" alone reported success for an
+            # app that never opened (2026-11-04 run, steps 1/15). Dismiss a leftover
+            # Spotlight first, then require a substantial change from the pre-launch
+            # screen.
+            self.control.press_named_key("escape")
+            time.sleep(self.wait_s)
 
             if capture is None:
                 return AppLaunchResult(True, app, query)
             after = capture.grab()
             if verify is None:
-                ok = changed(before.image, after.image)
+                min_pixels = 3000
+                width = getattr(after, "width", None) or getattr(before, "width", None)
+                height = getattr(after, "height", None) or getattr(before, "height", None)
+                if width and height:
+                    min_pixels = max(3000, int(0.02 * int(width) * int(height)))
+                ok = changed(
+                    before.image, after.image, threshold=25, min_pixels=min_pixels
+                )
             else:
                 ok = bool(verify(before.image, after.image))
             if not ok:

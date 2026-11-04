@@ -116,3 +116,26 @@
 | I8 | “可复现”成为交付前门禁 | ⏳ 待决策 | — |
 
 说明：I1 之前，失败步的 `action_metrics` 恒为空（`incident` 有、数字没有），模型只看到一句 “Tap failed”；现在两者都在，模型侧消息形如 `Tap failed at (540, 1200) · incident=pointer_not_centered`。
+
+## 9. 2026-11-04 复盘（淘宝闪购珍珠奶茶，失败运行）落地记录
+
+来源：`traces/milk-tea_FAIL_2026-11-04T15-52-33/steps.json`（34 步，16:02 报告失败；数据库 `steps` 表含每步 tool result/metrics）。
+
+### 发现
+
+1. **manage_app 乐观成功**：step 1/15 返回 `Opened 'taobao' through the iOS keyboard launcher.`，屏幕并未变化；step 30 才返回 `no_screen_change`。启动器只按"整帧变化"判定，而 Spotlight 打开/关闭本身就构成变化。
+2. **绝对路径被误判不可用**：step 5/6/7 的 tap 全是相对分段（`ballistic,approach,fine...`）；能力探测用第一次观测的误差判定，一次假阳性就让整个会话退回相对路径。
+3. **指针检测假阳性**：step 11/18 各 12 段/13 次观测（撞 `max_segments`），两次检测到的"指针"位置完全相同（screen `618.04,486.65`），最终误差 234/379px——蓝环检测器锁在图标上的静态蓝环/FKA 焦点框上。
+4. **坐标偏**：step 5 目标 `[79,165]`（归一化）→ 帧 x≈35，而淘宝图标在帧 x≈45–100，点在了图标左侧/指针上。工具已支持目标框，Agent 用了自由坐标。
+5. **锁屏后盲跑**：15:56 锁屏，15:58 画面冻结（时钟停在 15:58），16:02 黑帧；`amove` 返回 `ERR abs mouse not ready`，后续 move/swipe 全部无效。
+
+### 落地
+
+| 发现 | 修复 | 证据 |
+|---|---|---|
+| 2、3 | 绝对路径验证通过后不再依赖指针检测：`_absolute_click` 一步移动 + 点击 + **目标区域变化**验证；探测失败保持"未探测"（不再整会话禁用绝对）；相对路径加静止幻影守卫（连续两次观测位置不变 → `pointer_static`，不再烧 12 段） | `artemis/reflex/mouse.py`；`tests/unit/reflex/test_pointer_session.py`（快路径 `observations=0`、`pointer_static` ≤4 次观测） |
+| 1 | 启动器先按 Escape 收掉残留 Spotlight，再要求 ≥2% 像素变化；新增"同屏不算启动"测试 | `artemis/reflex/ios_apps.py`；`tests/unit/reflex/test_ios_apps.py` |
+| 4 | 记录为 Agent 坐标问题：Siri 建议行应取图标中心（工具已支持 target 对象）；未改代码 | 本次 trace |
+| 5 | 记录为后续项：iOS 运行保活（无副作用按键）与 `suspended/锁屏/黑帧` 快速失败 | 待办 |
+
+说明：第 8 节的 I2（启动验收）由本节的启动器修复覆盖。
