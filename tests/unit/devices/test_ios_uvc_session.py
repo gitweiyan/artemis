@@ -153,7 +153,7 @@ def test_the_locate_anything_service_is_the_first_pointer_locator(monkeypatch):
     from artemis.reflex.locate_anything import LocateAnythingDetector
     from artemis.reflex.vision import BluePointerDetector
 
-    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862")
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7861")
     session = build_ios_uvc_session(Capture(), Control())
     detectors = session.control[0].controller.detector.detectors
 
@@ -164,7 +164,7 @@ def test_the_locate_service_is_the_first_target_locator(monkeypatch):
     from artemis.perception.base import Target
     from artemis.reflex.locate_anything import LocateAnythingDetector
 
-    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862")
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7861")
     monkeypatch.setattr(LocateAnythingDetector, "locate", lambda self, image, prompt: (0.5, 0.5))
     session = build_ios_uvc_session(Capture(), Control())
     source = session.perception[0]

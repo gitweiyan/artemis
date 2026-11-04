@@ -32,7 +32,7 @@ def test_the_service_point_is_turned_into_a_pointer(monkeypatch):
         return _Response({"point_norm": [244, 39]})
 
     monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", fake_urlopen)
-    detector = LocateAnythingDetector("http://127.0.0.1:7862")
+    detector = LocateAnythingDetector("http://127.0.0.1:7861")
 
     pointer = detector.detect(b"\x89PNG\r\n\x1a\n" + b"x" * 10)
 

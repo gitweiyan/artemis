@@ -34,9 +34,11 @@ import ast
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
+from artemis.agents.ios_shortcuts import is_ios_device
 from artemis.core.tool_failure import ToolFailure, is_tool_failure
 from artemis.context import ArtemisContext
 from artemis.controllers.unified_controller import UnifiedMobileController
@@ -102,6 +104,8 @@ class McpActionExecutor:
         # never sees or chooses the tier.
         self.agent_name = agent_name
         self._session: ActionSession | None = None
+        #: Cached LocateAnything client for coordinate targets (cooldown survives steps).
+        self._locate_service = None
 
     @property
     def action_tool_names(self) -> frozenset[str]:
@@ -176,9 +180,12 @@ class McpActionExecutor:
         with span:
             try:
                 session = await self._session_or_start()
+                args, locate_record = await self._locate_coordinate_target(raw_name, args, state)
                 wire_name, wire_args, finalize, target_semantics = self._translate(
                     raw_name, args, state, index_elements=index_elements
                 )
+                if locate_record:
+                    target_semantics = {**target_semantics, "locate_anything": locate_record}
                 if raw_name in _POINT_TARGET_ACTIONS:
                     # The normalized point the action was sent to: the recorded
                     # coordinates of an index target (the model named an index,
@@ -267,6 +274,60 @@ class McpActionExecutor:
         if raw_name == "wait_for_text":
             return res.code is ActionCode.TIMEOUT
         return False
+
+    async def _locate_coordinate_target(
+        self, raw_name: str, args: dict[str, Any], state: Any
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """Resolve a described coordinate target through LocateAnything on iOS.
+
+        The agent's own point is not verified by anything, so for a coordinate
+        click/long-press/input target the service's point is used instead. The
+        record keeps both points for the action audit; any failure (service off,
+        down, no screenshot) leaves the model's coordinates untouched.
+        """
+        if raw_name not in ("click", "long_press", "input_text"):
+            return args, None
+        target = args.get("target") or args.get("coordinates")
+        if not (isinstance(target, (list, tuple)) and len(target) == 2):
+            return args, None
+        description = args.get("target_description")
+        if not (isinstance(description, str) and description.strip()):
+            return args, None
+        if not is_ios_device(self.ctx):
+            return args, None
+        url = os.environ.get("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862").strip()
+        if not url or url.lower() in ("off", "none", "0"):
+            return args, None
+        screenshot_path = getattr(state, "latest_screenshot", None)
+        if not screenshot_path:
+            return args, None
+        from artemis.reflex.locate_anything import LocateAnythingDetector
+
+        if self._locate_service is None or getattr(self._locate_service, "url", "") != url.rstrip(
+            "/"
+        ):
+            self._locate_service = LocateAnythingDetector(url)
+        try:
+            image = Path(screenshot_path).read_bytes()
+        except OSError:
+            return args, None
+        point = await asyncio.to_thread(self._locate_service.locate, image, description.strip())
+        if point is None:
+            return args, None
+        located = [
+            int(round(max(0.0, min(1.0, float(point[0]))) * 1000)),
+            int(round(max(0.0, min(1.0, float(point[1]))) * 1000)),
+        ]
+        original = [int(target[0]), int(target[1])]
+        record: dict[str, Any] = {
+            "source": "locate-anything",
+            "description": description.strip(),
+            "point": located,
+        }
+        if located != original:
+            record["model_point"] = original
+            return {**args, "target": located}, record
+        return args, record
 
     # --- Argument translation --------------------------------------------------------
 

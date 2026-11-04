@@ -19,7 +19,7 @@ from artemis.reflex.vision import Pointer
 
 __all__ = ["LocateAnythingDetector", "DEFAULT_LOCATE_URL", "DEFAULT_LOCATE_PROMPT"]
 
-DEFAULT_LOCATE_URL = "http://127.0.0.1:7862"
+DEFAULT_LOCATE_URL = "http://127.0.0.1:7861"
 DEFAULT_LOCATE_PROMPT = "the blue circular mouse pointer"
 
 
