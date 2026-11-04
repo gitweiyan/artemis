@@ -676,3 +676,50 @@ def test_register_candidates_stores_pixel_bounds_and_ocr_flag():
     element = state.indexed_elements[0]
     assert element["bounds"] == [400, 900, 600, 1100]
     assert element["is_ocr"] is True
+
+
+def test_locate_with_locate_anything_returns_the_service_point(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    import pytest
+
+    from artemis.tools.explorer_tool import locate_with_locate_anything
+
+    shot = tmp_path / "shot.png"
+    shot.write_bytes(b"\x89PNG\r\n\x1a\n")
+    state = SimpleNamespace(latest_screenshot=str(shot))
+    prompts = []
+
+    class _Response:
+        def read(self):
+            return json.dumps({"point_norm": [968, 696]}).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        prompts.append(json.loads(request.data)["prompt"])
+        return _Response()
+
+    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", fake_urlopen)
+
+    point = locate_with_locate_anything(state, "关闭天天免单弹框的X", url="http://127.0.0.1:7862")
+
+    assert point == pytest.approx((0.968, 0.696))
+    assert prompts == ["关闭天天免单弹框的X"]
+
+
+def test_locate_with_locate_anything_is_off_when_the_service_is_off(tmp_path):
+    from types import SimpleNamespace
+
+    from artemis.tools.explorer_tool import locate_with_locate_anything
+
+    shot = tmp_path / "shot.png"
+    shot.write_bytes(b"png")
+    state = SimpleNamespace(latest_screenshot=str(shot))
+
+    assert locate_with_locate_anything(state, "搜索", url="off") is None

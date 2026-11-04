@@ -48,14 +48,15 @@ def build_ios_uvc_session(
     ocr_engine=None,
     assistive_button_box: tuple[int, int, int, int] | None = None,
 ) -> DeviceSession:
+    # One URL for both locators: the pointer detector chain and the perception target
+    # locator. `off`/`none`/`0` disables the service everywhere.
+    locate_url = os.environ.get("ARTEMIS_IOS_LOCATE_URL", DEFAULT_LOCATE_URL).strip()
+    if locate_url.lower() in ("off", "none", "0"):
+        locate_url = ""
     pointer = PointerSession(control, frame_size=frame_size, gain=pointer_gain)
     if detector is None:
-        # The local LocateAnything service is the first pointer locator; the colour/
-        # shape detectors remain the fallback (and the only path when the service is
-        # off/unavailable). `off`/`none`/`0` disables it.
-        locate_url = os.environ.get("ARTEMIS_IOS_LOCATE_URL", DEFAULT_LOCATE_URL).strip()
         detectors = [BluePointerDetector()]
-        if locate_url and locate_url.lower() not in ("off", "none", "0"):
+        if locate_url:
             detectors.insert(0, LocateAnythingDetector(locate_url))
         detector = CompositePointerDetector(detectors)
     controller = SessionTapController(
@@ -69,7 +70,14 @@ def build_ios_uvc_session(
     )
     geometry = ScreenGeometry(frame_size, screen_size)
     return DeviceSession(
-        perception=[UvcSource(capture, ocr_engine=ocr_engine, target_adjuster=icon_above_label)],
+        perception=[
+            UvcSource(
+                capture,
+                ocr_engine=ocr_engine,
+                target_adjuster=icon_above_label,
+                locate_url=locate_url,
+            )
+        ],
         control=[HidControlSink(pointer, controller, geometry=geometry)],
         geometry=geometry,
         pointer=pointer,

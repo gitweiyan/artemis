@@ -31,6 +31,7 @@ through ``ToolFailure`` or an explicit status.
 """
 
 import ast
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -768,6 +769,23 @@ class McpActionExecutor:
         ``ok`` is False only when the Explorer run itself failed: a clean
         "not found" is a successful answer the agent has to reason about.
         """
+        # LocateAnything first on iOS: a point localization in ~2 s, with the LLM
+        # Explorer as the fallback when the service is off, down or finds nothing.
+        from artemis.agents.ios_shortcuts import is_ios_device
+
+        if is_ios_device(self.ctx):
+            from artemis.tools.explorer_tool import locate_with_locate_anything
+
+            point = await asyncio.to_thread(locate_with_locate_anything, state, query)
+            if point is not None:
+                nx = round(point[0] * 1000)
+                ny = round(point[1] * 1000)
+                return (
+                    f"LocateAnything located {query!r} at normalized [{nx}, {ny}] "
+                    f"(0-1000). Use click(target=[{nx}, {ny}], "
+                    f"target_description={query!r}).",
+                    True,
+                )
         # Imported lazily: the explorer stack is heavy and recursive (it spawns an LLM
         # sub-agent), which is also why it must never live behind the action server.
         from artemis.tools.explorer_tool import locate, register_candidates, render_text

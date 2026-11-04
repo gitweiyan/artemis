@@ -32,6 +32,7 @@ import base64
 from dataclasses import dataclass, field
 import glob
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -262,6 +263,32 @@ def _element_pixel_bounds(element: dict[str, Any]) -> tuple[int, int, int, int] 
 # --------------------------------------------------------------------------- #
 # Pipeline
 # --------------------------------------------------------------------------- #
+
+
+def locate_with_locate_anything(
+    state: Any, query: str, *, url: str | None = None
+) -> tuple[float, float] | None:
+    """Ask the local LocateAnything service for a 0..1 point, or None.
+
+    This is the fast first attempt for ``ask_explorer`` on iOS; the LLM Explorer is
+    still the fallback when the service is off, down or finds nothing.
+    """
+    from artemis.reflex.locate_anything import DEFAULT_LOCATE_URL, LocateAnythingDetector
+
+    raw = url if url is not None else os.environ.get("ARTEMIS_IOS_LOCATE_URL", DEFAULT_LOCATE_URL)
+    raw = (raw or "").strip()
+    if not raw or raw.lower() in ("off", "none", "0"):
+        return None
+    if not isinstance(query, str) or not query.strip():
+        return None
+    path = getattr(state, "latest_screenshot", None)
+    if not path:
+        return None
+    try:
+        image = Path(path).read_bytes()
+    except OSError:
+        return None
+    return LocateAnythingDetector(raw).locate(image, query)
 
 
 async def locate(

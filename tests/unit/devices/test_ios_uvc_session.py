@@ -43,9 +43,10 @@ class OcrEngine:
         return [TextBox("闪购", (0.3, 0.1, 0.4, 0.2), 0.99)]
 
 
-def test_ocr_engine_is_available_through_ios_session():
+def test_ocr_engine_is_available_through_ios_session(monkeypatch):
     from artemis.perception.base import Target
 
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "off")
     session = build_ios_uvc_session(Capture(), Control(), ocr_engine=OcrEngine())
     source = session.perception[0]
     frame = asyncio.run(session.snapshot())
@@ -157,3 +158,20 @@ def test_the_locate_anything_service_is_the_first_pointer_locator(monkeypatch):
     detectors = session.control[0].controller.detector.detectors
 
     assert [type(item) for item in detectors] == [LocateAnythingDetector, BluePointerDetector]
+
+
+def test_the_locate_service_is_the_first_target_locator(monkeypatch):
+    from artemis.perception.base import Target
+    from artemis.reflex.locate_anything import LocateAnythingDetector
+
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862")
+    monkeypatch.setattr(LocateAnythingDetector, "locate", lambda self, image, prompt: (0.5, 0.5))
+    session = build_ios_uvc_session(Capture(), Control())
+    source = session.perception[0]
+    frame = asyncio.run(session.snapshot())
+
+    target = asyncio.run(source.locate(frame, Target("关闭红包的X", (0, 0, 0, 0), 0, "ocr")))
+
+    assert target is not None
+    assert target.source == "locate-anything"
+    assert target.box == (0.495, 0.495, 0.505, 0.505)
