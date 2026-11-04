@@ -127,12 +127,25 @@ bool hid_mouse_abs_move(uint16_t x, uint16_t y)
         .y = y,
         .wheel = 0,
     };
-    bool sent = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report));
-    // A single absolute report can be ignored when the host is between polls ("amove did
-    // nothing until retried"); the position is idempotent, so send it once more.
-    vTaskDelay(pdMS_TO_TICKS(30));
-    bool again = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report));
-    if (!(sent || again)) {
+    // Jitter: iOS can drop an absolute report whose value did not change, and the first
+    // report after an idle pointer only wakes it. A 1-unit offset (0.03 px on screen) is
+    // invisible, breaks the "no value change" filter, and makes the target report that
+    // follows a genuine change, so the position is applied.
+    uint16_t jitter_x = (x < 32767) ? (uint16_t) (x + 1) : (uint16_t) (x - 1);
+    hid_mouse_abs_report_t wake_report = {
+        .buttons = 0,
+        .x = jitter_x,
+        .y = y,
+        .wheel = 0,
+    };
+    bool sent_wake = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &wake_report, sizeof(wake_report));
+    vTaskDelay(pdMS_TO_TICKS(20));
+    bool sent_target = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report));
+    if (!sent_target) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        sent_target = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report));
+    }
+    if (!(sent_wake || sent_target)) {
         return false;
     }
     g_abs_mouse_x = x;
