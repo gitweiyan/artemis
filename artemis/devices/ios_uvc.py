@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from artemis.control.base import ActionResult
 from artemis.control.hid import HidControlSink
 from artemis.devices.geometry import ScreenGeometry
@@ -10,6 +12,10 @@ from artemis.reflex.mouse import PointerSession, SessionTapController
 from artemis.perception.base import Target
 from artemis.perception.uvc import UvcSource
 from artemis.perception.ios_targets import icon_above_label
+from artemis.reflex.locate_anything import (
+    DEFAULT_LOCATE_URL,
+    LocateAnythingDetector,
+)
 from artemis.reflex.vision import BluePointerDetector, CompositePointerDetector, PointerTracker
 
 
@@ -43,14 +49,19 @@ def build_ios_uvc_session(
     assistive_button_box: tuple[int, int, int, int] | None = None,
 ) -> DeviceSession:
     pointer = PointerSession(control, frame_size=frame_size, gain=pointer_gain)
+    if detector is None:
+        # The local LocateAnything service is the first pointer locator; the colour/
+        # shape detectors remain the fallback (and the only path when the service is
+        # off/unavailable). `off`/`none`/`0` disables it.
+        locate_url = os.environ.get("ARTEMIS_IOS_LOCATE_URL", DEFAULT_LOCATE_URL).strip()
+        detectors = [BluePointerDetector()]
+        if locate_url and locate_url.lower() not in ("off", "none", "0"):
+            detectors.insert(0, LocateAnythingDetector(locate_url))
+        detector = CompositePointerDetector(detectors)
     controller = SessionTapController(
         pointer,
         capture=_GrabLatest(capture),
-        # The iOS pointer is a blue ring. The legacy red detector is an Android
-        # artefact and must not drive iOS moves or clicks: on a busy screen it returns
-        # red UI elements as pointers (rig bench, 2026-11-03: Taobao's red badges at
-        # conf 0.99 moved the pointer away from its target).
-        detector=detector or CompositePointerDetector([BluePointerDetector()]),
+        detector=detector,
         # The AssistiveTouch pointer is sometimes grey and half-clipped at the screen
         # edge, which no colour/shape model catches reliably; the nudge/diff locator
         # needs no appearance model at all, so it backs the colour detector up.

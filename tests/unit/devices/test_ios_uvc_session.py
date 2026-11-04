@@ -137,11 +137,23 @@ def test_the_assistive_button_box_is_forwarded_to_the_tracker():
     assert session.control[0].controller.tracker.menu_box == (380, 200, 449, 280)
 
 
-def test_the_ios_session_trusts_only_the_blue_ring():
+def test_the_ios_session_trusts_only_the_blue_ring(monkeypatch):
     """The legacy red detector must not drive an iOS pointer (bench: red UI badges)."""
     from artemis.reflex.vision import BluePointerDetector
 
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "off")
     session = build_ios_uvc_session(Capture(), Control())
     detector = session.control[0].controller.detector
 
     assert [type(item) for item in detector.detectors] == [BluePointerDetector]
+
+
+def test_the_locate_anything_service_is_the_first_pointer_locator(monkeypatch):
+    from artemis.reflex.locate_anything import LocateAnythingDetector
+    from artemis.reflex.vision import BluePointerDetector
+
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862")
+    session = build_ios_uvc_session(Capture(), Control())
+    detectors = session.control[0].controller.detector.detectors
+
+    assert [type(item) for item in detectors] == [LocateAnythingDetector, BluePointerDetector]
