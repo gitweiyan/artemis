@@ -6,6 +6,11 @@
 #include "class/hid/hid_device.h"
 
 #define KEY_TAP_MS   30
+// Absolute pointer: let iOS settle the move before pressing, hold the button long
+// enough for a click (not a long press), and leave a short gap after the release.
+#define ABS_SETTLE_MS     100
+#define ABS_CLICK_HOLD_MS 60
+#define ABS_RELEASE_MS    20
 // HID interrupt endpoints use a 10 ms polling interval. Leave enough time for
 // the host to receive each key-down before sending the key-up report.
 #define TYPE_GAP_MS  20
@@ -83,21 +88,19 @@ bool hid_mouse_abs_ready(void)
     return tud_hid_n_ready(HID_ITF_MOUSE);
 }
 
-bool hid_mouse_abs_move(uint16_t x, uint16_t y)
+//: Last absolute position that was accepted by the host, for the click reports.
+static uint16_t g_abs_mouse_x = 0;
+static uint16_t g_abs_mouse_y = 0;
+static bool g_abs_mouse_position_valid = false;
+
+//: One report, retried while the endpoint is between polls.
+static bool hid_mouse_send_report(uint8_t report_id, const void *report, uint16_t report_len)
 {
-    if (!wait_mouse_ready()) {
-        return false;
-    }
-    hid_mouse_abs_report_t report = {
-        .buttons = 0,
-        .x = x,
-        .y = y,
-        .wheel = 0,
-    };
-    // A single absolute report can be dropped if the endpoint is between polls; one
-    // lost position leaves the pointer at the previous point (seen once in the spike).
     for (int attempt = 0; attempt < 5; attempt++) {
-        if (tud_hid_n_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report))) {
+        if (!wait_mouse_ready()) {
+            return false;
+        }
+        if (tud_hid_n_report(HID_ITF_MOUSE, report_id, report, report_len)) {
             return true;
         }
         vTaskDelay(pdMS_TO_TICKS(5));
@@ -105,18 +108,67 @@ bool hid_mouse_abs_move(uint16_t x, uint16_t y)
     return false;
 }
 
+bool hid_mouse_abs_move(uint16_t x, uint16_t y)
+{
+    hid_mouse_abs_report_t report = {
+        .buttons = 0,
+        .x = x,
+        .y = y,
+        .wheel = 0,
+    };
+    if (!hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report))) {
+        return false;
+    }
+    g_abs_mouse_x = x;
+    g_abs_mouse_y = y;
+    g_abs_mouse_position_valid = true;
+    return true;
+}
+
+//: Button state in both mouse reports, with no movement.
+//:
+//: iOS can ignore the button bits of an absolute report in a two-collection mouse
+//: (Ghosthand measured this on iOS 18): it sends the same press/release in the
+//: relative report with zero deltas. The absolute report keeps the *last* position,
+//: so a click never snaps the pointer back to (0, 0).
+static bool hid_mouse_abs_button(uint8_t buttons)
+{
+    hid_mouse_abs_report_t abs_report = {
+        .buttons = buttons,
+        .x = g_abs_mouse_x,
+        .y = g_abs_mouse_y,
+        .wheel = 0,
+    };
+    hid_mouse_rel_report_t rel_report = {
+        .buttons = buttons,
+        .x = 0,
+        .y = 0,
+        .wheel = 0,
+    };
+    bool abs_ok = hid_mouse_send_report(HID_REPORT_ID_MOUSE_ABS, &abs_report, sizeof(abs_report));
+    bool rel_ok = hid_mouse_send_report(HID_REPORT_ID_MOUSE, &rel_report, sizeof(rel_report));
+    return abs_ok && rel_ok;
+}
+
 bool hid_mouse_abs_click(void)
 {
-    if (!wait_mouse_ready()) {
+    if (!g_abs_mouse_position_valid) {
+        return false;  // a click without a known absolute position would land at 0,0
+    }
+    // Let the absolute move settle before pressing (Ghosthand: 0-30 ms can lose the
+    // click; 60 ms and up was stable).
+    vTaskDelay(pdMS_TO_TICKS(ABS_SETTLE_MS));
+    if (!hid_mouse_abs_button(MOUSE_BUTTON_LEFT)) {
+        hid_mouse_abs_button(0);  // never leave a button stuck down
         return false;
     }
-    hid_mouse_abs_report_t report = { .buttons = MOUSE_BUTTON_LEFT };
-    if (!tud_hid_n_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report))) {
+    vTaskDelay(pdMS_TO_TICKS(ABS_CLICK_HOLD_MS));
+    if (!hid_mouse_abs_button(0)) {
+        hid_mouse_abs_button(0);
         return false;
     }
-    vTaskDelay(pdMS_TO_TICKS(KEY_TAP_MS));
-    report.buttons = 0;
-    return tud_hid_n_report(HID_ITF_MOUSE, HID_REPORT_ID_MOUSE_ABS, &report, sizeof(report));
+    vTaskDelay(pdMS_TO_TICKS(ABS_RELEASE_MS));
+    return true;
 }
 
 void hid_mouse_down(void)

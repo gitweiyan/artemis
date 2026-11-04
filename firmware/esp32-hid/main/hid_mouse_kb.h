@@ -29,6 +29,15 @@ typedef struct __attribute__((packed)) {
     int8_t   wheel;
 } hid_mouse_abs_report_t;
 
+//: Relative (boot) mouse report payload; report ID 0 means no prefix on the wire.
+#define HID_MOUSE_REL_REPORT_LEN 4
+typedef struct __attribute__((packed)) {
+    uint8_t buttons;
+    int8_t  x;
+    int8_t  y;
+    int8_t  wheel;
+} hid_mouse_rel_report_t;
+
 // Keyboard — used by iOS/Android for typing and navigation.
 void hid_keyboard_press(uint8_t modifier, uint8_t keycode);
 void hid_keyboard_release(void);
