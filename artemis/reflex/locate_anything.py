@@ -16,6 +16,9 @@ import time
 import urllib.request
 
 from artemis.reflex.vision import Pointer
+from third_party.mobile_use.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 __all__ = ["LocateAnythingDetector", "DEFAULT_LOCATE_URL", "DEFAULT_LOCATE_PROMPT"]
 
@@ -47,13 +50,18 @@ class LocateAnythingDetector:
         self.cooldown_s = max(0.0, float(cooldown_s))
         self._failures = 0
         self._skip_until = 0.0
+        #: Why the last call returned None (``timeout``, ``connection refused``, ...).
+        self.last_error: str | None = None
+        self.last_elapsed_ms: float = 0.0
 
     def locate(self, image: bytes, prompt: str) -> tuple[float, float] | None:
         """The service's 0..1 point for ``prompt``, or None while unavailable."""
         # Two consecutive failures mean the service is not usable right now; skipping it
         # keeps every observation from paying two timeouts in a row.
         if time.monotonic() < self._skip_until:
+            self.last_error = "cooling down after repeated failures"
             return None
+        started = time.monotonic()
         try:
             payload = json.dumps(
                 {"image": _data_url(image), "prompt": str(prompt), "w": 0, "h": 0}
@@ -72,12 +80,24 @@ class LocateAnythingDetector:
             y = float(point[1]) / 1000.0
             if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
                 raise ValueError(f"point_norm outside 0..1000: {point!r}")
-        except Exception:  # noqa: BLE001 - the detector chain is the fallback by design
+        except Exception as exc:  # noqa: BLE001 - the detector chain is the fallback by design
             self._failures += 1
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            self.last_elapsed_ms = (time.monotonic() - started) * 1000.0
             if self._failures >= 2:
                 self._skip_until = time.monotonic() + self.cooldown_s
+            logger.warning(
+                f"LocateAnything {self.url} {prompt!r} failed in "
+                f"{self.last_elapsed_ms:.0f} ms: {self.last_error}"
+            )
             return None
         self._failures = 0
+        self.last_error = None
+        self.last_elapsed_ms = (time.monotonic() - started) * 1000.0
+        logger.debug(
+            f"LocateAnything {self.url} {prompt!r} -> [{round(x * 1000)}, {round(y * 1000)}] "
+            f"in {self.last_elapsed_ms:.0f} ms"
+        )
         return x, y
 
     def detect(self, image: bytes, near: tuple[float, float] | None = None) -> Pointer | None:

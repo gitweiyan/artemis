@@ -313,7 +313,12 @@ class McpActionExecutor:
             return args, None
         point = await asyncio.to_thread(self._locate_service.locate, image, description.strip())
         if point is None:
-            return args, None
+            return args, {
+                "source": "locate-anything",
+                "description": description.strip(),
+                "error": getattr(self._locate_service, "last_error", None) or "no point",
+                "model_point": [int(target[0]), int(target[1])],
+            }
         located = [
             int(round(max(0.0, min(1.0, float(point[0]))) * 1000)),
             int(round(max(0.0, min(1.0, float(point[1]))) * 1000)),
@@ -323,6 +328,7 @@ class McpActionExecutor:
             "source": "locate-anything",
             "description": description.strip(),
             "point": located,
+            "elapsed_ms": round(getattr(self._locate_service, "last_elapsed_ms", 0.0)),
         }
         if located != original:
             record["model_point"] = original

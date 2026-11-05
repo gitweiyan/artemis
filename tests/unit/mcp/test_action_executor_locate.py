@@ -78,4 +78,7 @@ def test_a_service_failure_keeps_the_model_point(tmp_path, monkeypatch):
     out, record = asyncio.run(executor._locate_coordinate_target("click", args, _state(tmp_path)))
 
     assert out is args
-    assert record is None
+    assert record is not None
+    assert record["source"] == "locate-anything"
+    assert record["error"]
+    assert record["model_point"] == [900, 800]
