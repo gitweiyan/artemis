@@ -325,3 +325,21 @@ async def test_manage_app_uses_the_ios_spotlight_launcher():
     assert res.ok is True
     assert calls == ["alipay"]
     assert "iOS keyboard launcher" in res.message
+
+
+@pytest.mark.asyncio
+async def test_clear_text_clears_the_focused_field(actuator):
+    res = await actuator.clear_text()
+    assert res.ok
+    assert res.message == "Cleared the focused text field."
+
+
+@pytest.mark.asyncio
+async def test_clear_text_reports_a_failed_clear(actuator, monkeypatch):
+    async def failing():
+        return False
+
+    monkeypatch.setattr(actuator.controller, "erase_text", failing)
+    res = await actuator.clear_text()
+    assert not res.ok
+    assert res.message == "Failed to clear the focused text field."

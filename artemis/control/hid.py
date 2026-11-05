@@ -252,6 +252,10 @@ class HidControlSink:
         await asyncio.to_thread(self._control.type_text, text)
         return ActionResult(True, "input_text")
 
+    async def clear_text(self) -> ActionResult:
+        await asyncio.to_thread(self._control.clear_text)
+        return ActionResult(True, "clear_text")
+
     async def press_key(self, key) -> ActionResult:
         press = getattr(self._control, "press_named_key", None)
         if press is None:

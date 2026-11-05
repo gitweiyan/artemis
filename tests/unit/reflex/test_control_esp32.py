@@ -570,3 +570,10 @@ def test_an_absolute_click_is_the_firmware_aclick_command(esp32):
     control.mouse_click_abs()
 
     assert recorder.lines == ["aclick\n"]
+
+
+def test_clearing_text_is_select_all_then_backspace(esp32):
+    """Cmd+A selects the field, Backspace deletes the selection (US keyboard usages)."""
+    control, recorder = esp32()
+    control.clear_text()
+    assert recorder.lines == ["keymod 8 4\n", "key 42\n"]

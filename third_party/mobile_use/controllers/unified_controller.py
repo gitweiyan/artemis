@@ -159,6 +159,11 @@ class UnifiedMobileControllerBase:
         return await self._driver.press_key(keycode)
 
     async def erase_text(self, nb_chars: int | None = None) -> bool:
+        # A driver that knows the platform's clear gesture (iOS: Cmd+A + Backspace)
+        # owns it; the Android shell fallback below is wrong for a HID keyboard.
+        driver_erase = getattr(self._driver, "erase_text", None)
+        if driver_erase is not None:
+            return await driver_erase(nb_chars)
         if nb_chars is not None and nb_chars > 0:
             for _ in range(nb_chars):
                 await self._driver.press_key("delete")

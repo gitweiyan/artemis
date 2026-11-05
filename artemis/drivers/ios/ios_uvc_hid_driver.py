@@ -250,6 +250,11 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         result = await self._relative_sink().input_text(text)
         return result.ok
 
+    async def erase_text(self, nb_chars: int | None = None) -> bool:
+        """Clear the focused field on iOS: Cmd+A + Backspace (nb_chars ignored)."""
+        result = await self._relative_sink().clear_text()
+        return result.ok
+
     async def press_key(self, key) -> bool:
         result = await self._relative_sink().press_key(key)
         return result.ok

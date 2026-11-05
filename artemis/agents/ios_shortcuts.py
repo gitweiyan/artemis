@@ -42,6 +42,9 @@ Decision rules:
    arrows for UI focus; verify the focus change on screen.
 6. Spotlight can open with Cmd+Space but Escape may not close it on the first
    press. Check the frame before assuming the overlay is gone.
+7. Before retyping into a field that may already contain text, call `clear_text`
+   (Cmd+A + Backspace). Appending to stale text produces unsearchable strings
+   such as `Mai2enzhunaichaha`.
 """
 
 

@@ -258,6 +258,15 @@ class AdbActuator:
             normalized_coordinates=coords,
         )
 
+    async def clear_text(self) -> ActionResult:
+        """Clear the focused text field (select all + delete)."""
+        erase = getattr(self.controller, "erase_text", None)
+        if erase is None:
+            return ActionResult.failure("clear_text", "The controller cannot clear a text field.")
+        if await erase():
+            return ActionResult.success("clear_text", "Cleared the focused text field.")
+        return ActionResult.failure("clear_text", "Failed to clear the focused text field.")
+
     async def swipe(
         self,
         start: tuple[int, int],

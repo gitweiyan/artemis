@@ -534,6 +534,16 @@ class Esp32HidControl(Control):
                     self._send(f"type {line[start : start + chunk_size]}")
         return (time.monotonic() - started) * 1000.0
 
+    def clear_text(self) -> float:
+        """Clear the focused text field: Cmd+A selects all, Backspace deletes it."""
+        started = time.monotonic()
+        self._send("keymod 8 4")
+        # The phone applies the selection asynchronously; Backspace immediately after
+        # the key release can delete one character instead of the whole selection.
+        time.sleep(0.08)
+        self._send("key 42")
+        return (time.monotonic() - started) * 1000.0
+
     def press_key(self, usage: int) -> float:
         """Press and release one HID key by its decimal usage code (e.g. 40 = Enter)."""
         return self._timed(f"key {int(usage)}")

@@ -200,6 +200,10 @@ async def _wire_long_press(actuator: Any, a: dict[str, Any]) -> ActionResult:
     )
 
 
+async def _wire_clear_text(actuator: Any, a: dict[str, Any]) -> ActionResult:
+    return await actuator.clear_text()
+
+
 async def _wire_input_text(actuator: Any, a: dict[str, Any]) -> ActionResult:
     target = a["target"]
     norm = (int(target[0]), int(target[1])) if target else None
@@ -686,6 +690,14 @@ _SPECS: tuple[ActionSpec, ...] = (
             description="Open a URL on the device.",
             params=(ParamSpec("url", str),),
             bind=_wire_open_link,
+        ),
+    ),
+    ActionSpec(
+        name="clear_text",
+        wire=WireDialect(
+            description="Clear the focused text field (select all, then delete).",
+            params=(),
+            bind=_wire_clear_text,
         ),
     ),
     ActionSpec(

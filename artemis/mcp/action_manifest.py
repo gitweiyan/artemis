@@ -88,6 +88,7 @@ OPTIONAL_ACTIONS: frozenset[str] = frozenset(
         "wait_for_text",
         "open_link",
         "erase_one_char",
+        "clear_text",
         "focus_and_clear_text",
     }
 )
