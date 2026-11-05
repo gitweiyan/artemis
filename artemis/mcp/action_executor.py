@@ -295,18 +295,20 @@ class McpActionExecutor:
             return args, None
         if not is_ios_device(self.ctx):
             return args, None
-        url = os.environ.get("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862").strip()
+        from artemis.reflex.locate_anything import DEFAULT_LOCATE_URL, LocateAnythingDetector
+
+        url = os.environ.get("ARTEMIS_IOS_LOCATE_URL", DEFAULT_LOCATE_URL).strip()
         if not url or url.lower() in ("off", "none", "0"):
             return args, None
         screenshot_path = getattr(state, "latest_screenshot", None)
         if not screenshot_path:
             return args, None
-        from artemis.reflex.locate_anything import LocateAnythingDetector
-
         if self._locate_service is None or getattr(self._locate_service, "url", "") != url.rstrip(
             "/"
         ):
-            self._locate_service = LocateAnythingDetector(url)
+            # 10 s: the service's first request after an idle period loads/warms the
+            # model; a 4 s budget made the first target of a run fall back silently.
+            self._locate_service = LocateAnythingDetector(url, timeout_s=10.0)
         try:
             image = Path(screenshot_path).read_bytes()
         except OSError:
