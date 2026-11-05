@@ -8,7 +8,7 @@
 - 现状：已完成 **6** / 部分完成 **5** / 未开始 **5**
 - 口径提醒：搜狐 I8 与 电池 I5 **是重叠而非同一项**（电池 I5 只覆盖保活探测缓存，搜狐 I8 另含录屏等待），故两者各自计一项、共享同一段剩余工作；同理 电池 I4 的 I4b/c/d 是它的剩余缺口，不另立条目
 - 知识沉淀 6 项：已沉淀 **2** / 待定 **4**
-- 状态词：`已完成`（验收通过且已并入整合分支）｜`部分`（列出剩余缺口）｜`未开始`｜`不采纳`
+- 状态词：`已完成`（验收通过且已并入整合分支）｜`部分`（列出剩余缺口）｜`未开始`｜`不采纳`｜`已实现·待提交`（代码/测试/复算通过，但仍是未提交的工作区改动；不满足「已并入整合分支」口径，提交后须改成 `已完成` 并补 commit/tag）
 
 ## 1. 已完成（6）
 
@@ -139,3 +139,54 @@
 | 5 | 记录为后续项：iOS 运行保活（无副作用按键）与 `suspended/锁屏/黑帧` 快速失败 | 待办 |
 
 说明：第 8 节的 I2（启动验收）由本节的启动器修复覆盖。
+
+## 10. 2026-11-05 复盘（milk-tea-locate，Flash / 49 步 / cancelled）落地记录
+
+来源：`reports/复盘-20261105-milk-tea-locate.html`（本地未入库快照，8 问题 / 4 根因 / 9 改进项，决策列交付时全为「待决策」）；原始轨迹 `traces/milk-tea-locate_FAIL_2026-11-05T15-37-55/`（49 步 / 7m54s / `cancelled`）；`traces/data_engine.db` session `4bcb2cc0-0c67-4a79-8001-3aa24907107e`（739 条 trace，其中 470 条 `type=log`）。状态以本节为准。
+
+**提交状态**：本节 3 项的代码与测试已并入 `1ec5348`（2026-11-05，`feat/new-project`），故按文首口径记 `✅ 已完成`；本台账的登记为随后一笔仅文档提交。`config/artemis.jsonc` 的改动在该运行发生前就存在，与本节无关，未纳入提交。
+
+### 10.1 决策校正（逐帧 + 原始轨迹核对后，含一条用户更正）
+
+| 报告项 / 结论 | 核对结论 | 依据 |
+|---|---|---|
+| I1「服务点与模型点距离 >300 时记录冲突并保留模型点」 | ❌ **不采纳**：本次 27 次 `target_semantics.locate_anything` 中距离 >300 的 14 次，仅 2 次 `no_effect`（step6 488、step17 452）+ 1 次选错行（step47 536），其余 11 次是正确纠正（搜索按钮 481、筛选 502）。按距离自动回退会把正确纠正退回旧问题 | `traces/data_engine.db`；改形为「记录冲突字段 + 候选 box / 描述唯一性」，见 ④ |
+| I3「`press_named_key(BACK)` 直接返回不支持」 | ⚠️ **前提错误，别重复实现**：`artemis/reflex/control.py` 已 raise `ValueError`，`artemis/control/hid.py::press_key` 已转 `incident=unsupported_key`，playbook §1 也已登记。真因是 `AdbActuator.press_key` 丢弃 `go_back()` 的 `bool` 并无条件 `ActionResult.success`——DB 里 4 步结果都是 `Pressed key 'BACK'.` | 见 ① |
+| I4「pre/post dhash 相同即 no-op」 | ⚠️ **判据需改形**：整帧 dhash 会漏掉 step17 这类「整帧微变、目标 crop 不变」；现成判据是 `incident=no_effect` + `action_metrics.crop_change`（step6=0.0 / step17=0.009 / step30=0.53 / step45=0.39）。另需 wait/加载白名单（step43 等 3 s 是合法静止）与「帧已变则否决 `crop_change`」（弹层可在别处打开） | 见 ⑤ |
+| P4「蓝环是选中标记」/「观察帧去掉蓝环污染」 | ✅ **用户 2026-11-05 更正，硬断言撤回**：蓝环是 AssistiveTouch 鼠标指针，iOS 操作逻辑是先把蓝环移到目标 UI 再点击；`BluePointerDetector` / `check_point` / `travel_verified` 都依赖它，不能从观察链路去掉，也不能禁止描述它 | 真缺口是 `verify_effect` 缺「输入 overlay 不算 UI 变化」的概念：`DEFAULT_MIN_CHANGED_FRACTION=0.01`，而 240×240 crop 里蓝环占 1.03%–1.28%；step6 crop diff 0.0404 → 屏蔽环后 0.0001、step17 0.0074→0.0013。见 ③ |
+| 「Flash 不写 `run_outcome`」「scrcpy 失败」当缺陷 | ❌ 不采纳：§6.4 已记 Flash 按设计不写；iOS 无 ADB 导致 scrcpy 失败亦非缺陷 | 不为这两项写代码 |
+| 归档自证缺口（复盘外发现） | ✅ 采纳：`Task cancelled` 与两处 LocateAnything 超时（10017 ms / 4003 ms）只存在于 `step_id=None` 的 `type=log` DB 行；归档既无 `status.json` 也无取消原因，`incident` / `action_metrics` 虽在 DB 却未进 `steps.json`。`status.json` 走 `_finalize_tracing`，Flash 同样命中，正是 §6.4 要求「单独确认 Flash 落点」的落点 | 见 ⑥ |
+
+### 10.2 首批落地（3 项）
+
+| 批次项 | 覆盖的报告项 | 内容 | 状态 | 证据（路径 · `1ec5348`） |
+|---|---|---|---|---|
+| ① `go_back()` 返回值透传 | 11-05 I3 · 11-04 I2 | back/home/enter 分支保留 `bool` 返回值；仅 `back` + `is_ios_device(ctx)` 失败映射 `ActionCode.UNSUPPORTED` / `incident=unsupported_key`，并给出 escape / 左上返回箭头 / home 三条替代路径；HOME/ENTER 与 Android BACK 失败仍是通用 `DEVICE_ERROR`。理由：`IosUvcHidDriver.press_key` 把 `HidControlSink` 的 `ActionResult` 压成 `.ok`，`incident/detail` 已丢，只能在 actuator 边界恢复 | ✅ 已完成 | `artemis/mcp/actuators/adb.py::press_key` · `tests/unit/mcp/test_actuators.py`（+4 例，用真实 `HidControlSink` + 真实 `UnifiedMobileControllerBase`，只 double 固件 `press_named_key`）· TDD RED 3 failed/3 passed → GREEN 25 passed |
+| ⑤ Flash 跨步 no-op 守门 | 11-05 I4 · 11-04 I4 | 纯逻辑 `NoOpTracker` 折叠 `status` / `incident` / `crop_change` / pre-post dHash：2 次 warn（换策略提示）、3 次有界中止；`WAIT_ACTIONS` 既不计入也不清除已有停滞；`SAME_SCREEN_MAX_DHASH_DISTANCE=2`。runner 把 `no_op_consecutive` 盖进 step、warn 走临时 tail notice、abort 给 failed 终报 | ✅ 已完成 | 新增 `artemis/agents/flash/no_op.py`、`tests/unit/agents/test_flash_no_op.py`；改 `artemis/agents/flash/runner.py`、`tests/unit/agents/test_flash_runner.py` |
+| ⑥ 归档证据链（复盘外发现） | §6 归档自证缺口 | `get_traces_for_session(..., latest_first=True)` 读到 `step_id=None` 日志行并从尾部扫 WARNING；`steps.json` 每行补 `evidence`（`incident` / `action_metrics` / `no_op_consecutive`，兼容 dict 与 Pro 的 list 两种形状）；`write_run_status()` 写 `status.json`（终态 / 取消原因 / 起止 / 时长 / 步数 / WARNING / degradations，全程 best-effort）；`_finalize_tracing` 在 manifest 之后调用（该处在 `finally` 里，`CancelledError` 路径同样走到） | ✅ 已完成 | `artemis/data_engine/storage.py`、`artemis/runtime/trace_export.py`、`third_party/mobile_use/sdk/agent.py`；`tests/unit/data_engine/test_engine.py`（真实 SQL 尾部顺序）、`tests/unit/runtime/test_trace_export.py`、`tests/unit/sdk/test_agent_trace_finalization.py` |
+
+⑥ 先于 ⑤ 落地：⑤ 消费的 `incident` / `action_metrics` 正是 ⑥ 才开始落盘的证据。§9 未枚举 11-04 报告的 I1–I9，故 11-04 I2 / I4 的覆盖关系在此登记（该报告 `reports/复盘-20261104-milk-tea-locate.html` 的决策列仍为「待决策」）。
+
+### 10.3 验收与真实数据复算
+
+- 定向 6 个测试文件 **96 passed**（含测试改名后的最终版本复跑）；`ruff check` 全过，`ruff format` 只作用于本次改动的文件。`artemis/agents/flash/runner.py:339` 的 format 偏差在 HEAD 里就存在，未顺手改以免混入无关 diff。
+- 全量 `uv run pytest tests/unit -q`：**14 failed / 3476 passed / 9 skipped**；14 项与 P0 ① 后基线完全相同（`admin_console/test_model_service` 2、`agents/test_explorer` 9、`agents/test_video_analyzer` 3），无新增回归。
+- 仓库质量门 `scripts/quality_ratchet.py` 在**提交前的 HEAD 就已失败**：`broad_exception_handlers 761 > 754`、`type_ignore_comments 20 > 18`（`.quality-baseline.json` 最后更新于 `351ca84` / 2026-09-28）。逐个核对本次 6 个生产文件，两项计数相对 HEAD 增量均为 **0**，故未改基线、未绕过该门禁；如 CI 因它变红，属既有仓库级欠账，与本节三项无关。
+- ⑥ 用真实 DB 端到端复算 `write_run_status`：`status=cancelled / steps=49 / duration_s=474 / 6 条 WARNING`，含 `Task cancelled`、两处 LocateAnything 超时、scrcpy 失败、run_identity 未提交路径。此前这些只存在于 DB，归档无法自证。
+- ⑤ 的真实效果**如实记录**：4 次 BACK 的 pre/post dHash 距离 = 0/1/0/1，真实画面变化 = 24–32，容差 2 标定正确；**但那 4 次被真实变化隔开，全 49 步最长连续簇只有 2（step 5–6、39–40）⇒ ⑤ 只会 warn 两次，不会中止、救不回 11-05 那次运行**。测试 `test_a_stalled_loop_of_silent_backs_stops_on_the_third_turn` 是假设场景而非回放；原夸大测试名已改。
+- 验收中一并修掉：abort 终态说明覆盖已排队的换策略提示；`status.json` 原本按 `ASC LIMIT 500` 只扫最旧日志（15:37 已有 470 条 log，更长运行会丢掉尾部取消 WARNING），改为从尾部读并补 1000 条 log 回归用例。
+
+### 10.4 待决策 / 未落地
+
+| 批次项 / 报告项 | 内容 | 状态 |
+|---|---|---|
+| ② | LocateAnything 超时/预热统一：`mcp/action_executor.py` 10 s（本次 10017 ms 仍超时）vs `devices/ios_uvc.py` / `perception/uvc.py` / `tools/explorer_tool.py` 默认 4 s；连续 2 次失败触发 60 s cooldown；预热后稳定 830–988 ms | ⏳ 待决策（对应 I2） |
+| ③ | 保留蓝环语义的 `verify_effect(..., pointer_point=...)` + `POINTER_RADIUS_PX=20` 膨胀圆掩码，产出 `crop_change_excl_pointer`；配套基线时序对齐（`_absolute_click` 的 `before` 取在 `move_abs()` 之前会混入指针就位）。`append_ios_shortcuts` 固定声明改为「蓝环是鼠标指针、不代表 UI 选中态；选中态只认橙色文字 / `查看(已选N)` 计数 / 勾选框填充」+ 结构化 `pointer_at` | ⏳ 待决策（用户更正后的形态）。影响面：step28/30/45/47 排除环后仍 0.121/0.594/0.548/0.067，判定不翻；只影响 step6/17 这类边界 case，属边界正确性 + 证据可信度，救不回本次任务 |
+| ④ | `action_executor.py` 定位冲突字段（`point` vs `model_point`、候选 box、描述唯一性）+ 重复按钮按 OCR 商品名行绑定（step47：服务点 y=500 是蜜桃四季春、模型点 y=648 才是珍珠奶茶，x 都对） | ⏳ 待决策（对应 I1 / I6） |
+| I5 / I7 | 任务定义澄清（起送价 / 配送费 / 券后预估哪个算「便宜」、是否允许凑单到起送价、什么算走到支付页、起始页面）；筛选 apply 后校验 chip 与结果是否真变化 | ⏳ 待决策。**§8 I7、11-04 I7、11-05 I5 已三次提出同类项，不要开第四份散文台账**；起送价知识已写在 `skills/ios-taobao/README.md` 但全仓无代码加载，活通道是 `append_ios_shortcuts` |
+| I6 | 选规格定位优先点商品名/行（唯一），描述里带商品名 | ⏳ 待决策（与 ④ 合并） |
+| I8 / I9 | `manage_app` 后校验前台/页面、任务开始先回首页或清理搜索页（本次继承了上次的「鸡排」状态）；闪购搜索落到盒马店铺列表时先返回首页再搜 | ⏳ 待决策 |
+| K1–K3 / D1 | LocateAnything 边界、模型服务冷启动、带选择状态控件校验、定位/重复动作审计工具 | ⏳ 未沉淀 |
+| 观察项 | 视觉摘要幻觉（step3 post 明显是 iOS 主屏，摘要写 "Android home screen"）→ 摘要输出不宜直接当状态判据；106 次 LLM 调用 / 854,569 prompt tokens / 80.3% 命中，省时关键是减少步数而非优化抓帧 | 记录，未落地 |
+
+环境备注：根目录 9 个 4 字节、内容为 `blat` 的探针残留（`1vkf_dgm`、`4l2_qjgg`、`63ygnb24`、`cs07j09y`、`em_nw6pk`、`epqcwxa1`、`evofy2cm`、`k6ea2xp9`、`y4zxwbul`）是 Security Center 间歇性拦截 TEMP 时 Python `tempfile` 写探针产生的，非业务文件，**未清理**（destructive 操作待确认）；未通过改 `TMPDIR` 等方式绕过该限制。
