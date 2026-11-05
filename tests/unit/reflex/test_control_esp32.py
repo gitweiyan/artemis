@@ -143,11 +143,18 @@ def test_a_newline_is_typed_as_enter(esp32):
     assert recorder.lines == ["type one\n", "key 40\n", "type two\n"]
 
 
-def test_typing_refuses_what_the_board_cannot_type(esp32):
-    """The firmware maps ASCII keys only; silently dropping characters types the wrong thing."""
+def test_typing_transliterates_chinese_to_pinyin(esp32):
+    """Han runs become toneless pinyin before the firmware's ASCII guard."""
+    control, recorder = esp32()
+    control.type_text("珍珠奶茶")
+    assert recorder.lines == ["type zhenzhunaicha\n"]
+
+
+def test_typing_still_refuses_non_han_non_ascii(esp32):
+    """Emoji and other scripts are still a wrong instruction, not a lost one."""
     control, recorder = esp32()
     with pytest.raises(ValueError):
-        control.type_text("你好")
+        control.type_text("🙂")
     assert recorder.lines == []
 
 

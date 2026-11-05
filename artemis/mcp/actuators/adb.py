@@ -31,9 +31,11 @@ import re
 import time
 from typing import Any
 
+from artemis.agents.ios_shortcuts import is_ios_device
 from artemis.context import ArtemisContext
 from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.mcp.action_manifest import DEVICE_ACTIONS, ExtensionTool
+from artemis.reflex.pinyin import to_ascii_input
 from artemis.mcp.action_types import ActionCode, ActionResult
 from third_party.mobile_use.utils.logger import get_logger
 
@@ -247,10 +249,12 @@ class AdbActuator:
                 normalized_coordinates=coords,
             )
 
+        typed = to_ascii_input(text) if is_ios_device(self.ctx) else text
+        suffix = f" at [{coords[0]}, {coords[1]}] (normalized)." if coords else "."
+        note = f" (transliterated from '{text}')" if typed != text else ""
         return ActionResult.success(
             "input_text",
-            f"Typed '{text}'"
-            + (f" at [{coords[0]}, {coords[1]}] (normalized)." if coords else "."),
+            f"Typed '{typed}'{suffix}{note}",
             normalized_coordinates=coords,
         )
 

@@ -18,6 +18,7 @@ import time
 
 from artemis.reflex.attach import AttachTimeout, attach_client
 from artemis.reflex.contract import Control, Gesture
+from artemis.reflex.pinyin import to_ascii_input
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -514,14 +515,17 @@ class Esp32HidControl(Control):
         """Type ``text`` on the phone; a newline becomes the Enter key.
 
         The firmware's ``type`` maps ASCII letters, digits and spaces, one report per
-        character. Anything outside ASCII is refused rather than silently dropped, because a
-        half-typed string is a wrong instruction, not a lost one.
+        character. Han characters are transliterated to toneless pinyin first (most
+        Chinese apps accept that in a search box); anything else outside ASCII is
+        refused rather than silently dropped, because a half-typed string is a wrong
+        instruction, not a lost one.
         """
         started = time.monotonic()
         for index, line in enumerate(str(text).split("\n")):
             if index:
                 self._send(f"key {KEY_ENTER}")
             if line:
+                line = to_ascii_input(line)
                 if not line.isascii():
                     raise ValueError(f"the board types ASCII only: {line!r}")
                 # "type " + text + newline must fit the firmware's 126-byte line.
