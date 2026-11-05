@@ -629,3 +629,35 @@ def test_pro_pixel_record_is_normalized_exactly_once(tmp_path):
 
     again = normalize_any_structure(row["action_taken"], 1080, 2400)
     assert again == row["action_taken"]
+
+
+def test_get_traces_for_session_reads_step_less_logs_from_the_tail(tmp_path):
+    """status.json must see a long run's final WARNING, not its first 500 rows."""
+    from uuid import uuid4
+
+    from artemis.data_engine.models import TraceRecord
+    from artemis.data_engine.storage import StorageManager
+
+    storage = StorageManager(tmp_path / "data_engine.db", tmp_path)
+    session_id = uuid4()
+    for i in range(6):
+        storage.create_trace(
+            TraceRecord(
+                trace_id=uuid4(),
+                session_id=session_id,
+                step_id=None,  # logger rows: get_traces_for_step cannot see them
+                type="log",
+                name="artemis.runtime",
+                timestamp=float(i),
+                status="success",
+                payload={"level": "WARNING", "message": f"log {i}"},
+            )
+        )
+
+    oldest = storage.get_traces_for_session(session_id, trace_type="log", limit=3)
+    assert [t.timestamp for t in oldest] == [0.0, 1.0, 2.0]
+
+    tail = storage.get_traces_for_session(session_id, trace_type="log", limit=3, latest_first=True)
+    assert [t.timestamp for t in tail] == [5.0, 4.0, 3.0]
+    assert all(t.step_id is None for t in tail)
+    assert tail[0].payload["message"] == "log 5"

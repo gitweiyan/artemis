@@ -917,6 +917,54 @@ class StorageManager:
                 )
         return traces
 
+    def get_traces_for_session(
+        self,
+        session_id: UUID | str,
+        *,
+        trace_type: str | None = None,
+        limit: int = 500,
+        latest_first: bool = False,
+    ) -> list[TraceRecord]:
+        """All traces for a session, including rows with no ``step_id``.
+
+        ``get_traces_for_step`` cannot see the logger's WARNING rows: they are
+        written with ``step_id=None``. ``status.json`` needs exactly those —
+        the 2026-11-05 milk-tea cancellation and the two LocateAnything
+        timeouts lived only there, so its archive could not explain itself.
+
+        ``latest_first`` is for tail-oriented readers: with a bounded ``limit``
+        it returns the newest rows instead of the oldest, so a long run's
+        terminal WARNING cannot be truncated away by its own earlier chatter.
+        """
+        sql = "SELECT * FROM traces WHERE session_id = ?"
+        params: list[Any] = [str(session_id)]
+        if trace_type:
+            sql += " AND type = ?"
+            params.append(trace_type)
+        sql += f" ORDER BY timestamp {'DESC' if latest_first else 'ASC'} LIMIT ?"
+        params.append(limit)
+        traces = []
+        with self._get_connection() as conn:
+            cursor = conn.execute(sql, params)
+            for row in cursor.fetchall():
+                traces.append(
+                    TraceRecord(
+                        trace_id=_safe_uuid(row["trace_id"]),
+                        session_id=_safe_uuid(row["session_id"]),
+                        step_id=_safe_uuid(row["step_id"]) if row["step_id"] else None,
+                        parent_trace_id=_safe_uuid(row["parent_trace_id"])
+                        if row["parent_trace_id"]
+                        else None,
+                        type=row["type"],
+                        name=row["name"],
+                        timestamp=row["timestamp"],
+                        duration=row["duration"],
+                        status=row["status"],
+                        payload=json.loads(row["payload"]) if row["payload"] else {},
+                    )
+                )
+        return traces
+
     def get_steps_with_traces(self, session_id: UUID) -> list[tuple[StepRecord, list[TraceRecord]]]:
         """Retrieve all steps and their associated traces for a session."""
         steps = self.get_steps(session_id)

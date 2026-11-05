@@ -43,7 +43,13 @@ FRAME_SUFFIX = ".jpeg"
 #: Store references live in a subdirectory: the legacy scanner never descends.
 IMAGES_SUBDIR = "images"
 MANIFEST_NAME = "steps.json"
+STATUS_NAME = "status.json"
 MOTIVATION_CHARS = 600
+WARNING_CHARS = 300
+WARNING_LIMIT = 50
+#: How many *most recent* log rows to scan for WARNINGs. A 49-step run already
+#: emits ~470 log rows; scanning the oldest 500 would drop the cancellation.
+WARNING_SCAN_LIMIT = 500
 #: What reading the run's own store may raise — an absent file, a malformed row, a
 #: column this version does not know. Deliberately narrow: an archive is written
 #: after the run and must never break it (the caller wraps finalization too), but
@@ -234,6 +240,69 @@ def _status(step: dict) -> str:
     return "unknown"
 
 
+def _action_evidence(action_taken: Any) -> dict[str, Any]:
+    """The driver's structured evidence from a step's ``action_taken``.
+
+    Flash records a plain dict, the legacy Pro shape wraps it in a list — the
+    same two shapes :func:`format_action_clean` accepts. ``format_action_clean``
+    renders only a human phrase, so without this the numbers behind a
+    ``no_effect`` (crop_change / pointer / incident) never reach the archive,
+    even though they are already in ``data_engine.db``.
+    """
+    candidate = action_taken
+    if isinstance(candidate, list) and candidate:
+        candidate = candidate[0]
+    if not isinstance(candidate, dict):
+        return {}
+    evidence: dict[str, Any] = {}
+    if candidate.get("incident"):
+        evidence["incident"] = str(candidate["incident"])
+    metrics = candidate.get("action_metrics")
+    if isinstance(metrics, dict) and metrics:
+        evidence["action_metrics"] = dict(metrics)
+    consecutive = candidate.get("no_op_consecutive")
+    if isinstance(consecutive, int) and not isinstance(consecutive, bool) and consecutive > 0:
+        evidence["no_op_consecutive"] = consecutive
+    return evidence
+
+
+def _warning_messages(engine: Any) -> list[str]:
+    """WARNING-level log rows for the session, including step-less ones."""
+    storage = getattr(engine, "storage", None)
+    getter = getattr(storage, "get_traces_for_session", None)
+    session_id = getattr(engine, "current_session_id", None)
+    if not callable(getter) or not session_id:
+        return []
+    try:
+        # Read from the tail: the reason a run stopped is by definition near
+        # its end. ``latest_first`` keeps it in scope even for a long session.
+        rows = list(
+            getter(
+                session_id,
+                trace_type="log",
+                limit=WARNING_SCAN_LIMIT,
+                latest_first=True,
+            )
+            or []
+        )
+    except _STORE_ERRORS as exc:
+        logger.warning(f"Trace archive: could not read the session's log traces: {exc}")
+        return []
+    warnings: list[str] = []
+    for row in reversed(rows):
+        payload = getattr(row, "payload", None)
+        if payload is None and isinstance(row, dict):
+            payload = row.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("level", "")).upper() != "WARNING":
+            continue
+        message = " ".join(str(payload.get("message") or payload.get("formatted") or "").split())
+        if message:
+            warnings.append(message[:WARNING_CHARS])
+    return warnings[-WARNING_LIMIT:]
+
+
 def _manifest_row(step: dict) -> dict[str, Any]:
     motivation = step.get("operator_raw_thinking") or step.get("operator_native_thinking") or ""
     row: dict[str, Any] = {
@@ -256,6 +325,9 @@ def _manifest_row(step: dict) -> dict[str, Any]:
     }
     if metrics:
         row["metrics"] = metrics
+    evidence = _action_evidence(step.get("action_taken"))
+    if evidence:
+        row["evidence"] = evidence
     return row
 
 
@@ -283,6 +355,63 @@ def write_step_manifest(ctx: Any, archive_dir: Path) -> dict[str, Any]:
     return {"steps": len(rows), "written": True}
 
 
+def write_run_status(ctx: Any, archive_dir: Path, task: Any = None) -> dict[str, Any]:
+    """Write the run's terminal status, cancellation reason and WARNINGs.
+
+    The 2026-11-05 Flash run was cancelled after 49 steps, but its archive had
+    no ``run_outcome`` (Flash by design) and no ``status.json``: "Task cancelled"
+    and the two LocateAnything timeouts existed only as step-less ``log`` rows
+    in ``data_engine.db``. Reading the archive alone could not explain the run.
+
+    Best-effort, like the rest of this module: a missing engine, a truncated
+    store or an unwritable folder must never break an already-finished run.
+    """
+    engine = _engine(ctx)
+    status = str(getattr(task, "status", None) or "unknown")
+    result = getattr(task, "result", None)
+    reason = (
+        " ".join(
+            str(
+                getattr(task, "status_message", None) or getattr(result, "error", None) or ""
+            ).split()
+        )
+        or None
+    )
+    started = getattr(task, "created_at", None)
+    ended = getattr(task, "ended_at", None)
+    duration = None
+    try:
+        if started is not None and ended is not None:
+            duration = round((ended - started).total_seconds(), 3)
+    except (TypeError, ValueError):
+        duration = None
+
+    payload: dict[str, Any] = {
+        "status": status,
+        "cancelled": status == "cancelled",
+        "reason": reason,
+        "session_id": str(getattr(engine, "current_session_id", None) or ""),
+        "started_at": started.isoformat() if hasattr(started, "isoformat") else None,
+        "ended_at": ended.isoformat() if hasattr(ended, "isoformat") else None,
+        "duration_s": duration,
+        "steps": len(_steps(engine)),
+        "warnings": _warning_messages(engine),
+        "degradations": degradations.log_for(ctx).summary(),
+    }
+    path = Path(archive_dir) / STATUS_NAME
+    try:
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logger.warning(f"Trace archive: could not write {path}: {exc}")
+        degradations.record(ctx, degradations.ARCHIVE_INCOMPLETE, f"status write failed: {exc}")
+        degradations.amend_run_outcome(ctx)
+        return {"written": False}
+    logger.info(
+        f"Trace archive: wrote {path.name} ({status}, {len(payload['warnings'])} warning(s))"
+    )
+    return {"written": True, "steps": payload["steps"], "warnings": len(payload["warnings"])}
+
+
 def manifest_rows(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Public wrapper: the steps.json row shape, for exports built outside a live run."""
     return [_manifest_row(step) for step in steps]
@@ -291,8 +420,10 @@ def manifest_rows(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
 __all__ = [
     "FRAME_SUFFIX",
     "MANIFEST_NAME",
+    "STATUS_NAME",
     "MediaReport",
     "export_step_media",
     "manifest_rows",
+    "write_run_status",
     "write_step_manifest",
 ]

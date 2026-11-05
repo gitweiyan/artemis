@@ -296,12 +296,17 @@ class AdbActuator:
                 code=ActionCode.INVALID_ARGS,
             )
 
+        named_key: str | None = None
+        ok: bool | None = None
         if key_str == "back" and hasattr(self.controller, "go_back"):
-            await self.controller.go_back()
+            # The controller reports success as a bool. Dropping it let a refused key
+            # (iOS has no Back key) reach the model as "Pressed key 'BACK'." with no
+            # screen change -- four silent no-ops in the 2026-11-05 milk-tea run.
+            named_key, ok = "back", await self.controller.go_back()
         elif key_str == "home" and hasattr(self.controller, "go_home"):
-            await self.controller.go_home()
+            named_key, ok = "home", await self.controller.go_home()
         elif key_str == "enter" and hasattr(self.controller, "press_enter"):
-            await self.controller.press_enter()
+            named_key, ok = "enter", await self.controller.press_enter()
         elif hasattr(self.controller, "press_key"):
             # Pass unrecognized keycodes through verbatim (KEYCODE_* names, numeric
             # codes): the driver resolves or forwards them, matching the historical
@@ -316,6 +321,21 @@ class AdbActuator:
                 )
             if not res:
                 return ActionResult.failure("press_key", f"Error executing key press '{key}'.")
+
+        if named_key is not None and not ok:
+            if named_key == "back" and is_ios_device(self.ctx):
+                # The HID sink already raises ValueError("iOS has no Back key ...") and
+                # labels it unsupported_key; the driver reduces that to a False before
+                # it reaches here, so the refusal has to be restored at this boundary.
+                return ActionResult.failure(
+                    "press_key",
+                    f"Error executing key press '{key}': iOS has no Back key"
+                    " · incident=unsupported_key; use 'escape' to dismiss, the"
+                    " on-screen back arrow to go back, or 'home' (Cmd+H) for the Home screen",
+                    code=ActionCode.UNSUPPORTED,
+                    incident="unsupported_key",
+                )
+            return ActionResult.failure("press_key", f"Error executing key press '{key}'.")
 
         return ActionResult.success("press_key", f"Pressed key '{key}'.")
 

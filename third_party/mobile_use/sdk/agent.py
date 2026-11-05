@@ -66,7 +66,11 @@ from artemis.data_engine.trace import DataEngineCallbackHandler
 from artemis.graph.graph import get_graph
 from artemis.graph.state import State
 from artemis.runtime import DeviceExecutionLock
-from artemis.runtime.trace_export import export_step_media, write_step_manifest
+from artemis.runtime.trace_export import (
+    export_step_media,
+    write_run_status,
+    write_step_manifest,
+)
 from artemis.sdk.run_outcome import attach_test_summary, resolve_trace_suffix
 from artemis.sdk.types.agent import AgentConfig
 from artemis.utils.startup_progress import publish_startup_progress
@@ -948,6 +952,10 @@ class AgentBase:
 
         output_folder_path = temp_trace_path.rename(traces_output_path / new_name).resolve()
         write_step_manifest(context, output_folder_path)
+        # The verdict is settled before the archive is compiled, so this folder
+        # is the first place that can state why a cancelled run stopped. Flash
+        # has no run_outcome by design; without this the reason stays DB-only.
+        write_run_status(context, output_folder_path, task)
         logger.info(f"[{task_name}] 📂✅ Traces located in: {output_folder_path}")
 
         new_video_path = output_folder_path / "recording.mp4"

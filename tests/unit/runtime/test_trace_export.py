@@ -244,6 +244,140 @@ def test_a_session_with_steps_but_no_media_is_reported_as_a_degradation(tmp_path
     assert summary["capability_degraded"] is True
 
 
+# --- 2026-11-05 retro / batch item 6: evidence and terminal status -----------
+
+
+class _FakeTraceStorage:
+    """The step-less ``type='log'`` rows a retrospective actually needs."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def get_traces_for_session(self, session_id, *, trace_type=None, limit=500, latest_first=False):
+        rows = [row for row in self._rows if trace_type is None or row.get("type") == trace_type]
+        if latest_first:
+            rows = rows[::-1]
+        return rows[:limit]
+
+
+def _terminal_task(status="cancelled", message="Task cancelled: user interrupt"):
+    from datetime import datetime, timedelta
+
+    started = datetime(2026, 11, 5, 15, 37, 55)
+    return SimpleNamespace(
+        status=status,
+        status_message=message,
+        result=SimpleNamespace(error="user interrupt"),
+        created_at=started,
+        ended_at=started + timedelta(minutes=7, seconds=54),
+    )
+
+
+def test_the_manifest_keeps_the_driver_evidence_for_retrospectives(tmp_path):
+    """crop_change / incident reached the DB step but not the shipped steps.json."""
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    ctx = _ctx(tmp_path)
+    # Flash records a dict; the legacy Pro shape wraps it in a list.
+    ctx.data_engine._steps[1]["action_taken"] = {
+        "action": "click",
+        "incident": "no_effect",
+        "action_metrics": {"crop_change": 0.0092, "pointer_x": 578.0},
+        "no_op_consecutive": 2,
+    }
+    ctx.data_engine._steps[2]["action_taken"] = [
+        {"action": "tap", "incident": "no_effect", "action_metrics": {"crop_change": 0.0}}
+    ]
+
+    _module().write_step_manifest(ctx, archive)
+
+    steps = json.loads((archive / "steps.json").read_text(encoding="utf-8"))
+    assert steps[1]["evidence"] == {
+        "incident": "no_effect",
+        "action_metrics": {"crop_change": 0.0092, "pointer_x": 578.0},
+        "no_op_consecutive": 2,
+    }
+    assert steps[2]["evidence"]["incident"] == "no_effect", "list shape must work too"
+    assert "evidence" not in steps[0], "no empty evidence keys on clean steps"
+
+
+def test_status_json_carries_the_cancellation_reason_and_warnings(tmp_path):
+    """The 15:37 cancellation lived only in data_engine.db, not in its archive."""
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    ctx = _ctx(tmp_path)
+    ctx.data_engine.storage = _FakeTraceStorage(
+        [
+            {
+                "type": "log",
+                "payload": {
+                    "level": "WARNING",
+                    "message": "LocateAnything 'back arrow top-left' failed in 10017 ms",
+                },
+            },
+            {"type": "log", "payload": {"level": "INFO", "message": "Session started"}},
+            {
+                "type": "log",
+                "payload": {"level": "WARNING", "message": "[milk-tea-locate] Task cancelled"},
+            },
+            {
+                "type": "action",
+                "payload": {"level": "WARNING", "message": "not a log row"},
+            },
+        ]
+    )
+
+    _module().write_run_status(ctx, archive, _terminal_task())
+
+    status = json.loads((archive / "status.json").read_text(encoding="utf-8"))
+    assert status["status"] == "cancelled"
+    assert status["cancelled"] is True
+    assert "Task cancelled" in status["reason"]
+    assert status["steps"] == 3
+    assert status["duration_s"] == 474.0
+    assert status["warnings"] == [
+        "LocateAnything 'back arrow top-left' failed in 10017 ms",
+        "[milk-tea-locate] Task cancelled",
+    ]
+
+
+def test_status_json_keeps_the_terminal_warning_of_a_long_session(tmp_path):
+    """Scanning the *oldest* 500 log rows would silently drop the cancellation."""
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    ctx = _ctx(tmp_path)
+    rows = [
+        {"type": "log", "payload": {"level": "WARNING", "message": f"early chatter {i}"}}
+        for i in range(1000)
+    ]
+    rows.append(
+        {"type": "log", "payload": {"level": "WARNING", "message": "[task] Task cancelled"}}
+    )
+    ctx.data_engine.storage = _FakeTraceStorage(rows)
+
+    _module().write_run_status(ctx, archive, _terminal_task())
+
+    status = json.loads((archive / "status.json").read_text(encoding="utf-8"))
+    assert status["warnings"][-1] == "[task] Task cancelled"
+    assert len(status["warnings"]) == _module().WARNING_LIMIT
+    assert "early chatter 0" not in status["warnings"]
+
+
+def test_status_json_is_best_effort_when_the_engine_is_unavailable(tmp_path):
+    """Archive finalization must never be able to break a finished run."""
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    ctx = SimpleNamespace(data_engine=None)
+
+    _module().write_run_status(ctx, archive, _terminal_task(status="completed"))
+
+    status = json.loads((archive / "status.json").read_text(encoding="utf-8"))
+    assert status["status"] == "completed"
+    assert status["cancelled"] is False
+    assert status["steps"] == 0
+    assert status["warnings"] == []
+
+
 def test_a_session_without_steps_exports_nothing_and_stays_quiet(tmp_path, caplog):
     archive = tmp_path / "archive"
     archive.mkdir()

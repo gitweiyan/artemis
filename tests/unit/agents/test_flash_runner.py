@@ -277,6 +277,71 @@ def test_flash_runner_screenshot_pruning(mock_context):
         assert messages[2].content[1]["image_url"]["url"] == "data:image/jpeg;base64,SCREENSHOT_3"
 
 
+# --- Batch item 5: the no-op guard is wired into the action loop -------------------
+
+
+@pytest.mark.asyncio
+async def test_repeated_no_ops_stamp_the_step_and_queue_strategy_guidance(mock_context):
+    """Four silent BACKs: the guard must see them even with success status."""
+    from types import SimpleNamespace
+
+    with patch("artemis.controllers.unified_controller.get_driver"):
+        runner = FlashRunner(mock_context, goal="g")
+    runner.summarizer = None
+    runner._llm = Mock()
+    runner.ctx.data_engine = Mock()
+    runner.ctx.data_engine.current_step_id = None
+    runner.ctx.data_engine.record_step.return_value = "step-1"
+    runner.ctx.transcript_ledger = None
+
+    exec_result = SimpleNamespace(
+        status="success",
+        text_summary="Pressed key 'BACK'.",
+        metadata={"incident": "no_effect", "action_metrics": {"crop_change": 0.0}},
+        ui_elements_text=None,
+        raw_result=None,
+    )
+    runner.executor = Mock()
+    runner.executor.action_tool_names = frozenset({"press_key"})
+    runner.executor.execute = AsyncMock(return_value=exec_result)
+    runner._capture_post_screenshot = AsyncMock(return_value=b"post")
+
+    async def press_back():
+        await runner._execute_and_record_action(
+            "press_key",
+            {"key": "BACK"},
+            "tc-1",
+            Mock(),
+            messages,
+            "thought",
+            {},
+            b"pre",
+            ["xml"],
+            0,
+            turn,
+        )
+
+    messages: list = []
+    turn = SimpleNamespace(step_keys=[], actions=[])
+    with patch("artemis.agents.flash.runner.tool_result_messages", return_value=[]):
+        await press_back()
+        assert runner.no_ops.consecutive == 1
+        assert not runner._no_op_notice, "one stall is not yet worth a nudge"
+
+        await press_back()
+        assert runner._no_op_notice and "switch" in runner._no_op_notice.lower()
+        assert not runner._no_op_abort
+
+        await press_back()
+
+    assert runner.no_ops.consecutive == 3
+    # The abort must not clobber the strategy guidance already queued for the tail.
+    assert runner._no_op_notice and "switch" in runner._no_op_notice.lower()
+    assert runner._no_op_abort and "Stopping" in runner._no_op_abort
+    recorded = runner.ctx.data_engine.record_step.call_args.kwargs["action_taken"]
+    assert recorded["no_op_consecutive"] == 3, "the counter must ship as step evidence"
+
+
 # --- Recorded action shape (coordinate space + ledger rendering) ---------------------
 
 

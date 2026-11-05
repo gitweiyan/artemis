@@ -343,3 +343,85 @@ async def test_clear_text_reports_a_failed_clear(actuator, monkeypatch):
     res = await actuator.clear_text()
     assert not res.ok
     assert res.message == "Failed to clear the focused text field."
+
+
+class _NamedKeyHidControl:
+    """The ESP32 HID keyboard: named keys only, and some names are refused."""
+
+    def __init__(self, refused=()):
+        self.refused = set(refused)
+
+    def press_named_key(self, name):
+        key = str(name).strip().lower()
+        if key not in self.refused:
+            return 0.0
+        if key == "back":
+            raise ValueError(
+                "iOS has no Back key: use 'escape' to dismiss, the on-screen back arrow to"
+                " go back, or 'home' (Cmd+H) for the Home screen"
+            )
+        raise ValueError(f"unsupported key {key!r} for the HID keyboard")
+
+
+def _press_key_actuator(platform, refused=()):
+    """Real HID sink + real controller go_back/go_home, only the firmware is a double."""
+    from types import SimpleNamespace
+
+    from artemis.control.hid import HidControlSink
+    from artemis.mcp.actuators.adb import AdbActuator
+    from third_party.mobile_use.controllers.unified_controller import UnifiedMobileControllerBase
+
+    class Driver:
+        def __init__(self):
+            self.sink = HidControlSink(SimpleNamespace(control=_NamedKeyHidControl(refused)), None)
+
+        async def press_key(self, key):
+            # IosUvcHidDriver reduces the sink's ActionResult to its ok flag.
+            return (await self.sink.press_key(key)).ok
+
+    ctx = SimpleNamespace(
+        device=SimpleNamespace(device_width=1080, device_height=2400, mobile_platform=platform)
+    )
+    controller = UnifiedMobileControllerBase(SimpleNamespace(), Driver())
+    return AdbActuator(ctx, controller=controller)
+
+
+@pytest.mark.asyncio
+async def test_press_key_back_on_ios_reports_the_refusal_instead_of_success():
+    """The four silent BACK no-ops: go_back() returned False, yet success was reported."""
+    res = await _press_key_actuator("ios", refused=("back",)).press_key("BACK")
+
+    assert res.ok is False
+    assert res.code is ActionCode.UNSUPPORTED
+    assert res.incident == "unsupported_key"
+    assert "iOS has no Back key" in res.message
+    assert "escape" in res.message
+    assert "on-screen back arrow" in res.message
+    assert "Pressed key" not in res.message
+
+
+@pytest.mark.asyncio
+async def test_press_key_back_still_succeeds_when_the_keyboard_accepts_it():
+    res = await _press_key_actuator("ios").press_key("BACK")
+
+    assert res.ok is True
+    assert res.message == "Pressed key 'BACK'."
+    assert res.incident is None
+
+
+@pytest.mark.asyncio
+async def test_press_key_home_failure_is_not_silently_reported_as_success():
+    res = await _press_key_actuator("ios", refused=("home",)).press_key("HOME")
+
+    assert res.ok is False
+    assert res.incident is None, "home is supported; a failure is a device error"
+    assert "Pressed key" not in res.message
+
+
+@pytest.mark.asyncio
+async def test_press_key_back_failure_on_android_is_a_device_error():
+    res = await _press_key_actuator("android", refused=("back",)).press_key("BACK")
+
+    assert res.ok is False
+    assert res.code is ActionCode.DEVICE_ERROR
+    assert res.incident is None

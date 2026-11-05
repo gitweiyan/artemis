@@ -36,6 +36,57 @@ async def test_trace_finalization_failure_does_not_escape():
 
 
 @pytest.mark.asyncio
+async def test_the_archive_reports_why_a_cancelled_run_stopped(tmp_path):
+    """Batch item 6: status.json must be written by the real finalize hook."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    import third_party.mobile_use.sdk.agent as tp_agent
+
+    temp_root = tmp_path / "tmp_traces"
+    (temp_root / "milk-tea-locate").mkdir(parents=True)
+    out_root = tmp_path / "traces"
+    out_root.mkdir()
+
+    agent = object.__new__(Agent)
+    agent._tmp_traces_dir = temp_root
+
+    task = MagicMock()
+    task.status = "cancelled"
+    task.get_name.return_value = "milk-tea-locate"
+    task.created_at = datetime(2026, 11, 5, 15, 37, 55)
+    task.request.record_trace = True
+    task.request.trace_path = str(out_root)
+
+    context = MagicMock()
+    context.data_engine = MagicMock()
+    context.execution_setup = SimpleNamespace(
+        traces_path=str(out_root), trace_name="milk-tea-locate"
+    )
+    context.run_outcome = None
+
+    with (
+        patch.object(tp_agent, "resolve_trace_suffix", return_value="_FAIL_"),
+        patch.object(tp_agent, "export_step_media"),
+        patch.object(tp_agent, "create_gif_from_trace_folder"),
+        patch.object(tp_agent, "create_steps_json_from_trace_folder"),
+        patch.object(tp_agent, "remove_images_from_trace_folder"),
+        patch.object(tp_agent, "remove_steps_json_from_trace_folder"),
+        patch.object(tp_agent, "write_step_manifest") as manifest,
+        patch.object(tp_agent, "write_run_status") as status_writer,
+    ):
+        await agent._finalize_tracing(task=task, context=context)
+
+    manifest.assert_called_once()
+    status_writer.assert_called_once()
+    ctx_arg, archive_arg, task_arg = status_writer.call_args.args
+    assert ctx_arg is context
+    assert archive_arg.name.endswith("2026-11-05T15-37-55")
+    assert task_arg is task
+    context.data_engine.end_session.assert_called_once_with(status="cancelled")
+
+
+@pytest.mark.asyncio
 async def test_agent_clean_disconnects_the_shared_ui_client():
     agent = object.__new__(Agent)
     agent._initialized = True

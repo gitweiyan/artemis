@@ -53,6 +53,11 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
+from artemis.agents.flash.no_op import (
+    SAME_SCREEN_MAX_DHASH_DISTANCE,
+    NoOpTracker,
+    NoOpVerdict,
+)
 from artemis.agents.flash.summarizer import VisualStepSummarizer, build_focus_context
 from artemis.agents.ios_shortcuts import append_ios_shortcuts
 from artemis.agents.operator.prompts import REASONING_REMINDER, UserGuidance, render_user_guidance
@@ -161,6 +166,13 @@ class FlashRunner:
         # ``agent_name="flash"`` makes ask_explorer follow ``explorer.flash_mode``
         # (the Flash profile knob) instead of the Pro profile's tier.
         self.executor = McpActionExecutor(ctx, self.controller, agent_name="flash")
+        # Batch item 5: Flash has no Operator similarity component. The guard
+        # folds the driver's incident / crop_change and the pre/post dHash into
+        # one cross-turn counter; run() turns its verdict into an ephemeral tail
+        # notice (2 no-ops) or a bounded stop (3).
+        self.no_ops = NoOpTracker()
+        self._no_op_notice: str | None = None
+        self._no_op_abort: str | None = None
         self.summarizer = (
             self._build_step_summarizer(ctx) if self.step_summarizer_cfg.enabled else None
         )
@@ -800,6 +812,32 @@ class FlashRunner:
         except Exception as e:
             logger.warning(f"History chunker step stamp failed: {e}")
 
+    def _observe_no_op(self, name: str, exec_result, pre_bytes, post_bytes) -> NoOpVerdict:
+        """Fold one device action into the cross-step no-op guard.
+
+        The tool message only carries ``text_summary``; the evidence lives in
+        ``metadata`` and in the two frames. dHash is best-effort (Pillow may be
+        absent), and the guard must never be able to break an action dispatch.
+        """
+        metadata = getattr(exec_result, "metadata", None) or {}
+        unchanged: bool | None = None
+        try:
+            from artemis.utils.image_hash import dhash_hex, hamming_distance_hex
+
+            if pre_bytes and post_bytes:
+                distance = hamming_distance_hex(dhash_hex(pre_bytes), dhash_hex(post_bytes))
+                if distance is not None:
+                    unchanged = distance <= SAME_SCREEN_MAX_DHASH_DISTANCE
+        except (OSError, ValueError, TypeError) as exc:
+            logger.debug(f"Flash no-op guard: frame hash unavailable: {exc}")
+        return self.no_ops.observe(
+            name,
+            status=str(getattr(exec_result, "status", "success") or "success"),
+            incident=metadata.get("incident"),
+            metrics=metadata.get("action_metrics"),
+            unchanged=unchanged,
+        )
+
     async def _execute_and_record_action(
         self,
         name: str,
@@ -847,10 +885,27 @@ class FlashRunner:
                 exec_result, name, action_names, state
             )
 
+            # Batch item 5: only device actions feed the guard (helper tools such
+            # as ask_explorer do not change the screen by design). The verdict is
+            # computed before the step record so its counter ships as evidence.
+            verdict: NoOpVerdict | None = None
+            if name in action_names:
+                verdict = self._observe_no_op(
+                    name, exec_result, pre_screenshot_bytes, post_img_bytes
+                )
+                if verdict.action == "abort":
+                    # The terminal explanation is not a tail nudge: keep the
+                    # last strategy guidance intact if the loop still renders.
+                    self._no_op_abort = verdict.notice
+                elif verdict.notice:
+                    self._no_op_notice = verdict.notice
+
             # One record shape for the DataEngine step and the visual lens.
             action_dict = (
                 self._build_action_record(name, args, exec_result) if name in action_names else None
             )
+            if action_dict is not None and verdict is not None and verdict.consecutive:
+                action_dict["no_op_consecutive"] = verdict.consecutive
 
             # Record telemetry / step in DataEngine
             recorded_step_id = None
@@ -1131,6 +1186,12 @@ class FlashRunner:
                 ledger.elapsed_label()
             )
 
+            # Batch item 5: the guard's verdict belongs on the *next* tail, as an
+            # ephemeral notice — the same channel as the no-tool-call nudge.
+            if self._no_op_notice:
+                pending_notices.append(self._no_op_notice)
+                self._no_op_notice = None
+
             # Tool restriction on the final turn (bounded loops only)
             is_final = limit is not None and turns == limit
             tail = self._build_tail(
@@ -1217,6 +1278,11 @@ class FlashRunner:
             previous_turn = turn
             if final_report_from_calls is not None:
                 return final_report_from_calls
+            # Batch item 5: three consecutive no-ops is a stalled run, not a
+            # reason to spend another LLM round-trip. Stop with a real verdict.
+            if self._no_op_abort:
+                final_report = {"status": "failed", "explanation": self._no_op_abort}
+                break
 
         if self.summarizer:
             await self.summarizer.flush()
