@@ -24,6 +24,14 @@ KEY_SCROLL_MAX_PRESSES = 6
 #: put the focus ring around a container — a change, but not a scroll.
 KEY_SCROLL_MIN_CHANGE_RATIO = 0.05
 
+#: iOS's interactive pop gesture (what BACK means on this rig) must start on the
+#: *physical* left edge and travel past the ~1/3-width completion threshold before
+#: the button is released. Mid-height keeps it clear of the Control Center / Home
+#: gesture bands. A short, paced drag is more reliably recognised than a flick.
+BACK_SWIPE_END_RATIO = 0.75
+BACK_SWIPE_Y_RATIO = 0.5
+BACK_SWIPE_DURATION_MS = 500
+
 
 class HidControlSink:
     """Relative mouse/keyboard sink. `tap_abs` is a target API, not absolute HID.
@@ -155,7 +163,7 @@ class HidControlSink:
             return False
         return self._scroll_changed(before, after)
 
-    def _place_for_drag(self, start: tuple[int, int], dy: int) -> None:
+    def _place_for_drag(self, start: tuple[int, int], dy: int, *, y: int | None = None) -> None:
         """Re-anchor the pointer and move it to a safe drag start (blocking I/O).
 
         The relative pointer is a blind cursor: pressing where it happens to be
@@ -165,6 +173,10 @@ class HidControlSink:
         from there lands it at a point that clears both edges and leaves room for
         the gesture. The requested start only supplies x: the configured gain is a
         coarse estimate, so a point far from the edges is safer than the exact one.
+
+        ``y`` overrides the direction-derived height. BACK's left-edge pop gesture
+        needs an exact mid-height start even though its delta is horizontal, and
+        must *not* be pulled away from the edge by the safe-anchor rule below.
         """
         size = self._frame_size(self.session)
         if size is None:
@@ -180,24 +192,79 @@ class HidControlSink:
             return
         width, height = size
         x = min(max(int(start[0]), 0), width - 1)
-        if dy < 0:
-            y = round(height * DRAG_START_RATIO)  # upward: room above, clear of Home
+        if y is not None:
+            target_y = min(max(int(y), 0), height - 1)
+        elif dy < 0:
+            target_y = round(height * DRAG_START_RATIO)  # upward: room above, clear of Home
         elif dy > 0:
-            y = round(height * (1.0 - DRAG_START_RATIO))  # downward: clear of Control Center
+            target_y = round(height * (1.0 - DRAG_START_RATIO))  # downward: clear of Control Center
         else:
-            y = round(height / 2)  # horizontal drag: the middle
+            target_y = round(height / 2)  # horizontal drag: the middle
         # An absolute pointer places the drag start in one command, and the firmware's
         # mswipe then presses through the absolute report (iOS ignores the relative
         # report's buttons). The relative fallback needs the home + gain dance.
         move_abs = getattr(self.session, "move_abs", None)
         control = getattr(self.session, "control", None)
         if callable(move_abs) and hasattr(control, "mouse_move_abs"):
-            move_abs(x, y)
+            move_abs(x, target_y)
             return
         home()
         gain_x = float(getattr(self.session, "gain_x", 1.0)) or 1.0
         gain_y = float(getattr(self.session, "gain_y", 1.0)) or 1.0
-        move(round(x / gain_x), round(y / gain_y))
+        move(round(x / gain_x), round(target_y / gain_y))
+
+    async def _drag(
+        self,
+        action: str,
+        start: tuple[int, int],
+        dx: int,
+        dy: int,
+        *,
+        duration_ms: int,
+        y: int | None = None,
+    ) -> ActionResult:
+        """Place the pointer, press, walk it, release — one paced HID drag."""
+        try:
+            await asyncio.to_thread(self._place_for_drag, start, dy, y=y)
+        except Exception as exc:  # noqa: BLE001 - a device failure is an incident
+            return ActionResult(False, action, "swipe_failed", str(exc))
+        swipe = getattr(self._control, "swipe_mouse", None)
+        try:
+            if swipe is not None:
+                await asyncio.to_thread(swipe, dx, dy, duration_ms=duration_ms)
+            else:
+
+                def run():
+                    self._control.mouse_down()
+                    self._control.mouse_move(dx, dy)
+                    self._control.mouse_up()
+
+                await asyncio.to_thread(run)
+        except Exception as exc:  # noqa: BLE001 - a device failure is an incident
+            return ActionResult(False, action, "swipe_failed", str(exc))
+        return ActionResult(True, action)
+
+    async def go_back(self) -> ActionResult:
+        """iOS BACK: the interactive pop gesture, a drag from the physical left edge.
+
+        This is the one drag that must start *on* an edge: iOS only recognises the
+        pop gesture when the press begins at the left bezel and travels past roughly
+        a third of the width before release. With no known frame size we refuse
+        instead of firing a blind drag — a guessed edge is how BACK used to become
+        four silent no-ops in the 2026-11-05 milk-tea run.
+        """
+        size = self._frame_size(self.session)
+        if size is None:
+            return ActionResult(
+                False,
+                "go_back",
+                "swipe_failed",
+                "cannot place a left-edge BACK swipe without a known frame size",
+            )
+        width, height = size
+        y = round(height * BACK_SWIPE_Y_RATIO)
+        dx = round(width * BACK_SWIPE_END_RATIO)
+        return await self._drag("go_back", (0, y), dx, 0, duration_ms=BACK_SWIPE_DURATION_MS, y=y)
 
     async def swipe(
         self,
@@ -228,25 +295,7 @@ class HidControlSink:
             key = "down" if dy < 0 else "up"
             if await self._scroll_with_key(key, abs(dy)):
                 return ActionResult(True, "swipe", detail=f"scrolled with the {key} key")
-        try:
-            await asyncio.to_thread(self._place_for_drag, frame_start, dy)
-        except Exception as exc:  # noqa: BLE001 - a device failure is an incident
-            return ActionResult(False, "swipe", "swipe_failed", str(exc))
-        swipe = getattr(self._control, "swipe_mouse", None)
-        try:
-            if swipe is not None:
-                await asyncio.to_thread(swipe, dx, dy, duration_ms=duration_ms)
-            else:
-
-                def run():
-                    self._control.mouse_down()
-                    self._control.mouse_move(dx, dy)
-                    self._control.mouse_up()
-
-                await asyncio.to_thread(run)
-        except Exception as exc:  # noqa: BLE001 - a device failure is an incident
-            return ActionResult(False, "swipe", "swipe_failed", str(exc))
-        return ActionResult(True, "swipe")
+        return await self._drag("swipe", frame_start, dx, dy, duration_ms=duration_ms)
 
     async def input_text(self, text: str) -> ActionResult:
         await asyncio.to_thread(self._control.type_text, text)
@@ -257,6 +306,9 @@ class HidControlSink:
         return ActionResult(True, "clear_text")
 
     async def press_key(self, key) -> ActionResult:
+        # BACK is deliberately *not* handled here: the HID keyboard has no Back key.
+        # IOSUvcHidDriver routes BACK to go_back() (the edge gesture) before it can
+        # reach this method; a direct keyboard call still gets the refusal below.
         press = getattr(self._control, "press_named_key", None)
         if press is None:
             await asyncio.to_thread(self._control._send_with_response, f"key {key}")

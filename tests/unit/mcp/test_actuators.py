@@ -348,10 +348,14 @@ async def test_clear_text_reports_a_failed_clear(actuator, monkeypatch):
 class _NamedKeyHidControl:
     """The ESP32 HID keyboard: named keys only, and some names are refused."""
 
-    def __init__(self, refused=()):
+    def __init__(self, refused=(), *, fail_swipe=False):
         self.refused = set(refused)
+        self.fail_swipe = fail_swipe
+        self.keys = []
+        self.swipes = []
 
     def press_named_key(self, name):
+        self.keys.append(name)
         key = str(name).strip().lower()
         if key not in self.refused:
             return 0.0
@@ -362,56 +366,94 @@ class _NamedKeyHidControl:
             )
         raise ValueError(f"unsupported key {key!r} for the HID keyboard")
 
+    def swipe_mouse(self, dx, dy, *, duration_ms=400):
+        if self.fail_swipe:
+            raise RuntimeError("serial write failed")
+        self.swipes.append((dx, dy, duration_ms))
 
-def _press_key_actuator(platform, refused=()):
-    """Real HID sink + real controller go_back/go_home, only the firmware is a double."""
+
+class _PointerSession:
+    """The frame geometry the sink needs to place an edge-swipe start."""
+
+    frame_size = (449, 974)
+    gain_x = gain_y = 1.48
+    connected = True
+
+    def __init__(self, control):
+        self.control = control
+
+    def home(self):
+        return None
+
+    def move(self, dx, dy):
+        return (0, 0)
+
+
+def _press_key_actuator(platform, refused=(), *, fail_swipe=False):
+    """Real HID sink + real controller; only the firmware is a double."""
     from types import SimpleNamespace
 
     from artemis.control.hid import HidControlSink
     from artemis.mcp.actuators.adb import AdbActuator
     from third_party.mobile_use.controllers.unified_controller import UnifiedMobileControllerBase
 
+    control = _NamedKeyHidControl(refused, fail_swipe=fail_swipe)
+    sink = HidControlSink(_PointerSession(control), None)
+
     class Driver:
-        def __init__(self):
-            self.sink = HidControlSink(SimpleNamespace(control=_NamedKeyHidControl(refused)), None)
+        def __init__(self, ios):
+            self.ios = ios
 
         async def press_key(self, key):
-            # IosUvcHidDriver reduces the sink's ActionResult to its ok flag.
-            return (await self.sink.press_key(key)).ok
+            # IOSUvcHidDriver maps BACK to the sink's edge-swipe gesture; every other
+            # key (and every Android key) still goes to the HID keyboard. The real
+            # driver's dispatch is covered in test_ios_uvc_hid_driver.py.
+            if self.ios and str(key).strip().lower() == "back":
+                return (await sink.go_back()).ok
+            return (await sink.press_key(key)).ok
 
     ctx = SimpleNamespace(
         device=SimpleNamespace(device_width=1080, device_height=2400, mobile_platform=platform)
     )
-    controller = UnifiedMobileControllerBase(SimpleNamespace(), Driver())
-    return AdbActuator(ctx, controller=controller)
+    controller = UnifiedMobileControllerBase(SimpleNamespace(), Driver(platform == "ios"))
+    return AdbActuator(ctx, controller=controller), control
 
 
 @pytest.mark.asyncio
-async def test_press_key_back_on_ios_reports_the_refusal_instead_of_success():
-    """The four silent BACK no-ops: go_back() returned False, yet success was reported."""
-    res = await _press_key_actuator("ios", refused=("back",)).press_key("BACK")
+async def test_press_key_back_on_ios_runs_the_edge_swipe_even_if_the_keyboard_refuses_it():
+    """The four silent BACK no-ops are gone: BACK is a gesture, not a refused key."""
+    actuator, control = _press_key_actuator("ios", refused=("back",))
+
+    res = await actuator.press_key("BACK")
+
+    assert res.ok is True
+    assert res.code is ActionCode.OK
+    assert res.incident is None
+    assert "edge" in res.message.lower()
+    assert "Pressed key" not in res.message
+    assert len(control.swipes) == 1, "the gesture must really be dispatched"
+    assert control.keys == [], "the keyboard must not be asked for BACK"
+
+
+@pytest.mark.asyncio
+async def test_press_key_back_gesture_failure_is_a_device_error_on_ios():
+    """The capability exists now; a failed swipe is an execution error, not unsupported."""
+    actuator, _control = _press_key_actuator("ios", fail_swipe=True)
+
+    res = await actuator.press_key("BACK")
 
     assert res.ok is False
-    assert res.code is ActionCode.UNSUPPORTED
-    assert res.incident == "unsupported_key"
-    assert "iOS has no Back key" in res.message
+    assert res.code is ActionCode.DEVICE_ERROR
+    assert res.incident is None
     assert "escape" in res.message
     assert "on-screen back arrow" in res.message
     assert "Pressed key" not in res.message
 
 
 @pytest.mark.asyncio
-async def test_press_key_back_still_succeeds_when_the_keyboard_accepts_it():
-    res = await _press_key_actuator("ios").press_key("BACK")
-
-    assert res.ok is True
-    assert res.message == "Pressed key 'BACK'."
-    assert res.incident is None
-
-
-@pytest.mark.asyncio
 async def test_press_key_home_failure_is_not_silently_reported_as_success():
-    res = await _press_key_actuator("ios", refused=("home",)).press_key("HOME")
+    actuator, _control = _press_key_actuator("ios", refused=("home",))
+    res = await actuator.press_key("HOME")
 
     assert res.ok is False
     assert res.incident is None, "home is supported; a failure is a device error"
@@ -420,7 +462,8 @@ async def test_press_key_home_failure_is_not_silently_reported_as_success():
 
 @pytest.mark.asyncio
 async def test_press_key_back_failure_on_android_is_a_device_error():
-    res = await _press_key_actuator("android", refused=("back",)).press_key("BACK")
+    actuator, _control = _press_key_actuator("android", refused=("back",))
+    res = await actuator.press_key("BACK")
 
     assert res.ok is False
     assert res.code is ActionCode.DEVICE_ERROR

@@ -540,3 +540,127 @@ def test_the_drag_start_is_placed_absolutely_when_the_control_supports_it():
 
     assert calls and calls[0][0] == "abs", "one absolute placement, no home/gain dance"
     assert calls[0][1] == 200
+
+
+# --- BACK = left-edge rightward drag ------------------------------------------------
+#
+# iOS has no Back key, but it does have the interactive pop gesture: start the drag on
+# the *physical* left edge and travel past the ~1/3-width completion threshold. This is
+# the one drag that must start on an edge; every other drag avoids edges (§2.5).
+
+
+def test_go_back_starts_on_the_left_edge_and_drags_far_enough_right():
+    from artemis.control.hid import BACK_SWIPE_DURATION_MS, BACK_SWIPE_END_RATIO
+
+    sink, _session, events = _placing_sink()
+
+    result = asyncio.run(sink.go_back())
+
+    assert result.ok is True
+    assert result.action == "go_back"
+    assert events[0] == "home", "a true origin makes the edge placement predictable"
+    assert events[1] == ("move", 0, round(FRAME[1] * 0.5 / GAIN)), "x=0, mid-height"
+    assert events[2] == (
+        "swipe",
+        round(FRAME[0] * BACK_SWIPE_END_RATIO),
+        0,
+        BACK_SWIPE_DURATION_MS,
+    )
+    assert round(FRAME[0] * BACK_SWIPE_END_RATIO) > FRAME[0] / 3
+
+
+def test_go_back_places_the_edge_start_absolutely_when_the_control_supports_it():
+    """The real rig has `amove`: no home/gain dance, the edge point is exact."""
+    from artemis.control.hid import BACK_SWIPE_DURATION_MS, BACK_SWIPE_END_RATIO
+
+    control = RecordingSwipeControl()
+    control.mouse_move_abs = lambda x, y: None
+
+    class AbsoluteSession:
+        frame_size = FRAME
+        gain_x = gain_y = GAIN
+        connected = True
+
+        def __init__(self):
+            self.control = control
+            self.calls = []
+
+        def home(self):
+            self.calls.append(("home",))
+
+        def move(self, dx, dy):
+            self.calls.append(("move", dx, dy))
+
+        def move_abs(self, x, y):
+            self.calls.append(("abs", x, y))
+
+    session = AbsoluteSession()
+    sink = HidControlSink(session, None)
+
+    result = asyncio.run(sink.go_back())
+
+    assert result.ok is True
+    assert session.calls == [("abs", 0, round(FRAME[1] * 0.5))]
+    assert control.swipes == [(round(FRAME[0] * BACK_SWIPE_END_RATIO), 0, BACK_SWIPE_DURATION_MS)]
+
+
+def test_go_back_falls_back_to_a_host_driven_drag_on_old_firmware():
+    """Without `mswipe` the gesture is mdown -> move -> mup, still from the edge."""
+    from artemis.control.hid import BACK_SWIPE_END_RATIO
+
+    session = PlacingSession()
+    control = FakeControl()
+    session.control = control
+    sink = HidControlSink(session, None)
+
+    result = asyncio.run(sink.go_back())
+
+    assert result.ok is True
+    assert control.events[0] == "down"
+    assert control.events[-1] == "up"
+    assert control.events[1] == (round(FRAME[0] * BACK_SWIPE_END_RATIO), 0)
+
+
+def test_a_failed_edge_placement_is_an_incident_and_does_not_press():
+    class BrokenHome(PlacingSession):
+        def home(self):
+            raise RuntimeError("serial write failed")
+
+    sink, session, _events = _placing_sink(BrokenHome())
+
+    result = asyncio.run(sink.go_back())
+
+    assert result.ok is False
+    assert result.incident == "swipe_failed"
+    assert "serial write failed" in result.detail
+    assert session.control.swipes == []
+
+
+def test_a_failed_edge_drag_is_an_incident_not_an_exception():
+    class BrokenSwipe(RecordingSwipeControl):
+        def swipe_mouse(self, dx, dy, *, duration_ms=400):
+            raise RuntimeError("mswipe rejected")
+
+    session = PlacingSession()
+    session.control = BrokenSwipe()
+    sink = HidControlSink(session, None)
+
+    result = asyncio.run(sink.go_back())
+
+    assert result.ok is False
+    assert result.incident == "swipe_failed"
+    assert "mswipe rejected" in result.detail
+
+
+def test_go_back_refuses_to_guess_when_the_frame_size_is_unknown():
+    """A blind edge gesture is how BACK became four silent no-ops."""
+    session = FakeSession()
+    control = RecordingSwipeControl()
+    session.control = control
+    sink = HidControlSink(session, None)
+
+    result = asyncio.run(sink.go_back())
+
+    assert result.ok is False
+    assert result.incident == "swipe_failed"
+    assert control.swipes == []

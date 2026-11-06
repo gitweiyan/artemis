@@ -34,7 +34,12 @@ class Sink:
         return ActionResult(True, "input_text")
 
     async def press_key(self, key):
+        self.calls.append(("press_key", key))
         return ActionResult(True, "press_key")
+
+    async def go_back(self):
+        self.calls.append("go_back")
+        return ActionResult(True, "go_back")
 
 
 class Session:
@@ -286,9 +291,7 @@ def test_open_app_uses_ios_spotlight_launcher(monkeypatch):
             calls.append((app, capture, self.control))
             return SimpleNamespace(ok=True, error=None)
 
-    monkeypatch.setattr(
-        "artemis.drivers.ios.ios_uvc_hid_driver.IOSAppLauncher", FakeLauncher
-    )
+    monkeypatch.setattr("artemis.drivers.ios.ios_uvc_hid_driver.IOSAppLauncher", FakeLauncher)
     session = Session()
     session.control[0]._control = SimpleNamespace(name="hid")
     driver = IOSUvcHidDriver(session)
@@ -298,3 +301,49 @@ def test_open_app_uses_ios_spotlight_launcher(monkeypatch):
     assert result.ok is True
     assert calls[0][0] == "alipay"
     assert calls[0][2].name == "hid"
+
+
+# --- BACK is a gesture, not a key ---------------------------------------------------
+
+
+def test_press_key_back_runs_the_edge_swipe_instead_of_the_keyboard():
+    session = Session()
+    driver = IOSUvcHidDriver(session)
+
+    ok = asyncio.run(driver.press_key("BACK"))
+
+    assert ok is True
+    assert session.control[0].calls == ["go_back"], "the keyboard would refuse BACK"
+
+
+def test_press_key_back_is_case_insensitive_and_whitespace_tolerant():
+    session = Session()
+    driver = IOSUvcHidDriver(session)
+
+    ok = asyncio.run(driver.press_key(" Back "))
+
+    assert ok is True
+    assert session.control[0].calls == ["go_back"]
+
+
+def test_press_key_back_failure_is_reported_as_false():
+    class FailingSink(Sink):
+        async def go_back(self):
+            self.calls.append("go_back")
+            return ActionResult(False, "go_back", "swipe_failed", "serial write failed")
+
+    session = Session()
+    session.control = [FailingSink()]
+    driver = IOSUvcHidDriver(session)
+
+    assert asyncio.run(driver.press_key("back")) is False
+
+
+def test_other_keys_still_reach_the_hid_keyboard():
+    session = Session()
+    driver = IOSUvcHidDriver(session)
+
+    ok = asyncio.run(driver.press_key("enter"))
+
+    assert ok is True
+    assert session.control[0].calls == [("press_key", "enter")]

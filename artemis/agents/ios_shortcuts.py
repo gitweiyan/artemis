@@ -27,6 +27,13 @@ Shift+Tab  Move backward
 Up, Down, Left, Right   Move in the direction
 ```
 
+BACK is the exception: there is no Back key. `press_key("BACK")` runs the iOS
+interactive pop gesture — a rightward drag that starts on the **left edge** of the
+screen (`go_back` in `artemis/control/hid.py`). Use it to leave a pushed page before
+hunting for an on-screen back arrow. If the drag fails, fall back to `escape`, the
+on-screen arrow, or `home` (Cmd+H). A successful BACK is reported as a left-edge
+swipe, never as "Pressed key".
+
 Decision rules:
 
 1. Launch an app with always use `manage_app(action="launch", app_name="...")`. The HID
@@ -45,6 +52,8 @@ Decision rules:
 7. Before retyping into a field that may already contain text, call `clear_text`
    (Cmd+A + Backspace). Appending to stale text produces unsearchable strings
    such as `Mai2enzhunaichaha`.
+8. BACK is a left-edge gesture, not a keyboard command. Do not report it as
+   unsupported, and do not silently repeat it when the screen does not change.
 """
 
 

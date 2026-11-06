@@ -340,6 +340,31 @@ async def test_unified_controller_start_recording(mock_ctx, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_unified_controller_skips_scrcpy_on_ios(mock_ctx, tmp_path):
+    mock_ctx.device.mobile_platform = "ios"
+
+    # Keep the driver non-mock so the only thing that can short-circuit is the
+    # iOS platform guard, not the mock branch.
+    driver = MagicMock()
+    driver.is_mock = False
+    driver.device_id = "ios-device"
+    mock_ctx._active_driver = driver
+
+    controller = UnifiedMobileController(mock_ctx)
+    remove_active_session("emulator-5554")
+
+    with patch(
+        "asyncio.create_subprocess_exec",
+        AsyncMock(side_effect=AssertionError("scrcpy must not be spawned on iOS")),
+    ):
+        res = await controller.start_video_recording(output_dir=tmp_path)
+
+    assert res.success is False
+    assert "iOS" in res.message
+    assert get_active_session("emulator-5554") is None
+
+
+@pytest.mark.asyncio
 async def test_unified_controller_stop_recording(mock_ctx, tmp_path):
     controller = UnifiedMobileController(mock_ctx)
     remove_active_session("emulator-5554")

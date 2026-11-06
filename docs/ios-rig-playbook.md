@@ -33,7 +33,7 @@
 | 黑帧/超时/帧太旧 | 采集卡无信号、设备没了、抓帧进程卡死 | `uvc_no_signal` / `capture_timeout` / `stale_frame` incident（见 §4） |
 | 点击无效，但指针在动、键盘也失灵 | **前台有 Spotlight/搜索层**（`Cmd+Space` 误触），它吞掉点击和 `Cmd+H` | 先按 **Esc** 再看屏幕（§5 第 1 步） |
 | 重启后“按键全废” | 疑似 iOS 丢了指针设备的按键映射 | 先排除 Spotlight（Esc）；仍不行才插拔 ESP32 OTG 线 |
-| `press_key back` 报 usage 错误 | 键名原样下发，固件只认数字 usage | `press_named_key`（Home→Cmd+H；BACK 明确拒绝并提示点返回箭头） |
+| `press_key back` 报 usage 错误 / BACK 静默无效 | 键名原样下发，固件只认数字 usage；iOS 没有 Back 键，过去被拒绝却仍上报成功（2026-11-05 milk-tea 轨迹里 4 次无效果） | 键盘侧 `press_named_key` 仍拒绝 BACK；`IOSUvcHidDriver.press_key` 把 BACK 直接派发给 `HidControlSink.go_back()`：从**左边缘**向右拖过 1/3 宽度（§2.5）。失败是 `DEVICE_ERROR`，不再伪装成 `Pressed key` |
 | 串口里 `key 8 11` 没反应 | `key` 只取**一个** usage（8='e'），多给的数字被忽略；Cmd+H 是 `keymod 8 11` | 固件现在对多余参数直接报错并提示 `keymod <mod> <usage>`；用法见 §2.5 表 |
 | 串口里同一条命令时有 `ERR line too long` | 收到 ≥127 字节仍没有行终止符：终端只发 **CR**、粘贴过快丢了换行、或单行超 126 字节 | 固件现在认 LF/CRLF/**裸 CR** 并在超长时立即重同步（只丢一条命令）；CoolTerm 里把 Enter 设为 LF、一次一条、等 `OK` |
 | 中文小字定位不到 | 裁剪帧太小、OCR 引擎置信度口径不同 | `locate_text` 整串精确匹配门槛 0.25、部分匹配 0.5；`ARTEMIS_IOS_OCR` 可关 |
@@ -44,7 +44,7 @@
 - iOS **不消费外部 HID digitizer**：绝对坐标 `tap` 不产生触摸。只有键盘 + 鼠标（相对指针）。
 - 鼠标指针是 AssistiveTouch 的 overlay：**开辅助触控**且屏幕常亮才看得到；会淡出。
 - 指针有加速度、`move` 是 int8、`home` 是不可靠的连发——这三点决定了“必须闭环 + 分段 + 软件 home”。
-- 键盘：`Enter/Space/Tab/方向键` 可用；没有 Back 键（用屏幕返回箭头或 Cmd+H）。
+- 键盘：`Enter/Space/Tab/方向键` 可用；没有 Back 键。BACK 不走键盘，而是 `go_back()` 的**左边缘**右滑手势（§2.5）；手势失败才退回屏幕返回箭头或 Cmd+H。
 - 应用启动只能点图标（没有包名可查）；`manage_app` 在本平台直接失败并提示点图标。
 
 ## 2.5 键盘优先（先走这条路，再考虑指针）
@@ -54,6 +54,7 @@
 | 目的 | 命令（`press_named_key` / 固件） | 备注 |
 |---|---|---|
 | 回主屏 | `home` → `keymod 8 11`（Cmd+H） | 主屏/App 内都有效 |
+| 返回上一页 | `press_key("BACK")` → `go_back()` → `mswipe <0.75w> 0 500` | **不是按键**：`IOSUvcHidDriver.press_key` 绕过 HID 键盘，直接调 `HidControlSink.go_back()`；起点为物理左边缘 x=0、0.5h，越过 1/3 宽度才松手 |
 | 搜索/打开 App | `spotlight` → `keymod 8 44`（Cmd+Space），`type_text("taobao")`，`down`，`enter` | **已验证**：输入英文/拼音即可命中中文 App（`taobao` → 淘宝） |
 | 关闭弹层/搜索页 | `escape` → `key 41` | “点击无效”的第一反应也是它 |
 | 切 App | `app_switch` → `keymod 8 43`（Cmd+Tab） | |
@@ -68,6 +69,13 @@
 控制中心/通知中心），水平拖 0.5h；x 用模型给的起点。锚点离两侧边缘都远，配置 gain 有 ±20% 误差
 也不会落进手势带。代价：拖拽兜底**不再按模型给的精确起点起手**，滑杆/子容器内拖动需要精确起点，
 得改成相机闭环（`verified_travel`，未实现）。
+
+**唯一例外是 BACK（返回上一页）**：iOS 的 interactive pop gesture 要求按下点落在物理**左边缘**，
+所以这一条拖动手势必须反着来——`HidControlSink.go_back()` 用 `x=0, y=0.5h` 起手，向右拖
+`0.75w`（`BACK_SWIPE_END_RATIO`），500ms 匀速（`BACK_SWIPE_DURATION_MS`），越过约 1/3 宽度的
+完成阈值再松手。有 `amove` 的固件用 `move_abs` 一次落到边缘；旧固件仍走 home + gain 的相对落点，
+但 x 保持 0。帧尺寸未知时**直接拒绝**（`incident=swipe_failed`），绝不盲发一条猜出来的边缘手势——
+盲发正是那 4 次静默 BACK 的来源。`swipe()` 与 `go_back()` 共用 `_drag()`，按下/分段/松开只有一份实现。
 
 `type_text` **只支持 ASCII**（固件限制）：中文要输入时用拼音（淘宝 → `taobao`）、或用 App 内搜索框的中文候选。
 

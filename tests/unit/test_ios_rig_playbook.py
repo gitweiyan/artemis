@@ -74,3 +74,20 @@ def test_the_calibration_lesson_is_backed_by_a_command():
     assert "验收数字" in playbook
     assert (ROOT / "artemis/drivers/ios/calibration.py").is_file()
     assert (ROOT / "artemis/interfaces/cli/commands/ios_calibrate.py").is_file()
+
+
+def test_the_back_gesture_is_backed_by_code_and_documented_in_both_live_channels():
+    """BACK is a gesture now; the playbook and the injected prompt must not lag behind.
+
+    A prose-only lesson is debt: this pins the code constant as well as the two
+    places an agent actually reads before deciding to hunt for a back arrow.
+    """
+    from artemis.agents.ios_shortcuts import IOS_KEYBOARD_GUIDANCE
+    from artemis.control.hid import BACK_SWIPE_END_RATIO
+
+    text = PLAYBOOK.read_text(encoding="utf-8")
+    assert "go_back" in text
+    assert "左边缘" in text
+    assert "BACK" in IOS_KEYBOARD_GUIDANCE
+    assert "edge" in IOS_KEYBOARD_GUIDANCE.lower()
+    assert BACK_SWIPE_END_RATIO > 1 / 3, "the drag must pass the pop threshold"

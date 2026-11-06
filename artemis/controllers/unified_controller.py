@@ -401,6 +401,15 @@ class UnifiedMobileController(UnifiedMobileControllerBase):
         self._segment_cache.clear()
         device_id = self._get_device_id()
 
+        # iOS is reached over UVC + a serial HID board, not ADB: scrcpy cannot
+        # mirror it, so trying only produces a noisy failure. Skip the recorder
+        # instead of spawning a doomed subprocess.
+        if getattr(getattr(self.ctx, "device", None), "mobile_platform", None) == "ios":
+            return VideoRecordingResult(
+                success=False,
+                message="iOS is reached over UVC + HID, not ADB; scrcpy recording is unavailable",
+            )
+
         # Check mock driver first
         if (
             getattr(self._driver, "is_mock", False)

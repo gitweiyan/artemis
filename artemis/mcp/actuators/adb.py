@@ -299,9 +299,9 @@ class AdbActuator:
         named_key: str | None = None
         ok: bool | None = None
         if key_str == "back" and hasattr(self.controller, "go_back"):
-            # The controller reports success as a bool. Dropping it let a refused key
-            # (iOS has no Back key) reach the model as "Pressed key 'BACK'." with no
-            # screen change -- four silent no-ops in the 2026-11-05 milk-tea run.
+            # The controller reports success as a bool. Dropping it let a failed
+            # gesture reach the model as "Pressed key 'BACK'." with no screen
+            # change -- four silent no-ops in the 2026-11-05 milk-tea run.
             named_key, ok = "back", await self.controller.go_back()
         elif key_str == "home" and hasattr(self.controller, "go_home"):
             named_key, ok = "home", await self.controller.go_home()
@@ -324,19 +324,22 @@ class AdbActuator:
 
         if named_key is not None and not ok:
             if named_key == "back" and is_ios_device(self.ctx):
-                # The HID sink already raises ValueError("iOS has no Back key ...") and
-                # labels it unsupported_key; the driver reduces that to a False before
-                # it reaches here, so the refusal has to be restored at this boundary.
+                # BACK is a real capability now (the left-edge pop gesture), so a
+                # failed one is a device/execution error, not "unsupported". Give the
+                # model the fallbacks instead of letting it repeat a dead gesture.
                 return ActionResult.failure(
                     "press_key",
-                    f"Error executing key press '{key}': iOS has no Back key"
-                    " · incident=unsupported_key; use 'escape' to dismiss, the"
-                    " on-screen back arrow to go back, or 'home' (Cmd+H) for the Home screen",
-                    code=ActionCode.UNSUPPORTED,
-                    incident="unsupported_key",
+                    f"Error executing key press '{key}': the iOS left-edge back swipe"
+                    " failed; use 'escape' to dismiss, the on-screen back arrow to go"
+                    " back, or 'home' (Cmd+H) for the Home screen",
                 )
             return ActionResult.failure("press_key", f"Error executing key press '{key}'.")
 
+        if named_key == "back" and is_ios_device(self.ctx):
+            # Not a key press: saying "Pressed key" made a no-op look like an action.
+            return ActionResult.success(
+                "press_key", "Went back with the iOS left-edge swipe gesture."
+            )
         return ActionResult.success("press_key", f"Pressed key '{key}'.")
 
     async def manage_app(self, action: str, app_name: str) -> ActionResult:

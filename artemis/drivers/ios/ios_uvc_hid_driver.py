@@ -256,6 +256,14 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         return result.ok
 
     async def press_key(self, key) -> bool:
+        # iOS has no Back *key*: BACK is the interactive pop gesture, so it must
+        # bypass the HID keyboard (which deliberately refuses the name) and reach
+        # the sink's edge swipe. Every other key still belongs to the keyboard.
+        if str(key).strip().lower() == "back":
+            sink = self._relative_sink()
+            go_back = getattr(sink, "go_back", None)
+            if callable(go_back):
+                return (await go_back()).ok
         result = await self._relative_sink().press_key(key)
         return result.ok
 
