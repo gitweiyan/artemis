@@ -741,6 +741,9 @@ class FlashRunner:
         # Evidence the driver reported for this action: the incident code when it refused,
         # and the numbers behind it (pointer position, error_px, frame age). Same shape the
         # Validator path records, so a flash run is replayable too.
+        if metadata.get("target_unverified"):
+            # The click ran on the model's own estimate: the locator never confirmed it.
+            action_dict["target_unverified"] = True
         incident = metadata.get("incident")
         if incident:
             action_dict["incident"] = incident

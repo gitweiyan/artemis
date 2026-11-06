@@ -177,6 +177,7 @@ class McpActionExecutor:
         xml_list: str | None = None
         target_semantics: dict[str, Any] = {}
         target_coordinates: list[int] | None = None
+        locate_record: dict[str, Any] | None = None
         with span:
             try:
                 session = await self._session_or_start()
@@ -227,6 +228,19 @@ class McpActionExecutor:
             if shot_path:
                 state.latest_screenshot = shot_path
 
+            # A described target the locator could not resolve is the model's own
+            # estimate, and the model has to know that: the tool used to report a plain
+            # "Tapped at [x, y]" for a click nobody verified (2026-11-06 15:58: five
+            # such clicks, all on the wrong control).
+            unverified = bool(locate_record and locate_record.get("error"))
+            if unverified and raw_name in _POINT_TARGET_ACTIONS:
+                reason = str(locate_record.get("error"))[:120]
+                message = (
+                    f"{message} Target was NOT verified by the locator ({reason});"
+                    " the coordinates are your own estimate — confirm on screen before"
+                    " the next step."
+                )
+
             status = "success" if res.ok else "error"
             post_image_name = None
             if shot_path:
@@ -256,6 +270,7 @@ class McpActionExecutor:
                 "normalized_coordinates": res.normalized_coordinates,
                 "target_semantics": target_semantics,
                 "target_coordinates": target_coordinates,
+                "target_unverified": unverified,
                 # The driver's structured evidence (pointer position, error, frame age)
                 # and why it refused: recorded by both profiles, not just the Validator.
                 "incident": getattr(res, "incident", None),
@@ -308,7 +323,9 @@ class McpActionExecutor:
         ):
             # 10 s: the service's first request after an idle period loads/warms the
             # model; a 4 s budget made the first target of a run fall back silently.
-            self._locate_service = LocateAnythingDetector(url, timeout_s=10.0)
+            self._locate_service = LocateAnythingDetector(
+                url, timeout_s=10.0, cooldown_s=4.0, max_cooldown_s=60.0
+            )
         try:
             image = Path(screenshot_path).read_bytes()
         except OSError:

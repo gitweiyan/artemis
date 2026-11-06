@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from artemis.mcp.action_executor import McpActionExecutor
 
@@ -28,6 +30,7 @@ def _executor():
     ctx.device.device_height = 2400
     actuator = Mock()
     actuator.controller = Mock()
+    actuator.extensions.return_value = []
     return McpActionExecutor(ctx, actuator=actuator)
 
 
@@ -82,3 +85,43 @@ def test_a_service_failure_keeps_the_model_point(tmp_path, monkeypatch):
     assert record["source"] == "locate-anything"
     assert record["error"]
     assert record["model_point"] == [900, 800]
+
+
+@pytest.mark.asyncio
+async def test_a_timed_out_target_is_reported_to_the_model_as_unverified(tmp_path, monkeypatch):
+    """The model only reads ``text_summary``: a silent fallback looks like a verified tap.
+
+    2026-11-06 15:58: five clicks ran on the model's own coordinates (the locator was
+    cooling down) and each was reported as a plain success; the run "randomly" clicked
+    the account page, the address page and the wrong tab.
+    """
+    from artemis.mcp.action_types import ActionResult
+
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862")
+    executor = _executor()
+
+    class _TimedOutLocator:
+        url = "http://127.0.0.1:7862"
+        last_error = "TimeoutError: timed out"
+
+        def locate(self, image, prompt):
+            return None
+
+    executor._locate_service = _TimedOutLocator()
+    session = Mock()
+    session.call = AsyncMock(
+        return_value=ActionResult.success("click", "Tapped at [169, 76] (normalized).")
+    )
+    session.observe = AsyncMock(return_value=SimpleNamespace(ok=False))
+    executor._session_or_start = AsyncMock(return_value=session)
+
+    result = await executor.execute(
+        "click",
+        {"target": [169, 76], "target_description": "闪购 tab in top navigation"},
+        "tc",
+        _state(tmp_path),
+    )
+
+    assert "Tapped at [169, 76]" in result.text_summary
+    assert "not verified" in result.text_summary.lower()
+    assert result.metadata["target_unverified"] is True
