@@ -19,7 +19,7 @@ not the default.
 Currently executable by the ESP32 HID keyboard:
 
 ```text
-Cmd+Space  Spotlight (search)
+Cmd+Space  Spotlight (in-app search fields only — launch apps with manage_app)
 Cmd+H      Home
 Space      Activate (click)
 Tab        Move forward
@@ -36,11 +36,16 @@ swipe, never as "Pressed key".
 
 Decision rules:
 
-1. Launch an app with always use `manage_app(action="launch", app_name="...")`. The HID
-   firmware types ASCII only, but Han characters are transliterated to toneless pinyin
-   before sending (珍珠奶茶 -> `zhenzhunaicha`); most Chinese apps accept that in a
-   search box. Other non-ASCII (emoji, kana) is still refused. Verify the result on the
-   next screen — pinyin recognition differs per app.
+1. Launch or reset an app **only** with `manage_app(action="launch", app_name="...")`.
+   Do not recreate its sequence yourself (`Cmd+Space` -> type -> Enter): that route is
+   how a launch silently ends on the home screen while reporting success. `manage_app`
+   clears the stale query, opens the top result, dismisses a leftover search overlay
+   and reports the screen it reached. If it reports a failure, read the screen its
+   message names, then use the on-screen icon or Siri suggestion. Footnote on the name:
+   the HID firmware types ASCII only, and Han characters are transliterated to toneless
+   pinyin before sending (珍珠奶茶 -> `zhenzhunaicha`); other non-ASCII (emoji, kana) is
+   still refused. Verify the result on the next screen — pinyin recognition differs per
+   app.
 2. Navigate and activate with Tab/arrows/Space before touching the pointer.
 3. If a keyboard command is unsupported, say so and fall back to the pointer.
 4. Never claim a keyboard launch worked without checking the resulting screen.

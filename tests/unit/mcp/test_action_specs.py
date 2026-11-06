@@ -249,3 +249,19 @@ def test_manifest_wait_for_delay_uses_milliseconds():
     fields = set(tool_declaration("wait_for_delay").parameters["properties"])
     assert "seconds" not in fields
     assert "time_in_ms" in fields
+
+
+def test_manage_app_declaration_sells_the_launch_not_the_keyboard():
+    """The description is what the model reads before choosing a tool.
+
+    It used to describe only the implementation ("opened through Spotlight ... ASCII
+    only"), which reads as "manage_app == the sequence you could type yourself". It has
+    to state what the tool does for the model and forbid hand-rolling it.
+    """
+    description = tool_declaration("manage_app").description
+    lowered = description.lower()
+
+    assert "spotlight" in lowered, "say that the tool drives Spotlight"
+    assert "clear" in lowered, "say that a stale query is cleared"
+    assert "do not" in lowered or "never" in lowered, "forbid hand-rolling the sequence"
+    assert "pinyin" in description, "the ASCII/pinyin constraint stays, as a footnote"

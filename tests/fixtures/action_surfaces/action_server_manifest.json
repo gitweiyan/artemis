@@ -866,7 +866,7 @@
     }
   },
   "manage_app": {
-    "description": "Launch or stop an app by human-readable name or package.",
+    "description": "Launch or reset an app by human-readable name. On iOS it drives Spotlight (clears the stale query, types the name, opens the top result, dismisses a leftover overlay) and reports the screen it reached.",
     "inputSchema": {
       "properties": {
         "action": {

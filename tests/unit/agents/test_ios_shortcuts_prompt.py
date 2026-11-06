@@ -30,3 +30,16 @@ def test_ios_prompt_contains_keyboard_first_shortcuts():
 
 def test_android_prompt_is_unchanged():
     assert append_ios_shortcuts("BASE", _ctx("android")) == "BASE"
+
+
+def test_the_spotlight_shortcut_is_annotated_as_in_app_search_only():
+    """Cmd+Space sits in the capability list, so it reads like an approved launch route.
+
+    2026-11-06 (milk-cha): the model used it to launch Taobao twice instead of
+    manage_app, both times ending on the home screen.
+    """
+    prompt = append_ios_shortcuts("BASE", _ctx("ios"))
+    line = next(line for line in prompt.splitlines() if "Cmd+Space" in line)
+
+    assert "manage_app" in line, "the shortcut line must point at the tool that launches"
+    assert "search" in line.lower()

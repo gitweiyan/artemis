@@ -193,3 +193,21 @@ def test_flash_without_wait_for_delay_drops_timed_waiting():
     assert "**Timed Waiting & Transitions**" not in out
     assert not _tool_refs(out, "wait_for_delay")
     assert "**State Drift & Progression Tolerance**" in out
+
+
+def test_flash_app_launching_forbids_a_hand_rolled_spotlight_launch():
+    """2026-11-06: the model pressed Cmd+Space itself and never used manage_app first.
+
+    The rule has to name the sequence it forbids and say what to do when the tool
+    reports a failure; "do not swipe across home screens" alone left the keyboard
+    route legal.
+    """
+    out = _render_flash(FLASH_FULL)
+    start = out.find("**App Launching**")
+    rule = out[start : out.find("\n\n", start) + 2]
+    lowered = rule.replace("*", "").lower()
+
+    assert "manage_app" in rule
+    assert "spotlight" in lowered, "the forbidden sequence must be named"
+    assert "do not" in lowered or "don't" in lowered
+    assert "fail" in lowered, "the rule must say what to do when the tool reports failure"

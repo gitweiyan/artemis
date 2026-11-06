@@ -278,7 +278,7 @@
     "type": "function",
     "function": {
       "name": "manage_app",
-      "description": "[ACTION] Launch or force stop a specified application.\n\nOn iOS the app is opened through Spotlight with the HID keyboard, which types ASCII only: pass the English name or the pinyin (e.g. 'meituan') instead of the Chinese display name.",
+      "description": "[ACTION] Launch or reset a specified application.\n\nThis is the supported way to start an app: it drives Spotlight for you — clears a stale query, types the name, opens the top result, dismisses a leftover search overlay and reports the screen it reached. Do not reproduce that sequence by hand (no Cmd+Space + typing + Enter, no hunting the icon on the home screen). If it reports a failure, read the screen it names and fall back to the on-screen icon or Siri suggestion.\n\nFootnote: the HID keyboard types ASCII only, so pass the English name or the pinyin (e.g. 'meituan', 'taobao') instead of the Chinese display name.",
       "parameters": {
         "type": "object",
         "properties": {

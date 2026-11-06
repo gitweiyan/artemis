@@ -619,11 +619,18 @@ _SPECS: tuple[ActionSpec, ...] = (
         name="manage_app",
         operator=OperatorDialect(
             description=(
-                "[ACTION] Launch or force stop a specified application.\n"
+                "[ACTION] Launch or reset a specified application.\n"
                 "\n"
-                "On iOS the app is opened through Spotlight with the HID keyboard, which"
-                " types ASCII only: pass the English name or the pinyin (e.g. 'meituan')"
-                " instead of the Chinese display name."
+                "This is the supported way to start an app: it drives Spotlight for you —"
+                " clears a stale query, types the name, opens the top result, dismisses a"
+                " leftover search overlay and reports the screen it reached. Do not"
+                " reproduce that sequence by hand (no Cmd+Space + typing + Enter, no"
+                " hunting the icon on the home screen). If it reports a failure, read the"
+                " screen it names and fall back to the on-screen icon or Siri suggestion.\n"
+                "\n"
+                "Footnote: the HID keyboard types ASCII only, so pass the English name or"
+                " the pinyin (e.g. 'meituan', 'taobao') instead of the Chinese display"
+                " name."
             ),
             params=(
                 ParamSpec("action", Literal["launch", "stop"], "The action type."),
@@ -636,7 +643,11 @@ _SPECS: tuple[ActionSpec, ...] = (
             ),
         ),
         wire=WireDialect(
-            description="Launch or stop an app by human-readable name or package.",
+            description=(
+                "Launch or reset an app by human-readable name. On iOS it drives Spotlight"
+                " (clears the stale query, types the name, opens the top result, dismisses"
+                " a leftover overlay) and reports the screen it reached."
+            ),
             params=(
                 ParamSpec("action", str),
                 ParamSpec("app_name", str),
