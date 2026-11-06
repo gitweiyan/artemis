@@ -165,7 +165,7 @@
 | ⑤ Flash 跨步 no-op 守门 | 11-05 I4 · 11-04 I4 | 纯逻辑 `NoOpTracker` 折叠 `status` / `incident` / `crop_change` / pre-post dHash：2 次 warn（换策略提示）、3 次有界中止；`WAIT_ACTIONS` 既不计入也不清除已有停滞；`SAME_SCREEN_MAX_DHASH_DISTANCE=2`。runner 把 `no_op_consecutive` 盖进 step、warn 走临时 tail notice、abort 给 failed 终报 | ✅ 已完成 | 新增 `artemis/agents/flash/no_op.py`、`tests/unit/agents/test_flash_no_op.py`；改 `artemis/agents/flash/runner.py`、`tests/unit/agents/test_flash_runner.py` |
 | ⑥ 归档证据链（复盘外发现） | §6 归档自证缺口 | `get_traces_for_session(..., latest_first=True)` 读到 `step_id=None` 日志行并从尾部扫 WARNING；`steps.json` 每行补 `evidence`（`incident` / `action_metrics` / `no_op_consecutive`，兼容 dict 与 Pro 的 list 两种形状）；`write_run_status()` 写 `status.json`（终态 / 取消原因 / 起止 / 时长 / 步数 / WARNING / degradations，全程 best-effort）；`_finalize_tracing` 在 manifest 之后调用（该处在 `finally` 里，`CancelledError` 路径同样走到） | ✅ 已完成 | `artemis/data_engine/storage.py`、`artemis/runtime/trace_export.py`、`third_party/mobile_use/sdk/agent.py`；`tests/unit/data_engine/test_engine.py`（真实 SQL 尾部顺序）、`tests/unit/runtime/test_trace_export.py`、`tests/unit/sdk/test_agent_trace_finalization.py` |
 
-⑥ 先于 ⑤ 落地：⑤ 消费的 `incident` / `action_metrics` 正是 ⑥ 才开始落盘的证据。§9 未枚举 11-04 报告的 I1–I9，故 11-04 I2 / I4 的覆盖关系在此登记（该报告 `reports/复盘-20261104-milk-tea-locate.html` 的决策列仍为「待决策」）。
+⑥ 先于 ⑤ 落地：⑤ 消费的 `incident` / `action_metrics` 正是 ⑥ 才开始落盘的证据。§9 未枚举 11-04 报告的 I1–I9，故 11-04 I2 / I4 的覆盖关系在此登记（该报告 `reports/复盘-20261104-milk-tea-locate.html` 的决策列仍为「待决策」）。**① 的失败语义随后被 §10.5 取代**：BACK 已升级为可执行手势，不再是 `unsupported_key`；上表保留为 `1ec5348` 当时的历史快照。
 
 ### 10.3 验收与真实数据复算
 
@@ -189,4 +189,30 @@
 | K1–K3 / D1 | LocateAnything 边界、模型服务冷启动、带选择状态控件校验、定位/重复动作审计工具 | ⏳ 未沉淀 |
 | 观察项 | 视觉摘要幻觉（step3 post 明显是 iOS 主屏，摘要写 "Android home screen"）→ 摘要输出不宜直接当状态判据；106 次 LLM 调用 / 854,569 prompt tokens / 80.3% 命中，省时关键是减少步数而非优化抓帧 | 记录，未落地 |
 
-环境备注：根目录 9 个 4 字节、内容为 `blat` 的探针残留（`1vkf_dgm`、`4l2_qjgg`、`63ygnb24`、`cs07j09y`、`em_nw6pk`、`epqcwxa1`、`evofy2cm`、`k6ea2xp9`、`y4zxwbul`）是 Security Center 间歇性拦截 TEMP 时 Python `tempfile` 写探针产生的，非业务文件，**未清理**（destructive 操作待确认）；未通过改 `TMPDIR` 等方式绕过该限制。
+### 10.5 追加（同日）：iOS BACK 从「拒绝键」升级为左边缘右滑手势
+
+用户更正 / 新需求：「back 可以通过鼠标放在左边向右侧滑动来实现，补齐 iOS 这个操作能力」。① 只做到**不撒谎**（把静默失败报成 `unsupported_key`），并未补齐能力；本节把 BACK 做成真动作，并**取代 10.2 ① 的失败语义**。状态：`已实现·已真机验证·待提交`（真机证据见下，代码尚未入库）。
+
+| 落点 | 内容 |
+|---|---|
+| `artemis/control/hid.py` | 新增 `BACK_SWIPE_END_RATIO=0.75` / `BACK_SWIPE_Y_RATIO=0.5` / `BACK_SWIPE_DURATION_MS=500`；`go_back()` 从物理左边缘 `x=0, y=0.5h` 起手向右拖过 1/3 宽度完成阈值；抽出 `_drag()` 与 `swipe()` 共用按下 / 分段 / 松开；`_place_for_drag(..., y=...)` 让边缘手势绕过「安全锚点」规则（其它拖动仍避边缘）；`frame_size` 未知直接 `incident=swipe_failed` 拒绝盲发 |
+| `artemis/drivers/ios/ios_uvc_hid_driver.py` | `press_key("back")` 大小写 / 空白不敏感，绕过 HID 键盘直接派发 `sink.go_back()`；其余按键仍走 `sink.press_key()`；无 `go_back` 的 sink 保留旧回退 |
+| `artemis/mcp/actuators/adb.py` | ① 的 `bool` 返回值透传保留；成功文案改为 `Went back with the iOS left-edge swipe gesture.`（不再说 `Pressed key`）；失败改为 `DEVICE_ERROR` + escape / 返回箭头 / home 三条替代路径、`incident=None`（能力已存在，不再是 `UNSUPPORTED`） |
+| `artemis/agents/ios_shortcuts.py` · `docs/ios-rig-playbook.md` | 活提示词与 canonical 手册同步：BACK 是左边缘手势、不是键盘命令；新增决策规则 8；playbook §1 / §2 / §2.5 三处修正；`tests/unit/test_ios_rig_playbook.py` 同时钉住代码常量与两个活通道，防止只写散文 |
+
+**验收**：定向 4 文件 RED `12 failed / 69 passed` → GREEN **81 passed**；全量 `uv run pytest tests/unit -q` = **14 failed / 3487 passed / 9 skipped**，14 项与 10.3 基线逐项相同、无新增回归（仍由 `config/artemis.jsonc` 既有改动引起：`provider` 被本地改成 `openai`，而 `test_model_service` 断言 `google`）；`ruff check` 全过，`ruff format --check` 仅 `tests/unit/drivers/test_ios_uvc_hid_driver.py:294` 的 HEAD 既有偏差未顺手改动。质量门两项计数相对 HEAD 增量仍为 0（`_drag` 的两个 `except Exception` 由 `swipe` 中原有两个平移而来）。
+
+**真机证据（2026-11-05 22:46）**：`traces/ios-back-gesture_PASS_2026-11-05T22-46-02`（session `27e9ccc3-5043-4e28-a50a-a3a905bd8c75`，7 步 / `53.379s` / `completed` / 2 WARNING / 0 degradations）。step 6 `action_taken={"action":"press_key","args":{"key":"BACK"}}`，`last_execution_result={"status":"dispatched","result":"Went back with the iOS left-edge swipe gesture."}`；截图「通用」子页 → 「设置」主页，pre/post dHash `696d55f25ac87e78 → 6971747262747265`。固件日志 `amove 0 500` OK → `mswipe 337 0 500` OK（819ms），帧 449×974：`337 = round(449×0.75)`、`500ms` 与 `BACK_SWIPE_END_RATIO` / `BACK_SWIPE_DURATION_MS` 完全对上。全 session `unsupported_key` / `swipe_failed` / `Pressed key 'BACK'` 旧失败标记计数 = 0。**这是未提交工作树上的验证**（run identity WARNING：23 个未提交路径 / revision `23a927a` … exists in no commit），不是已发布 commit 的验证；剩余置信缺口是 1/1 成功、未做 10 次重复。本场顺带反证 ⑤/⑥：step2 `evidence.incident=pointer_static` / `no_op_consecutive=1`；step5 `action_metrics.crop_change=0.2880`；`status.json.warnings` 正是 ⑥ 的 `get_traces_for_session(..., latest_first=True)` 从 `step_id=None` 的 `type=log` 行扫出来的两条。step2 的 `pointer_static` 是 §9 已登记的蓝环检测假阳性（静止幻影守卫按设计拦下、未点击，run 随后自行恢复），不新增代码。
+
+环境备注：根目录 10 个 4 字节、内容为 `blat` 的探针残留（`1vkf_dgm`、`4l2_qjgg`、`63ygnb24`、`cs07j09y`、`em_nw6pk`、`epqcwxa1`、`evofy2cm`、`k6ea2xp9`、`xrw87kg5`、`y4zxwbul`）是 Security Center 间歇性拦截 TEMP 时 Python `tempfile` 写探针产生的，非业务文件，**未清理**（destructive 操作待确认）；未通过改 `TMPDIR` 等方式绕过该限制。
+
+### 10.6 追加（同日）：iOS 平台不再尝试 scrcpy 录屏
+
+来源：10.5 真机轨迹里的两条 WARNING 之一（`scrcpy failed to start … Could not find any ADB device`）。iOS rig 走 UVC + ESP32 HID，本就没有 ADB，`start_video_recording()` 不该为它起 scrcpy 子进程。
+
+| 落点 | 内容 |
+|---|---|
+| `artemis/controllers/unified_controller.py` | `start_video_recording()` 在 `device_id` 之后先判 `mobile_platform == "ios"`，直接返回 `VideoRecordingResult(success=False, message="iOS is reached over UVC + HID, not ADB; scrcpy recording is unavailable")`；不再进入 mock/ADB 分支，也不会 spawn 子进程 |
+| `tests/unit/test_unified_controller_video.py` | 新增 `test_unified_controller_skips_scrcpy_on_ios`：非 mock driver + iOS 平台，断言不 spawn `asyncio.create_subprocess_exec`、返回失败信息、无活动 session |
+
+**验收**：`tests/unit/test_unified_controller_video.py` **23 passed**（新增 1 例）。
