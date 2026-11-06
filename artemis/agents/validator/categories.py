@@ -36,6 +36,9 @@ class ValidationErrorCategory(StrEnum):
     POINTER_OFF_TARGET = "pointer_off_target"
     #: The pointer was inside the target but never within the click tolerance.
     POINTER_NOT_CENTERED = "pointer_not_centered"
+    #: The harness replaced the screen while acting (connecting the pointer presses
+    #: Cmd+H), so the planned target belongs to a screen that is no longer shown.
+    SCREEN_CHANGED = "screen_changed"
     #: The click was dispatched on a verified target and the screen did not change.
     NO_EFFECT = "no_effect"
     #: The capture card delivered a frame with no picture (HDMI/HDCP, screen off).

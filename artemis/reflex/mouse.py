@@ -17,14 +17,19 @@ from dataclasses import dataclass, field
 
 from artemis.reflex.motion import MotionCalibration, MotionConfig, Phase, choose_phase
 from artemis.reflex.vision import (
-    POINTER_RADIUS_PX,
     Pointer,
     changed,
     corridor_roi,
     detect_in_roi,
+    frame_scale,
+    pointer_radius_px,
 )
 from artemis.safety.pixel import verify_effect
 from artemis.safety.pointer import check_point
+
+
+#: Click tolerance on the 449-wide reference frame (measured on the rig).
+DEFAULT_TAP_TOLERANCE_PX = 8.0
 
 
 @dataclass
@@ -43,9 +48,14 @@ class TapResult:
     """Outcome of one tap attempt.
 
     ``incident`` is the machine-readable reason a failed tap failed:
-    ``pointer_missing`` (no verified pointer, so no click), ``pointer_not_centered``
-    (the pointer never converged inside the tolerance) or ``no_effect`` (the click was
-    dispatched but the screen did not change). Callers must not parse ``message``.
+    ``pointer_missing`` (no verified pointer on this screen, so no click),
+    ``pointer_not_centered`` (the pointer never converged inside the tolerance),
+    ``pointer_static`` (a pointer was tracked and then stopped responding) or
+    ``no_effect`` (the click was dispatched but the screen did not change).
+    ``screen_changed`` means the harness itself replaced the screen (connecting the
+    pointer presses Cmd+H) before the click, so the planned target is stale. Callers
+    must not parse ``message``;
+    they re-observe and re-decide on the incident.
     """
 
     ok: bool
@@ -218,7 +228,7 @@ class SessionTapController:
         capture=None,
         detector=None,
         max_attempts: int = 3,
-        tolerance_px: float = 8.0,
+        tolerance_px: float | None = None,
         max_steps: int = 6,
         max_step: int = 100,
         observe_attempts: int = 3,
@@ -238,7 +248,14 @@ class SessionTapController:
         self.capture = capture
         self.detector = detector
         self.max_attempts = max(1, int(max_attempts))
-        self.tolerance_px = float(tolerance_px)
+        #: "The pointer is on the target" in frame pixels. 8 px was measured on the
+        #: 449-wide reference frame; a bigger capture keeps the same *physical* ratio
+        #: (an 8 px tolerance at 2x is half the accuracy), so the default scales.
+        self.tolerance_px = (
+            float(tolerance_px)
+            if tolerance_px is not None
+            else DEFAULT_TAP_TOLERANCE_PX * frame_scale(session.frame_size)
+        )
         self.max_steps = max(1, int(max_steps))
         self.max_step = max(1, int(max_step))
         #: One empty frame is not proof the pointer is gone: the AssistiveTouch ring
@@ -279,10 +296,12 @@ class SessionTapController:
         self._sigma = 8.0
         #: How many times one tap may nudge a faded pointer back into sight.
         self.max_wakes = 2
-        #: Whether this tap may start with one absolute move, and the session's probe
-        #: result (None = not probed yet; the first observation decides).
+        #: Whether a tap may use the absolute pointer report (`amove` + `aclick`). It is
+        #: the default path: the report's position is deterministic, so the click needs
+        #: no pointer detection (2026-11-06: a mis-wired detector refused the first tap
+        #: for 25.7 s). The relative loop survives only as the compatibility path for
+        #: sinks that cannot report an absolute position.
         self.absolute = bool(absolute)
-        self._absolute_supported: bool | None = None
 
     def _frame_age_s(self, frame) -> float | None:
         """Seconds between capture and now, when the frame can be dated."""
@@ -372,7 +391,10 @@ class SessionTapController:
 
     def _corridor_radius(self) -> float:
         """How wide the search corridor is: the pointer plus the prediction's error."""
-        return max(24.0, 2.5 * POINTER_RADIUS_PX + 3.0 * self._sigma)
+        scale = frame_scale(self.session.frame_size)
+        return max(
+            24.0 * scale, 2.5 * pointer_radius_px(self.session.frame_size) + 3.0 * self._sigma
+        )
 
     def _observe(
         self,
@@ -468,28 +490,59 @@ class SessionTapController:
         self._travel_on_belief(x, y)
         return math.hypot(x - self.session.position[0], y - self.session.position[1])
 
+    def _connect_pointer(self) -> TapResult | None:
+        """Connect the session, refusing when the connect itself replaced the screen.
+
+        ``PointerSession.connect()`` presses Cmd+H (iOS Home) and re-anchors the pointer
+        at the top-left. Run that *inside* a click and the target the caller chose from a
+        frame of the previous screen is meaningless: the tap would land on whatever the
+        Home screen has there (2026-11-05, session 27e9ccc3: the first click of the run
+        dismissed Settings; the detector then latched onto a Home-screen icon and the
+        failure was blamed on ``pointer_static``). So compare the frame before and after
+        the connect and refuse with ``screen_changed`` instead of aiming blind.
+        """
+        if self.session.connected:
+            return None
+        capture = self.capture
+        before = capture.grab_latest() if capture is not None else None
+        self.session.connect()
+        if before is None:
+            return None
+        after = capture.grab_latest()
+        if not changed(before.image, after.image):
+            return None
+        return TapResult(
+            False,
+            0,
+            None,
+            None,
+            "connecting the pointer pressed Cmd+H and replaced the screen; re-observe,"
+            " then choose the target again (the planned coordinates belong to the old"
+            " screen)",
+            "screen_changed",
+        )
+
     def travel_verified(self, x: float, y: float) -> TapResult:
         """Move the pointer to the target and verify it, without clicking.
 
         The same phased loop as :meth:`tap` minus the click: the move bench and any
         caller that needs a positioned pointer (a drag) use it before their own gesture.
         """
-        if not self.session.connected:
-            self.session.connect()
+        refusal = self._connect_pointer()
+        if refusal is not None:
+            return refusal
         if self.capture is not None and self.detector is not None:
             return self._verified_tap(x, y, click=False)
         self._travel_on_belief(x, y)
         return TapResult(True, 1, None, None, "moved by pointer state; not verified")
 
     def _absolute_ready(self) -> bool:
-        """Whether this tap may start with one absolute move.
+        """Whether this sink can place the pointer in one absolute report.
 
-        ``_absolute_supported`` is the session's probe result; ``None`` means "not
-        probed yet" and lets the first tap try the absolute path (its observation
-        decides). A control without the methods is a definitive no.
+        A capability question, not a probe result: the firmware either has the absolute
+        collection (`amove`/`aclick`) or it does not. Probing it with a pointer
+        observation is what put the detector on the click path in the first place.
         """
-        if self._absolute_supported is not None:
-            return self._absolute_supported
         control = getattr(self.session, "control", None)
         return (
             self.absolute
@@ -540,7 +593,8 @@ class SessionTapController:
         static blue rings (app icons, the FKA focus outline) and the relative loop then
         aimed at a phantom (2026-11-04 run: 12 segments, no click on the target). The
         absolute report's position is deterministic, so the click's effect is the honest
-        check. Returns None when the move itself fails, so the caller can fall back.
+        check. Returns None when the sink rejected the report, so the caller can name the
+        capability gap instead of aiming blind.
         """
         before = self.capture.grab_latest()
         motion = MotionReport(segments=1, phases=["absolute"])
@@ -548,12 +602,10 @@ class SessionTapController:
             self.session.move_abs(x, y)
             self.session.click_abs()
         except (AttributeError, RuntimeError, OSError, ValueError):
-            self._absolute_supported = False
             return None
         after = self.capture.grab_latest()
         effect = verify_effect(before.image, after.image, (x, y))
         if effect.ok:
-            self._absolute_failures = 0
             return TapResult(
                 True,
                 1,
@@ -565,9 +617,6 @@ class SessionTapController:
                 effect.crop_change,
                 motion,
             )
-        self._absolute_failures += 1
-        if self._absolute_failures >= 2:
-            self._absolute_supported = False
         return TapResult(
             False,
             1,
@@ -581,10 +630,11 @@ class SessionTapController:
         )
 
     def _verified_tap(self, x: float, y: float, *, click: bool = True) -> TapResult:
-        if click and self._absolute_supported is True:
-            result = self._absolute_click(x, y)
-            if result is not None:
-                return result
+        """The pointer loop: travel by dead reckoning, verify the ring, then click.
+
+        Reached only for a sink without an absolute report (bench, AirPlay, an old
+        board). ``tap()`` on an absolute-capable sink never gets here.
+        """
         width, height = self.session.frame_size
         last_pointer: Pointer | None = None
         last_error: float | None = None
@@ -609,32 +659,14 @@ class SessionTapController:
         #: Where the belief says the pointer is after the last segment; the next
         #: observation's distance to it is the motion model's prediction error.
         last_prediction: tuple[float, float] | None = None
-        used_absolute = False
-        probe_pending = False
-        if self._absolute_ready():
-            # One command puts the pointer on the target: no gain, no first-leg
-            # overshoot, no edge clipping. The observation that follows verifies it and,
-            # on the first tap, doubles as the capability probe.
-            moved_at = time.monotonic()
-            try:
-                self.session.move_abs(x, y)
-            except (AttributeError, RuntimeError, OSError, ValueError):
-                self._absolute_supported = False
-            else:
-                used_absolute = True
-                probe_pending = True
-                motion.segments += 1
-                motion.phases.append("absolute")
-                last_prediction = self.session.position
-        if not used_absolute:
-            first_phase, first_x, first_y = self._plan_segment(x, y, self.session.position)
-            if first_x or first_y:
-                moved_at = self._advance(first_phase, first_x, first_y)
-                motion.segments += 1
-                motion.phases.append(first_phase.value)
-                last_position = first_start
-                last_move, last_phase = (first_x, first_y), first_phase
-                last_prediction = self.session.position
+        first_phase, first_x, first_y = self._plan_segment(x, y, self.session.position)
+        if first_x or first_y:
+            moved_at = self._advance(first_phase, first_x, first_y)
+            motion.segments += 1
+            motion.phases.append(first_phase.value)
+            last_position = first_start
+            last_move, last_phase = (first_x, first_y), first_phase
+            last_prediction = self.session.position
         wakes = 0
         #: A wake nudges the pointer outside the plan; the displacement it contributes must
         #: not be attributed to the last planned segment when the next observation lands.
@@ -643,6 +675,11 @@ class SessionTapController:
         #: move. Two in a row means the "pointer" is a static blue ring (an app icon, the
         #: FKA focus outline), not the AssistiveTouch pointer.
         static_observations = 0
+        #: Whether the very first look already landed outside the motion corridor. A
+        #: candidate that is off-model on the first look was never following the pointer:
+        #: the screen shows scenery (an icon, a wallpaper detail) and no ring was drawn at
+        #: all. ``None`` until the first observation that follows a move.
+        first_look_off_model: bool | None = None
 
         for attempt in range(1, self.max_attempts + 1):
             for _step in range(self.max_steps):
@@ -699,6 +736,13 @@ class SessionTapController:
                     )
                 last_pointer = pointer
                 position = (pointer.x * width, pointer.y * height)
+                if first_look_off_model is None and last_prediction is not None:
+                    first_look_off_model = (
+                        math.hypot(
+                            position[0] - last_prediction[0], position[1] - last_prediction[1]
+                        )
+                        > self._corridor_radius()
+                    )
                 if (
                     last_position is not None
                     and math.hypot(position[0] - last_position[0], position[1] - last_position[1])
@@ -745,16 +789,23 @@ class SessionTapController:
                 )
                 error = verdict.error_px if verdict.error_px is not None else 0.0
                 last_error = error
-                if probe_pending:
-                    # The probe, exactly once: an iOS build without absolute support
-                    # leaves the pointer where it was, which this observation shows as a
-                    # large error. A miss may also be the detector's own false negative
-                    # (static blue rings), so a failed probe stays unprobed instead of
-                    # disabling the absolute path for the whole session.
-                    probe_pending = False
-                    if error <= max(3.0 * self.tolerance_px, 24.0):
-                        self._absolute_supported = True
                 if static_observations >= 2:
+                    if first_look_off_model:
+                        # Off-model from the first look: this is scenery, not a pointer that
+                        # stopped responding. The caller acts on the difference (re-observe /
+                        # check which screen is actually shown).
+                        return TapResult(
+                            False,
+                            attempt,
+                            pointer,
+                            error,
+                            "nothing on this screen is the pointer: the detected shape sat"
+                            " outside the motion corridor from the first observation, then"
+                            " never moved; nothing was clicked",
+                            "pointer_missing",
+                            frame_age,
+                            motion=motion,
+                        )
                     return TapResult(
                         False,
                         attempt,
@@ -808,10 +859,8 @@ class SessionTapController:
         """Click a verified pointer and demand that the screen reacts."""
         width, height = self.session.frame_size
         before = frame.image
-        if self._absolute_supported:
-            self.session.click_abs()
-        else:
-            self.session.click()
+        # The absolute path never reaches this method: it clicks in `_tap_absolutely`.
+        self.session.click()
         after = self.capture.grab_latest()
         # The target crop decides first; a change elsewhere on the screen is still proof
         # the click landed (a sheet can open away from the target).
@@ -840,12 +889,45 @@ class SessionTapController:
             motion,
         )
 
+    def _tap_absolutely(self, x: float, y: float) -> TapResult:
+        """The default tap: one absolute move, one click, verified by the target crop.
+
+        No pointer detection is involved — the absolute report's position is
+        deterministic — so a mis-wired or hallucinating detector cannot refuse or
+        misplace the click. Two rejected reports mean this sink cannot do absolute
+        reports at all; the gap is named instead of silently falling back to the
+        relative loop, because that fallback is what kept the detector (and its
+        25.7 s refusals) on the critical path far longer than the rig needed.
+        """
+        for attempt in (1, 2):
+            result = self._absolute_click(x, y)
+            if result is not None:
+                return result
+        return TapResult(
+            False,
+            2,
+            None,
+            None,
+            "the HID sink rejected the absolute pointer report twice (amove/aclick): this"
+            " firmware cannot place the pointer absolutely. Update the board firmware, or"
+            " run `artemis ios-smoke` to see the capability probe",
+            "absolute_unavailable",
+        )
+
     def tap(self, x: float, y: float) -> TapResult:
-        if not self.session.connected:
-            self.session.connect()
+        refusal = self._connect_pointer()
+        if refusal is not None:
+            return refusal
+        if self._absolute_ready():
+            return self._tap_absolutely(x, y)
+        # Compatibility path: a sink without an absolute report (bench, AirPlay, an old
+        # board) still needs the pointer loop, and only that loop consults the detector.
         if self.capture is not None and self.detector is not None:
             return self._verified_tap(x, y)
-        # Legacy dead-reckoning path; no pre-click verification is possible here.
+        return self._tap_on_belief(x, y)
+
+    def _tap_on_belief(self, x: float, y: float) -> TapResult:
+        """Legacy dead-reckoning tap; no pre-click verification is possible here."""
         for attempt in range(1, self.max_attempts + 1):
             before = self.capture.grab_latest() if self.capture is not None else None
             deltas = self.session.tap(x, y)

@@ -1270,10 +1270,40 @@ def test_an_absolute_tap_is_one_move_and_one_click():
     assert result.motion.segments == 1
 
 
-def test_an_ignored_absolute_move_falls_back_to_relative_segments():
+def test_a_tap_never_consults_the_pointer_detector():
+    """Stage A: the absolute report's position is deterministic, so a detector on the
+    click path can only refuse a good click (2026-11-06: a mis-wired LocateAnything
+    refused the first tap for 25.7 s and the run never recovered the time)."""
     from artemis.reflex.mouse import SessionTapController
 
-    control = _AbsolutePointer(honor_absolute=False)
+    control = _AbsolutePointer()
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    control.absolute_moves.clear()
+    detector = _DotDetector()
+    controller = SessionTapController(
+        session, capture=_DotCamera(control), detector=detector, settle_timeout_s=0.0
+    )
+
+    result = controller.tap(224, 487)
+
+    assert result.ok is True
+    assert detector.calls == 0, "the pointer detector must not gate an absolute click"
+    assert control.absolute_moves == [(499, 500)]
+    assert control.absolute_clicks == 1
+
+
+def test_two_rejected_absolute_reports_are_named_absolute_unavailable():
+    """A sink that cannot place the pointer absolutely is a firmware gap, not a mystery."""
+    from artemis.reflex.mouse import SessionTapController
+
+    class _RefusingAbsolute(_AbsolutePointer):
+        def mouse_move_abs(self, nx, ny):
+            if (nx, ny) != (0, 0):
+                raise RuntimeError("[cmd] amove: unsupported")
+            super().mouse_move_abs(nx, ny)
+
+    control = _RefusingAbsolute()
     session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
     session.connect()
     controller = SessionTapController(
@@ -1282,10 +1312,67 @@ def test_an_ignored_absolute_move_falls_back_to_relative_segments():
 
     result = controller.tap(224, 487)
 
+    assert result.ok is False
+    assert result.incident == "absolute_unavailable"
+    assert result.attempts == 2, "one retry, then the gap is named"
+    assert "firmware" in result.message and "ios-smoke" in result.message
+    assert control.absolute_clicks == 0
+
+
+def test_an_ignored_absolute_move_reports_no_effect_instead_of_falling_back():
+    """Stage A: a tap is absolute or it refuses; it never silently switches to relative."""
+    from artemis.reflex.mouse import SessionTapController
+
+    class _FrozenCamera:
+        """A screen that never changes, so the crop check cannot see the click land."""
+
+        def __init__(self):
+            self.frames = 0
+
+        def grab_latest(self):
+            from types import SimpleNamespace
+
+            self.frames += 1
+            return SimpleNamespace(image=_png((120, 120, 120)))
+
+    control = _AbsolutePointer(honor_absolute=False)
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session, capture=_FrozenCamera(), detector=_DotDetector(), settle_timeout_s=0.0
+    )
+
+    result = controller.tap(224, 487)
+
+    assert result.ok is False
+    assert result.incident == "no_effect"
+    assert control.absolute_clicks == 1
+    assert control.moves == [], "no relative fallback inside a tap"
+    assert result.motion.segments == 1
+
+
+def test_a_sink_without_absolute_reports_keeps_the_pointer_loop():
+    """Bench / AirPlay / an old board: no absolute report, so the relative loop is the
+    compatibility path and it is the only place the detector is still needed."""
+    from artemis.reflex.mouse import SessionTapController
+    from artemis.reflex.vision import Pointer
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    session.connect()
+    detector = FakeDetector([Pointer(0.5, 0.5, 0.95, "fake")] * 5)
+    controller = SessionTapController(
+        session,
+        capture=FakeCapture([_png((120, 120, 120))] * 10, control=control),
+        detector=detector,
+        settle_timeout_s=0.0,
+    )
+
+    result = controller.tap(100, 100)
+
     assert result.ok is True
-    assert controller._absolute_supported is None, "a failed probe stays unprobed"
-    assert control.absolute_clicks == 0, "the relative click is the one that runs"
-    assert result.motion.segments >= 2
+    assert detector.calls > 0, "the compat path still verifies the pointer"
+    assert control.clicks == 1
 
 
 def test_home_uses_the_absolute_report_when_the_control_supports_it():
@@ -1323,8 +1410,15 @@ def test_a_verified_absolute_path_clicks_without_pointer_detection():
     assert detector.calls == calls_after_first
 
 
-def test_a_static_detection_stops_the_loop_instead_of_twelve_segments():
-    """A blue ring that never moves is an icon/focus outline, not the pointer."""
+def test_a_static_decoy_off_the_motion_path_is_reported_as_pointer_missing():
+    """A decoy that was never where the pointer should be is scenery, not a pointer.
+
+    2026-11-05 (session 27e9ccc3, step 2): the pointer session's connect pressed Cmd+H,
+    the Home screen has no AssistiveTouch ring drawn, and the blue-ring detector latched
+    onto an app icon at (0.618, 0.487). Reporting that as ``pointer_static`` blamed the
+    detector for a screen the harness had just replaced; ``pointer_missing`` is the
+    incident the caller can act on (re-observe).
+    """
     from artemis.reflex.mouse import SessionTapController
     from artemis.reflex.vision import Pointer
 
@@ -1345,5 +1439,133 @@ def test_a_static_detection_stops_the_loop_instead_of_twelve_segments():
     result = controller.tap(100, 100)
 
     assert result.ok is False
-    assert result.incident == "pointer_static"
+    assert result.incident == "pointer_missing", "off-model from the first look: not the pointer"
     assert result.motion.observations <= 4
+    assert control.clicks == 0
+
+
+class _FreezeAfterFirstObservation:
+    """Reads the real pointer once, then keeps returning that first reading."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.calls = 0
+        self.frozen = None
+
+    def detect(self, image, near=None):
+        self.calls += 1
+        pointer = self.inner.detect(image, near=near)
+        if self.frozen is None:
+            self.frozen = pointer
+        return pointer if self.calls == 1 else self.frozen
+
+
+def test_a_pointer_that_tracks_then_freezes_is_still_pointer_static():
+    """The first look agreed with the motion model, so it *was* the pointer."""
+    from artemis.reflex.mouse import SessionTapController
+
+    control = _LinearPointer(gain=2.0)
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    detector = _FreezeAfterFirstObservation(_DotDetector())
+    controller = SessionTapController(
+        session,
+        capture=_DotCamera(control),
+        detector=detector,
+        settle_timeout_s=0.0,
+    )
+
+    result = controller.tap(300, 700)
+
+    assert result.ok is False
+    assert result.incident == "pointer_static"
+    assert control.clicks == 0
+
+
+class _ScreenScript:
+    """A camera whose grabs follow a script: one screen per frame."""
+
+    def __init__(self, frames):
+        self.frames = list(frames)
+        self.index = 0
+
+    def grab_latest(self):
+        from types import SimpleNamespace
+
+        frame = self.frames[min(self.index, len(self.frames) - 1)]
+        self.index += 1
+        return SimpleNamespace(image=frame)
+
+
+def test_a_lazy_connect_that_changed_the_screen_refuses_instead_of_clicking():
+    """``PointerSession.connect()`` presses Cmd+H, so a connect inside a tap replaces the
+    screen the caller chose its target from. The tap must stop, not aim at the new one."""
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    capture = _ScreenScript([_png((40, 40, 40)), _png((240, 240, 240))])
+    controller = SessionTapController(session, capture=capture, settle_timeout_s=0.0)
+
+    result = controller.tap(100, 100)
+
+    assert result.ok is False
+    assert result.incident == "screen_changed"
+    assert control.clicks == 0, "a tap planned on the previous screen must not be dispatched"
+    assert control.moves == []
+    assert "re-observe" in result.message
+
+
+def test_a_lazy_connect_that_left_the_screen_alone_still_taps():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    capture = FakeCapture([_png((120, 120, 120))], control=control)
+    controller = SessionTapController(session, capture=capture, settle_timeout_s=0.0)
+
+    result = controller.tap(200, 100)
+
+    assert result.ok is True
+    assert control.clicks == 1
+
+
+def test_travel_verified_refuses_when_the_lazy_connect_changed_the_screen():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(200, 200), gain=(2.0, 2.0))
+    capture = _ScreenScript([_png((40, 40, 40)), _png((240, 240, 240))])
+    controller = SessionTapController(session, capture=capture, settle_timeout_s=0.0)
+
+    result = controller.travel_verified(100, 100)
+
+    assert result.ok is False
+    assert result.incident == "screen_changed"
+    assert control.clicks == 0
+
+
+def test_the_click_tolerance_scales_with_the_frame_width():
+    """8 px was measured on the 449-wide frame; a bigger capture keeps the same ratio."""
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(898, 1948), gain=(2.0, 2.0))
+
+    controller = SessionTapController(session, capture=FakeCapture([_png((1, 1, 1))]))
+
+    assert controller.tolerance_px == pytest.approx(16.0)
+    assert controller.tolerance_px / 898 == pytest.approx(8.0 / 449, rel=0.01)
+
+
+def test_an_explicit_tolerance_is_not_scaled():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = FakeControl()
+    session = PointerSession(control, frame_size=(898, 1948), gain=(2.0, 2.0))
+
+    controller = SessionTapController(
+        session, capture=FakeCapture([_png((1, 1, 1))]), tolerance_px=5.0
+    )
+
+    assert controller.tolerance_px == 5.0

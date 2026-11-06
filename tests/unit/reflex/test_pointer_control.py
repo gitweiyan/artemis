@@ -50,6 +50,8 @@ class FakeTapController:
 
 
 class FakeHid:
+    """A relative-only control: `mouse_down` + int8 `move` + `mouse_up`."""
+
     def __init__(self):
         self.events = []
 
@@ -72,11 +74,21 @@ class FakePointerSession:
         self.position = (0.0, 0.0)
         self.gain_x = 1.8
         self.gain_y = 1.8
+        self.absolute_moves = []
 
     def move(self, dx, dy):
         self.position = (self.position[0] + dx * self.gain_x, self.position[1] + dy * self.gain_y)
         self.control.mouse_move(dx, dy)
         return self.position
+
+    def move_abs(self, x, y):
+        self.absolute_moves.append((x, y))
+        self.control.mouse_move_abs(x, y)
+        self.position = (float(x), float(y))
+        return self.position
+
+    def observe(self, x, y):
+        self.position = (float(x), float(y))
 
 
 def _control(controller=None, *, geometry=None, session=None):
@@ -115,7 +127,41 @@ def test_a_refused_tap_raises_so_the_runtime_can_stop():
     assert "refused" in str(excinfo.value).lower(), "the runtime counts failures, so say it"
 
 
-def test_a_swipe_presses_moves_and_releases():
+class FakeAbsoluteHid(FakeHid):
+    """The production control: an absolute pointer report plus the firmware's mswipe."""
+
+    def __init__(self):
+        super().__init__()
+        self.absolute_moves = []
+        self.swipes = []
+
+    def mouse_move_abs(self, x, y):
+        self.absolute_moves.append((x, y))
+        self.events.append(("abs", x, y))
+
+    def swipe_mouse(self, dx, dy, *, duration_ms=400):
+        self.swipes.append((dx, dy, duration_ms))
+        self.events.append("mswipe")  # the firmware presses and releases on the board
+        return 1.0
+
+
+def test_a_swipe_on_an_absolute_sink_places_the_pointer_and_lets_the_firmware_drag():
+    """Unified on absolute: one `amove` puts the press exactly on the start point, and the
+    drag itself is the firmware's `mswipe` (which presses through the absolute report)."""
+    session = FakePointerSession()
+    session.control = FakeAbsoluteHid()
+    control, controller, session = _control(session=session)
+
+    control.dispatch(Gesture.swipe(540, 1800, 540, 400, duration_ms=200, description="drag up"))
+
+    assert session.control.absolute_moves == [(224, 730)], "press lands on the start point"
+    assert controller.travels == [], "no dead-reckoning travel on the absolute path"
+    assert session.control.swipes == [(0, -567, 200)], "frame-pixel drag through mswipe"
+    assert session.control.events[-1] == "mswipe", "the board owns press/release"
+    assert session.position == (224.0, 163.0), "the belief follows the drag to its end"
+
+
+def test_a_swipe_on_a_relative_only_sink_presses_moves_and_releases():
     control, controller, session = _control()
     controller.remaining = 0.0
 

@@ -57,7 +57,8 @@ class ActionResult(BaseModel):
 
     Relative-pointer platforms (iOS UVC + ESP32 HID) know *why* a tap failed:
     ``pointer_missing``, ``pointer_off_target``, ``pointer_not_centered``,
-    ``no_effect``. The Validator turns this into an execution incident; a platform
+    ``no_effect``, and ``screen_changed`` when the harness replaced the screen before
+    the click. The Validator turns this into an execution incident; a platform
     that reports nothing leaves it ``None`` and keeps the historical behavior.
     """
     normalized_coordinates: list[int] | None = None

@@ -590,6 +590,13 @@ def render_execution_incident(incident: dict, steps: list) -> str:
             " the click tolerance (8 px) although the system corrected it step by step. The"
             " calibration may be off, or the target may be smaller than the pointer step."
         )
+    elif category == "screen_changed":
+        lines.append(
+            "Evidence: the screen was replaced while the action ran — connecting the"
+            " pointer presses Cmd+H (iOS Home) — so the recorded target belongs to a"
+            " screen that is no longer shown. Look at the CURRENT screenshot and choose"
+            " the target again; do not retry the same coordinates."
+        )
     elif category == "no_effect":
         lines.append(
             "Evidence: the pointer was verified on the target and the click was dispatched,"

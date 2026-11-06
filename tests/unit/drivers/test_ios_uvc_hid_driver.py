@@ -347,3 +347,82 @@ def test_other_keys_still_reach_the_hid_keyboard():
 
     assert ok is True
     assert session.control[0].calls == [("press_key", "enter")]
+
+
+class ConnectablePointer:
+    """The pointer session, as the driver sees it: one connect ritual, then frames."""
+
+    def __init__(self, events):
+        self.connected = False
+        self.connects = 0
+        self.events = events
+
+    def connect(self):
+        self.connects += 1
+        self.connected = True
+        self.events.append("pointer_connect")
+
+    def home(self):
+        self.events.append("pointer_home")
+
+
+class OrderedSource(Source):
+    def __init__(self, events):
+        self.events = events
+
+    async def snapshot(self):
+        self.events.append("snapshot")
+        return await super().snapshot()
+
+
+class OrderedSession(Session):
+    """A session whose pointer knows the real connect ritual (preflight + Cmd+H + home)."""
+
+    def __init__(self):
+        self.events = []
+        self.perception = [OrderedSource(self.events)]
+        self.control = [Sink()]
+        self.geometry = ScreenGeometry((449, 974), (1080, 2400))
+        self.pointer = ConnectablePointer(self.events)
+
+
+def test_the_first_observation_prepares_the_pointer_before_it_reads_the_frame():
+    """``PointerSession.connect()`` presses Cmd+H, so it must run before the frame the
+    caller will act on — otherwise the target is chosen on a screen that no longer exists."""
+    session = OrderedSession()
+    driver = IOSUvcHidDriver(session)
+
+    asyncio.run(driver.get_screen_data())
+    asyncio.run(driver.get_screen_data())
+
+    assert session.events.count("pointer_connect") == 1, "one ritual, not one per frame"
+    assert session.events[:2] == ["pointer_connect", "snapshot"]
+
+
+def test_driver_connect_runs_the_pointer_sessions_own_connect():
+    session = OrderedSession()
+    driver = IOSUvcHidDriver(session)
+
+    asyncio.run(driver.connect())
+
+    assert session.pointer.connects == 1
+    assert session.pointer.connected is True
+    assert session.events == ["pointer_connect"], "connect must not home twice"
+
+
+def test_a_failed_pointer_prep_still_yields_the_frame():
+    """A dead HID link must not hide the screen: the frame is the evidence."""
+
+    class BrokenPointer(ConnectablePointer):
+        def connect(self):
+            self.connects += 1
+            raise RuntimeError("no HID sink")
+
+    session = OrderedSession()
+    session.pointer = BrokenPointer(session.events)
+    driver = IOSUvcHidDriver(session)
+
+    data = asyncio.run(driver.get_screen_data())
+
+    assert data.screenshot_bytes == b"png"
+    assert session.pointer.connects == 1

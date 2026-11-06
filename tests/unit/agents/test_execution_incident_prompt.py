@@ -245,6 +245,7 @@ def _pointer_incident(category, evidence=None):
         ("pointer_off_target", "outside the target box"),
         ("pointer_not_centered", "never reached the click tolerance"),
         ("no_effect", "the screen did not change"),
+        ("screen_changed", "the screen was replaced"),
     ],
 )
 def test_render_explains_a_pointer_incident(category, needle):

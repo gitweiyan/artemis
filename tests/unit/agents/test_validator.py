@@ -933,6 +933,7 @@ async def test_exec_action_records_a_driver_incident():
         ValidationErrorCategory.POINTER_NOT_CENTERED
     )
     assert incident_category("no_effect") is ValidationErrorCategory.NO_EFFECT
+    assert incident_category("screen_changed") is ValidationErrorCategory.SCREEN_CHANGED
     assert incident_category("something_new") is ValidationErrorCategory.GENERAL
     assert incident_category(None) is ValidationErrorCategory.GENERAL
     assert DriverResult(False, "tap_abs", "no_effect").incident == "no_effect"

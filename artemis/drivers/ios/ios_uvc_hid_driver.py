@@ -20,6 +20,9 @@ from artemis.perception.incidents import (
 from artemis.reflex.ios_apps import IOSAppLauncher, AppLaunchResult
 from artemis.reflex.vision import CompositePointerDetector
 from artemis.safety.pointer import check_in_box
+from third_party.mobile_use.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -94,9 +97,42 @@ class IOSUvcHidDriver(BaseDeviceDriver):
 
     async def connect(self) -> None:
         pointer = getattr(self.session, "pointer", None)
-        if pointer is not None:
-            pointer.connected = True
-            pointer.home()
+        if pointer is None:
+            return
+        ritual = getattr(pointer, "connect", None)
+        if callable(ritual):
+            # One place for the whole ritual: preflight -> iOS Home (Cmd+H) -> pointer
+            # home. It belongs here, before anyone observes a frame, because Cmd+H
+            # replaces the screen: a caller that already chose a target on the previous
+            # screen would tap blind (2026-11-05: the first click of a run dismissed
+            # Settings mid-tap; `reflex/mouse.py::_connect_pointer` is the backstop).
+            await asyncio.to_thread(ritual)
+            return
+        pointer.connected = True
+        pointer.home()
+
+    async def _prepare_pointer(self) -> None:
+        """Run the pointer session's connect ritual before the first observed frame.
+
+        Best-effort: a dead HID link must not hide the screen, so a failed prep is logged
+        and the frame is still returned. The tap path has its own ``screen_changed``
+        refusal for the case where a connect still happens inside a click.
+        """
+        pointer = getattr(self.session, "pointer", None)
+        if pointer is None or getattr(pointer, "connected", True):
+            return
+        ritual = getattr(pointer, "connect", None)
+        if not callable(ritual):
+            return
+        try:
+            await asyncio.to_thread(ritual)
+        # The serial/HID stack raises these; an unexpected exception is a bug and should
+        # surface instead of being swallowed by a best-effort prep.
+        except (AttributeError, RuntimeError, OSError, ValueError) as exc:
+            logger.warning(
+                f"iOS pointer preflight failed before the first frame ({exc});"
+                " continuing so the screen is still observable"
+            )
 
     async def disconnect(self) -> None:
         pointer = getattr(self.session, "pointer", None)
@@ -110,6 +146,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         is healthy; a bare session-like object (tests, a future single-source rig) is
         gated here instead. Either way a black frame never becomes an "observation".
         """
+        await self._prepare_pointer()
         snapshot = getattr(self.session, "snapshot", None)
         if callable(snapshot):
             try:

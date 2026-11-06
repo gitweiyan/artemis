@@ -1,13 +1,19 @@
-"""Absolute reflex gestures on a phone that only accepts a relative pointer.
+"""Absolute reflex gestures on a phone whose only input is an overlay pointer.
 
 A reflex skill (Tetris and friends) works in absolute device pixels: "tap the rotate
-button at (540, 1800)". Android can do that with a digitizer; iOS cannot — the only
-input is a relative mouse pointer behind AssistiveTouch. This adapter is the seam:
+button at (540, 1800)". On iOS the input is a mouse pointer behind AssistiveTouch, and
+the pointer has an **absolute** report (`amove`) as well as a relative one. This adapter
+is the seam:
 
-* **tap**  -> travel the pointer to the target on the calibrated belief, verify it in a
-  live frame, click, and require the screen to change. A refusal is an error, never a
-  silent success, so the runtime's failure counter sees it.
-* **swipe** -> position the pointer, press, move in int8-sized segments, release.
+* **tap**  -> the controller's absolute path: one `amove`, one `aclick`, verified by the
+  target region's change. No pointer detection is involved.
+* **swipe** -> one `amove` to the drag's start, then the firmware's `mswipe` (which
+  presses through the absolute report). No dead reckoning, no gain.
+
+Both gestures therefore share one coordinate story: absolute placement, then act. The
+relative-belief implementation survives only for sinks without an absolute report
+(bench, AirPlay, an old board) — mixing the two is what iOS punishes by dropping the
+next absolute report (measured 5/5 on 2026-11-04).
 
 It implements the runtime's one-method ``Control`` protocol, so a skill never learns
 about dead reckoning, prechecks or frames.
@@ -85,17 +91,47 @@ class PointerControl:
     def _swipe(self, gesture: Gesture) -> None:
         (start_x, start_y), (end_x, end_y) = gesture.points
         frame_x, frame_y = self._frame_point(start_x, start_y)
+        target_x, target_y = self._frame_point(end_x, end_y)
+        control = self._hid_control()
+        if callable(getattr(control, "mouse_move_abs", None)):
+            self._swipe_absolutely(
+                control, frame_x, frame_y, target_x, target_y, gesture.duration_ms
+            )
+            return
+        self._swipe_on_belief(control, frame_x, frame_y, target_x, target_y)
+
+    def _swipe_absolutely(self, control, start_x, start_y, end_x, end_y, duration_ms) -> None:
+        """Place the press with one absolute report, then let the board drag.
+
+        `amove` puts the press exactly on the start point (no gain, no dead reckoning),
+        and `mswipe` walks the pointer from there. This is the same unification as the
+        agent's tap: a relative move right before an absolute report is dropped by iOS,
+        so a skill gesture must not depend on the relative belief either.
+        """
+        self.session.move_abs(round(start_x), round(start_y))
+        dx, dy = round(end_x - start_x), round(end_y - start_y)
+        swipe = getattr(control, "swipe_mouse", None)
+        if callable(swipe):
+            swipe(dx, dy, duration_ms=max(1, int(duration_ms)))
+        else:  # an absolute report but no mswipe: press, walk, release from here
+            control.mouse_down()
+            try:
+                control.mouse_move(dx, dy)  # segmented by the control, int8-safe
+            finally:
+                control.mouse_up()
+        self.session.observe(end_x, end_y)
+
+    def _swipe_on_belief(self, control, frame_x, frame_y, target_x, target_y) -> None:
+        """Compatibility drag for a sink without an absolute report."""
         remaining = self.controller.travel(frame_x, frame_y)
         if remaining is not None and float(remaining) > _DRAG_START_TOLERANCE_PX:
             raise RuntimeError(
                 f"pointer is {float(remaining):.0f}px from the drag start"
-                f" ({start_x:.0f}, {start_y:.0f}); refusing to press there"
+                f" ({frame_x:.0f}, {frame_y:.0f} in frame pixels); refusing to press there"
             )
 
-        target_x, target_y = self._frame_point(end_x, end_y)
         dx = target_x - self.session.position[0]
         dy = target_y - self.session.position[1]
-        control = self._hid_control()
         control.mouse_down()
         try:
             while abs(dx) > 0.5 or abs(dy) > 0.5:
