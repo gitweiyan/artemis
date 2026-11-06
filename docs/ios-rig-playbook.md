@@ -29,6 +29,11 @@
 | 滑动/拖拽在 iOS 无效 | 固件的 `swipe` 是**触摸屏**手势，iOS 不消费；iOS 的滑动＝鼠标拖拽 | 固件 `mswipe <dx> <dy> [ms]`（按下→分段插值→松开）；主机 `swipe_mouse()` 在旧固件上用 `mdown`+分段 `move`+`mup` 复现，`dispatch()` 按 `mode=ios`/`touch=0` 路由 |
 | 滑动没反应 / 弹出控制中心 / 直接回桌面 | 指针没先移到安全起点：停在顶部向上拖没有行程；从顶部向下拖是控制中心/通知中心，从底部向上拖是 Home | `HidControlSink.swipe` 先试方向键（画面没动才降级）；拖拽前软件 home，再按方向放到 0.65h / 0.35h / 0.5h 的安全锚点（§2.5） |
 | `home` 之后位置不可预测 | 固件 `home` 2ms 连发 50 报文，被 USB 10ms 轮询丢弃 | `mouse_home()` 走**分段软件 home**；`firmware_home()` 只作诊断 |
+| 第一次点击就把前台 App 换回主屏，随后报 `pointer_static`/`pointer_missing` 或直接点空 | `PointerSession.connect()` 会按 **Cmd+H 回主屏**；它被懒触发在 tap 内部，而模型是照上一屏给的坐标 | 连接前移到**首次观测之前**（`IOSUvcHidDriver.snapshot_frame → _prepare_pointer`）；若仍在 tap 内连接，前后帧不同就报 `screen_changed`、**不点击**（`reflex/mouse.py::_connect_pointer`） |
+| 模型自己按 Cmd+Space 启动 App，`manage_app` 报 `Opened` 但停在主屏 | 启动器只看整帧变化；提示词只禁了“滑屏”，没禁“手搓 Spotlight” | 基础规则与 iOS 附录已改成排他（launch/reset 只用 `manage_app`，Spotlight 只用于 App 内搜索框）；工具描述改成讲收益。**判据本身仍待修（台账 §13 I5）** |
+| 连点打偏、点到了别的控件（账号页/地址页），日志里每个点击都是 success | 定位服务冷启动超时 → 回退模型坐标；两次失败后固定 60 s 冷却，剩下的步骤整场无校验 | 运行开始后台预热（§3.3）；冷却改指数退避；未校验在动作结果与 step 记录里显式标出（`target_unverified`） |
+| 换手机 / 重新摆放后点击整体偏移，而日志里的归一化坐标看着都对 | 裁剪框 `ARTEMIS_UVC_CROP` 是这台机台的手工常量；帧与屏幕比例不一致时，每个点都被按比例缩放 | 未显式设置时从一帧**自动测量**手机矩形（`perception/frame_bounds.py` + `drivers/ios/crop.py`）；smoke 的 `frame_fit` 阶段在比例偏差 >8% 时直接红 |
+| 报 `pointer_static`，但画面上根本没有指针 | 检测器锁在静态蓝色图标/壁纸花纹上（2026-11-05：主屏 DeepSeek 图标，confidence 0.745） | 首次观测就落在运动走廊之外、之后又不动 → `pointer_missing`（“这屏没有指针”）；跟了一段才停 → `pointer_static` |
 | 抓帧总是同一张 | 常驻 AVFoundation 会话在本采集卡上给冻结帧；或残留 ffmpeg 占卡 | 默认 `ARTEMIS_IOS_CAPTURE=frame`（单帧）；残留时 `pkill -9 -f "USB Video"` |
 | 黑帧/超时/帧太旧 | 采集卡无信号、设备没了、抓帧进程卡死 | `uvc_no_signal` / `capture_timeout` / `stale_frame` incident（见 §4） |
 | 点击无效，但指针在动、键盘也失灵 | **前台有 Spotlight/搜索层**（`Cmd+Space` 误触），它吞掉点击和 `Cmd+H` | 先按 **Esc** 再看屏幕（§5 第 1 步） |
@@ -44,8 +49,13 @@
 - iOS **不消费外部 HID digitizer**：绝对坐标 `tap` 不产生触摸。只有键盘 + 鼠标（相对指针）。
 - 鼠标指针是 AssistiveTouch 的 overlay：**开辅助触控**且屏幕常亮才看得到；会淡出。
 - 指针有加速度、`move` 是 int8、`home` 是不可靠的连发——这三点决定了“必须闭环 + 分段 + 软件 home”。
+- 像素阈值以 **449 宽的参考帧**为基准，按帧宽缩放（`REFERENCE_FRAME_WIDTH`）：点击容差 8 px、
+  指针半径 20 px、蓝环尺寸/面积窗口都乘 `frame_width/449`。换采集分辨率不必重标定（2026-11-06）。
 - 键盘：`Enter/Space/Tab/方向键` 可用；没有 Back 键。BACK 不走键盘，而是 `go_back()` 的**左边缘**右滑手势（§2.5）；手势失败才退回屏幕返回箭头或 Cmd+H。
-- 应用启动只能点图标（没有包名可查）；`manage_app` 在本平台直接失败并提示点图标。
+- 应用启动：`manage_app(action="launch")` 走 Spotlight（Cmd+Space → 清旧查询 → 输入英文/拼音 →
+  Enter×2 → Escape）。**不要自己按 Cmd+Space 手动启动**——2026-11-06 那场两次手搓都落在主屏。
+  已知缺陷（未修，见台账 §13 I5）：成功判据只是"画面变了没"，从 Spotlight 里调用会**假成功**
+  （返回 `Opened`、post 帧是主屏），因为"关掉搜索层"本身就是全屏变化。
 
 ## 2.5 键盘优先（先走这条路，再考虑指针）
 
@@ -53,7 +63,7 @@
 
 | 目的 | 命令（`press_named_key` / 固件） | 备注 |
 |---|---|---|
-| 回主屏 | `home` → `keymod 8 11`（Cmd+H） | 主屏/App 内都有效 |
+| 回主屏 | `home` → `keymod 8 11`（Cmd+H） | 主屏/App 内都有效。**Cmd+H 会改写屏幕**：只在还没有目标时按（连接/回主屏/排障），不要在点击动作内部触发 |
 | 返回上一页 | `press_key("BACK")` → `go_back()` → `mswipe <0.75w> 0 500` | **不是按键**：`IOSUvcHidDriver.press_key` 绕过 HID 键盘，直接调 `HidControlSink.go_back()`；起点为物理左边缘 x=0、0.5h，越过 1/3 宽度才松手 |
 | 搜索/打开 App | `spotlight` → `keymod 8 44`（Cmd+Space），`type_text("taobao")`，`down`，`enter` | **已验证**：输入英文/拼音即可命中中文 App（`taobao` → 淘宝） |
 | 关闭弹层/搜索页 | `escape` → `key 41` | “点击无效”的第一反应也是它 |
@@ -112,18 +122,52 @@
   `amove <x> <y>`（归一化 0..1000）与 `aclick`；原有 `move/click/home` 与键盘命令不变。
 - 实测（iPhone 14 Pro Max，iOS 18）：随机 20 点中 18 点可检出，误差中位 **1.6 px**、最大 **3.1 px**；
   `aclick` 在绝对位置点击生效；相对鼠标回归正常。
-- 上位机：`SessionTapController` 默认先走一步绝对定位（`PointerSession.move_abs`），第一次观测兼作能力
-  探测（误差 > `max(3×tolerance, 24)` 则本会话标记不支持并改用相对分段）；点击在绝对路径用 `aclick`，
-  回退路径用 `click`。绝对路径不需要增益标定，单次点击约 1 s（含一次抓帧验证）。
+- 上位机（2026-11-06 起，Stage A）：**点击只走绝对路径** `tap() → _tap_absolutely() → amove + aclick +
+  目标 crop 验证`，指针检测器不参与；`amove`/`aclick` 被拒两次就报 `absolute_unavailable`（带固件升级
+  提示），**不会**在点击内部悄悄退回相对分段。相对 `_verified_tap` 只剩兼容路径：控制层没有绝对报文
+  （bench / AirPlay / 旧固件）时才用，也只有它需要指针检测器。绝对路径不需要增益标定，单次点击约 1 s
+  （含一次抓帧验证）。
+- 为什么删掉探针：探针要用「指针检测」判断绝对能力，于是检测器被放回了点击的关键路径。2026-11-06 那场
+  运行里，LA（base 模型）把图标当指针，首次点击耗 25.7 s 后被拒；而同一场剩下的 26 次点击走绝对路径
+  全部正常 —— 检测器对绝对点击只有副作用。
 - 固件的 `hid_mouse_abs_move` 对"报告未就绪"重发最多 5 次（每次 5 ms），避免单条报文丢失导致指针停在
   上一个点。
 - **不要用相对归位后再发绝对报文**：实测相对 `home` 之后紧跟的 `amove` 会被 iOS 丢弃（5/5）。绝对路径的
   归位也用 `amove 0 0`（`PointerSession.home()` 已按控制层能力自动选择）。实测目标 (224,400) 10 次：
   10/10、中位误差 **2.83 px**、1 次观测、0 次全局恢复、单次约 **1.7 s**（相对路径约 3.6 s）。
+- **skills 手势已统一到绝对（2026-11-06）**：`PointerControl` 的 tap 走控制器的绝对路径；swipe 先用
+  `amove` 落到起点，再用固件 `mswipe` 拖（`_swipe` → `_swipe_absolutely`），拖完 `session.observe(终点)`
+  让信念跟上。只有**没有绝对报文**的控制层（bench / AirPlay / 旧固件）才走相对 `travel` + 分段 `move`
+  的兼容分支。注意：目前没有任何 skill 发出 swipe（tetris 的方言是 4 个按钮的 tap），这条路径是预留的。
+- 仍待真机确认的一条：相对移动之后紧跟的绝对报文会被丢弃（上面的 5/5）。`ios-calibrate`（相对）之后
+  的第一下点击是不是 `no_effect`？做 10 次计数；若复现，在 `move_abs` 前补一条 prime 报文。
 - **绝对点击要双报告**：iOS 18 可能忽略绝对 report 的按钮位（Ghosthand 实测），所以 `aclick` 同时发
   绝对 report（**保留最后一次 `amove` 的 X/Y**，不能默认 0,0）和 boot 相对 report（零位移、同按钮状态）。
   时序：`amove` 后等待 **100 ms** 再按下，按住 **60 ms**，松开后等 **20 ms**；任一报告发送失败都会补发释放，
   避免按键卡住。相对 report 在本固件里是无 Report ID 的 boot mouse（等价于 Ghosthand 的 Report 7）。
+
+### 3.3 LocateAnything（HTTP 定位服务）
+
+`POST /predict {image(dataURL), prompt, w:0, h:0}` → `{point_norm:[x,y]}`（0..1000）。
+它是**目标定位**（点击坐标校验）和**指针定位**的第一选择，色彩/形状链是兜底。
+
+| 端口 | 模型 | 用途 |
+|---|---|---|
+| 7861 | v5 pointer adapter | 指针（训练过的措辞） |
+| 7862 | v4 pointer adapter | 指针（备选） |
+| 7863 | base（无 adapter） | 通用内容/目标定位 |
+
+- **接入前验身份**：base 模型当指针检测器会给出不可能的位置（2026-11-06：14 次检测在
+  3 个簇之间跳）。换端口等于换模型，必须用探针图确认。
+- **预热**：空闲后第一次推理要加载模型（实测 3.6 s / 25.5 s）。`build_ios_uvc_session` 在
+  构建时就发一次后台预热（每 URL 每进程一次，自带 ≥30 s 预算，失败只记 info）。
+  日志：`LocateAnything warm-up primed <url> in N ms`。
+- **点击路径预算 10 s**，超时即回退模型自己的坐标；**两次连续失败进入退避**（4 s 起，翻倍，
+  上限 60 s）。旧实现是固定 60 s——短跑会被整场禁用（2026-11-06 15:58：后 5 次点击全部未校验）。
+- **未校验要可见**：定位失败时动作结果会带 `Target was NOT verified by the locator (...)`,
+  step 记录带 `target_unverified=true`。模型因此知道"这是它自己的估计"，而不是"点对了"。
+- 已知坑：`urllib` 走 macOS 系统代理，`127.0.0.1` 也不例外（7861 曾返回 `502` 而不是
+  refused）。排查本地端口用 `curl --noproxy '*'` 或 `lsof -iTCP`；客户端直连尚未实现。
 
 ## 4. 采集与健康
 
@@ -132,7 +176,12 @@
 - 抓帧失败分类：`uvc_no_signal`（帧到了但全黑：HDMI/HDCP/转接/息屏）、
   `capture_timeout`（预算内没帧）、`stale_frame`（验证帧超龄）。三者走同一条
   `ActionResult.incident → Validator category → Operator 提示` 通道。
+- 动作期间屏幕被改写的分类：`screen_changed`（连接指针按了 Cmd+H，目标坐标属于旧屏）。
+  处置是**重看一眼再重新选目标**，不是重试同一坐标；同样走 `incident → category → 提示` 通道。
 - 残留进程会让采集卡“活着但冻结”：`pkill -9 -f "USB Video"` 后重试。
+- 裁剪与屏幕的比例：smoke 的 `frame_fit` 用 `frame_aspect_mismatch`（容忍带 8%）检查。
+  裁剪错了的表现是“每个点都被缩放”，日志里 normalized 坐标永远是对的，只有点在偏。
+  本机实测 2.4%（采集卡机内缩放不是完全等比）；换手机/换卡后先看这一行。
 
 ## 5. 排障顺序（照这个顺序，别跳）
 
@@ -197,7 +246,7 @@ pkill -9 -f "USB Video"
 | 环境变量 | 作用 |
 |---|---|
 | `ARTEMIS_ESP32_PORT` | ESP32 板的 UART 串口（必填） |
-| `ARTEMIS_UVC_DEVICE` / `ARTEMIS_UVC_CROP` | 采集卡名 / 手机在卡中的裁剪框 |
+| `ARTEMIS_UVC_DEVICE` / `ARTEMIS_UVC_CROP` | 采集卡名 / 手机在卡中的裁剪框；**crop 不设时从一帧自动测量**（显式设置则永不覆盖，stream 模式不测量） |
 | `ARTEMIS_IOS_SCREEN_SIZE` | 手机屏幕像素（默认 1080x2400） |
 | `ARTEMIS_IOS_POINTER_GAIN` | 指针 gain 起点（控制器会在线修正） |
 | `ARTEMIS_IOS_CAPTURE` | `frame`（默认）/ `stream` |

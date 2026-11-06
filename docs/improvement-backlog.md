@@ -57,6 +57,8 @@
 |---|---|---|---|---|
 | 2026-10-10 | 搜狐 I4（及知识 K3） | "目标已不存在时视为**已完成**而非失败重试" | "目标已不存在 → **取消（moot / 退役）**：不是完成，也不再失败重试" | 计划语法只有四态 `[ ]`/`[/]`/`[x]`/`[!]` 且"任务终止仅当所有顶层里程碑为 `[x]`"（`artemis/utils/plan_grammar.py:42-46,444`）——标 `[x]` 会**伪造完成并喂给终止判定**；仓库已有第三态先例 `retire_check_items`（计入 `retired`、撤回 findings、从不计 passed，`artemis/graph/checkpoints.py:549`）。用户 2026-10-10 决定 |
 | 2026-10-10 | 搜狐 I8（前提） | "保活失败 + 录屏固定等待 6.0 s" | 录屏自 351ca84 起即为 **marker 条件等待**（6 s 上限 + 首帧回落）；真因是该 ROM 下标记不到达，故每次吃满上限 | `artemis/utils/video.py::await_scrcpy_first_frame`（`git log -S await_scrcpy_first_frame` → 351ca84，早于复盘） |
+| 2026-11-06 | 上一轮口头结论「换机型能否自动适配 = 能」 | 笼统的“能” | **能力层自动、几何/标定层不自动**：screen/gain/detector 阈值都是 per-rig；本次把裁剪改成实测、像素阈值改成帧宽比例，其余仍在缺口 | §12 缺口 1–6 |
+| 2026-11-06 | 台账 §10.5 末句：step2 的 `pointer_static` 是“§9 已登记的蓝环假阳性、静止幻影守卫按设计拦下，不新增代码” | 归因于检测器假阳性 | 归因于 `PointerSession.connect()` 在 tap 内按 Cmd+H 换屏；检测到的是主屏图标，不是设置页的蓝环 | 固件日志 `usb → keymod 8 11 → amove 0 0` 三连（22:46:14.870–15.755）+ 主屏帧全帧无指针（见 §11.1） |
 | 2026-10-10 | 搜狐 I2（方案改形） | "make 断言目标 + 关键修复在场性清单" | "运行开始记录身份（版本 / 未提交路径 / provider 档位），两种 profile 都写；清单交给测试" | 清单随下一个修复腐烂（报告自身风险列）；且会与 `run_outcome.environment.code` 形成第二事实源。落地 6a04113 |
 
 ## 5. 知识沉淀（6）
@@ -216,3 +218,145 @@
 | `tests/unit/test_unified_controller_video.py` | 新增 `test_unified_controller_skips_scrcpy_on_ios`：非 mock driver + iOS 平台，断言不 spawn `asyncio.create_subprocess_exec`、返回失败信息、无活动 session |
 
 **验收**：`tests/unit/test_unified_controller_video.py` **23 passed**（新增 1 例）。
+
+## 11. 2026-11-06 轨迹复核（ios-back-gesture step 2 的 tap 失败）落地记录
+
+来源：**没有 HTML 复盘**；原始轨迹 `traces/ios-back-gesture_PASS_2026-11-05T22-46-02/`（7 步 / completed / 2 WARNING）与 `traces/data_engine.db` session `27e9ccc3-5043-4e28-a50a-a3a905bd8c75`。复核对象是 §10.5 真机验证里被一句“不新增代码”带过的 step 2。本节与 §7–§10 一样不在文首 16 项算术内（文首只统计 10-09 两份）。
+
+### 11.1 发现（推翻 §10.5 末句）
+
+| 事实 | 证据 |
+|---|---|
+| step 2 的 `Tap failed at (190, 2169) · incident=pointer_static` 不是“蓝环检测假阳性”，而是 **harness 自己换了屏幕** | 固件日志 22:46:14.870 `usb` → **14.914 `keymod 8 11`（Cmd+H）** → 15.755 `amove 0 0`，正是 `PointerSession.connect()` 的三连；目标绝对移动 16.634、四次 `move` 17.4–18.4、step 记录 20.103，主屏 post 帧 19.226 —— 换屏发生在报错前约 5 s，且全程没有 `aclick` |
+| 主屏上**没有指针被画出来** | 归档帧实测：目标点 (79,880) 与左上角 (0,0) 都没有 AssistiveTouch 蓝环；全帧把 `min_confidence` 放宽到 0.15，检测器仍只返回主屏 DeepSeek 图标 `(0.618, 0.487) confidence 0.745` |
+| 四个坐标系混在同一份 metrics | `target_x/y` 设备像素 (190,2169)、`frame_x/y` 帧像素 (79,880)、`pointer_x/y` 千分比 (618.04,486.65)、`error_px` 帧像素 (451.93)；报错文案印的是第一组 |
+| 模型的事后解释也错 | step 7 终报写“因『通用』被底部搜索栏遮挡，先上滑列表”；遮挡解释不了屏幕为什么变主屏 |
+
+### 11.2 落地
+
+| 项 | 内容 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | **连接前移到首次观测之前**：`IOSUvcHidDriver.snapshot_frame() → _prepare_pointer()`（一次性、best-effort、`asyncio.to_thread`，失败只告警不挡帧）；`driver.connect()` 改为调用指针会话自己的 connect 仪式（preflight → Cmd+H → home），不再只手 home | ✅ 已实现 | `artemis/drivers/ios/ios_uvc_hid_driver.py`；`tests/unit/drivers/test_ios_uvc_hid_driver.py::test_the_first_observation_prepares_the_pointer_before_it_reads_the_frame`、`::test_driver_connect_runs_the_pointer_sessions_own_connect`、`::test_a_failed_pointer_prep_still_yields_the_frame` |
+| 2 | **tap 内仍发生连接时的守卫**：抓连接前后两帧，变了就报 `screen_changed` 并**不点击**、不发任何 move（`SessionTapController._connect_pointer`，`tap()` 与 `travel_verified()` 共用） | ✅ 已实现 | `artemis/reflex/mouse.py`；`tests/unit/reflex/test_pointer_session.py::test_a_lazy_connect_that_changed_the_screen_refuses_instead_of_clicking`、`::test_a_lazy_connect_that_left_the_screen_alone_still_taps`、`::test_travel_verified_refuses_when_the_lazy_connect_changed_the_screen` |
+| 3 | **幻影分类**：首次观测就落在运动走廊之外、之后又不动 → `pointer_missing`（这屏没有指针）；跟了一段才停 → 仍 `pointer_static` | ✅ 已实现 | `reflex/mouse.py::_verified_tap`；`::test_a_static_decoy_off_the_motion_path_is_reported_as_pointer_missing`、`::test_a_pointer_that_tracks_then_freezes_is_still_pointer_static` |
+| 4 | `screen_changed` 接入 `incident → Validator category → Operator 提示` 通道（提示明确写“按当前截图重新选目标，别重试同一坐标”） | ✅ 已实现 | `artemis/agents/validator/categories.py`、`validator/action_execution.py`、`operator/prompts.py`、`mcp/action_types.py`；`tests/unit/agents/test_validator.py`、`test_execution_incident_prompt.py`（新增 `screen_changed` 参数化用例） |
+| 5 | playbook 同步：§1 两条症状、§2.5 回主屏备注、§4 incidents | ✅ 已实现 | `docs/ios-rig-playbook.md`；`tests/unit/test_ios_rig_playbook.py` **9 passed** |
+
+**验收**：定向 `tests/unit/reflex/test_pointer_session.py` + `tests/unit/drivers/test_ios_uvc_hid_driver.py` = **70 passed**（改动前 63）；全量 `uv run pytest tests/unit -q` = **14 failed / 3497 passed / 9 skipped**，14 项与 §10.3 基线逐项相同（`admin_console` 2、`agents/test_explorer` 9、`agents/test_video_analyzer` 3），无新增回归。
+
+**缺口（未做，不允许当成已验收）**：
+
+1. **无真机验证**：当前机器没有 `/dev/cu.usbmodem*`，`artemis ios-smoke` 四段没跑。以上只是单测 + 归档帧复算，状态记 `已实现` 而非 `已完成`。
+2. 真机上“首次观测先 Cmd+H、模型第一屏就是主屏”这条路径未复跑；“连接后屏幕未变 → 正常点击”的真机分支同样未验。
+3. `SessionTapController.travel()`（返回 float 的旧 API）仍是懒连接、无 `screen_changed` 守卫；只有 `tap()` / `travel_verified()` 做了。
+4. §11.1 的 metrics 四坐标系口径缺陷未修（只登记，未改代码）。
+
+## 12. 2026-11-06 换机适配（自动裁剪 + 阈值按帧宽缩放）落地记录
+
+来源：§11 之后的追问「换机型能不能自动适配」。结论是**能力层自动、标定层不自动**；本节落地其中代价最低的两步（原答案里的第 1、3 步），把“换一台 iPhone 不改代码”变成可成立。
+
+### 12.1 落地
+
+| 项 | 内容 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | **裁剪自动测量**：未显式设置 `ARTEMIS_UVC_CROP` 时，用一次原生抓帧求手机矩形（黑边裁剪 + 竖屏比例校验），`dataclasses.replace` 换掉 `uvc_crop` 后 `frame_size` 随之重算；显式值永不覆盖；stream 模式不测量（会多开一个一次性 ffmpeg） | ✅ 已实现 | `artemis/perception/frame_bounds.py`（`detect_content_box` / `frame_aspect_mismatch`）、`artemis/drivers/ios/crop.py`（`detect_uvc_crop`，失败只回 reason 不抛）、`artemis/drivers/factory.py`、`artemis/drivers/ios/config.py`（`uvc_crop_explicit`）· `tests/unit/perception/test_frame_bounds.py`、`tests/unit/drivers/test_ios_crop.py`、`tests/unit/drivers/test_ios_runtime_config.py`、`tests/unit/drivers/test_ios_driver_factory.py` |
+| 2 | **smoke 新增 `frame_fit` 阶段**：帧宽高比 vs 配置屏幕比例，偏差 >8% 直接红并提示设 `ARTEMIS_UVC_CROP`（本机实测 2.4%，属采集卡机内缩放非等比） | ✅ 已实现 | `artemis/drivers/ios/smoke.py::FRAME_FIT_TOLERANCE` · `tests/unit/drivers/test_ios_smoke.py::test_the_frame_must_fit_the_configured_screen`、`::test_a_crop_that_does_not_frame_the_screen_stops_the_rig` |
+| 3 | **像素阈值改比例**：`REFERENCE_FRAME_WIDTH=449` + `frame_scale` / `pointer_radius_px`；点击容差默认 `8px × scale`（显式值不动）、corridor 半径 `24 × scale`、蓝环 `BluePointerDetector.scaled_for(frame_size)`（面积按 scale²）；会话构建处使用缩放后的 detector | ✅ 已实现 | `artemis/reflex/vision.py`、`artemis/reflex/mouse.py::DEFAULT_TAP_TOLERANCE_PX`、`artemis/devices/ios_uvc.py` · `tests/unit/reflex/test_vision_pointer.py`（半径/阈值/3× 环检出）、`tests/unit/reflex/test_pointer_session.py::test_the_click_tolerance_scales_with_the_frame_width` |
+
+playbook 同步：§1 新增“换手机后整体偏移”症状行、§2 记阈值按帧宽缩放、§4 记 `frame_fit`、§7 更新 `ARTEMIS_UVC_CROP` 语义。
+
+**验收**：定向 `tests/unit/reflex` + `tests/unit/perception` + `tests/unit/drivers` = **662 passed**；全量 `uv run pytest tests/unit -q` = **14 failed / 3523 passed / 9 skipped**（14 项为 §10.3 既有基线，本次新增 26 个用例）；`ruff check` 全过、`ruff format` 只作用于改动文件；`scripts/quality_ratchet.py` 计数 **773 / 20**，与 HEAD 相同（基线 754 / 18 是既有欠账，本次增量 0）。
+
+**缺口（未做）**：
+
+1. **无真机验证**：本机没有 `/dev/cu.usbmodem*`，自动裁剪只在合成帧上验过。首次接板要看日志 `UV C crop measured from a frame: (...) (449x974 inside 1920x1080)` 是否与手工常量一致。
+2. stream 模式不测量（见上）；要测量必须 `ARTEMIS_IOS_CAPTURE=frame`。
+3. 8% 是经验容忍带；本机 2.4% 通过，未在第二台手机/第二张卡上验证。
+4. **iOS 屏幕尺寸仍只来自配置**（`ARTEMIS_IOS_SCREEN_SIZE`）：上一轮分析里的“用帧比例交叉验证屏幕尺寸”未做，写错仍会整体偏移且无自检。
+5. `MouseController`（bench 旧路径）的 8 px 容差没有跟着缩放。
+6. Android 侧的 1080×2400 兜底（`mcp/adb_server.py:181`）未改：helper 首次失败时仍会按猜的尺寸点一次。
+
+## 13. 2026-11-06 复盘（milk-cha 珍珠奶茶闪购，取消）落地记录
+
+来源：`reports/复盘-20261106-milk-cha.html`（44 条时间线 / 9 个问题 / 6 类根因 / 11 个改进项，决策列交付时全为「待决策」）。原始轨迹 `traces/milk-cha_FAIL_2026-11-06T13-55-08/`（58 步 / 518.9 s / `cancelled`）与 `traces/data_engine.db` session `c95e2042-317d-46b6-8f88-e2e6a7c593c0`（871 条 trace、14 条 LocateAnything 指针检测、210 条固件命令）。状态以本节为准。
+
+**一句话**：走到了支付页（¥11.60）后卡在面容 ID 被用户取消；前 4 分钟被「base 模型的 LA 被接成主指针检测器」「每次点类动作的目标被 LA 改写（28/28 次，最大 260/1000）」「`manage_app` 把退回主屏当成打开成功」三件事吃光。
+
+| 报告项 | 内容 | 状态 |
+|---|---|---|
+| I1 | LA 接入前验模型身份：带已知蓝环的探针图命中才算 pointer 模型，否则该 URL 只做目标定位、**不进指针检测链** | ⏳ 待决策 |
+| I2 | 指针检测一致性门：连续两次观测一致才允许点击；LA 与环检测冲突时以环为准并记 `pointer_conflict` | ⏳ 待决策 |
+| I3 | 目标重写护栏：距离 >250 千分点或描述不唯一时拒绝改写，记 `locate_rejected` | ⏳ 待决策 |
+| I4 | 改写结果对模型可见：`Tapped at [x,y]（目标由定位服务从 [a,b] 调整，Δ…）`，并入 step 摘要 | ⏳ 待决策 |
+| I5 | `manage_app` 用前台身份判成功（Spotlight 消失 + 目标 App 可见特征），失败返回 `launch_not_verified` | ⏳ 待决策 |
+| I6 | 比价阶段收敛：滑动 3 次必须提交候选，已扫店铺写成结构化候选进上下文 | ⏳ 待决策 |
+| I7 | `swipe` 距离可预测：方向键与 drag 二选一，实际滚动量进 metrics（现状「先两次方向键，没动才 drag」） | ⏳ 待决策 |
+| I8 | `no_effect` 加加载态白名单：空白/骨架屏先等稳定帧（≤3 s），再判无效点击 | ⏳ 待决策 |
+| I9 | 支付/生物识别前置条件：任务声明「需要人在场」，结算前停并请求确认，无人时以 `blocked_on_biometric` 结束 | ⏳ 待决策 |
+| I10 | 比价类目标模板（**第四次提出**：§8 I7、11-04 I7、11-05 I5）：写明券后/配送费/起送/凑单与比较键；与既有三条合并为一条 | ⏳ 待决策 |
+| I11 | 自动裁剪接受「无字母框」全帧（当前竖屏比例校验会拒绝 1920×1080 全帧），日志区分「没测到」与「测到但不合理」 | ⏳ 待决策 |
+| K1–K5 | 沉淀候选（LA 端口=模型身份 / 组合检测器取第一个非空 / 启动器假成功 / 比价收敛 / 支付需人在场） | ⏳ 未沉淀 |
+
+**本场与既有台账的关系**：I11 是 §12 缺口 1 的直接证据（当日新功能首次真机试跑即失败，降级到配置值后无影响）；I10 与 §8 I7、§10.4 I5/I7 是同一项，不得再开新条目；报告里「指针失败=Cmd+H」的假设已被证伪（Cmd+H 在首帧前完成，§11 的修复生效），该假设没有进台账。
+
+### 13.1 追加（同日）：Stage A —— 点击只走绝对路径
+
+来源：§13 复盘之后对「amove/aclick 能不能替掉 move/click」的评估（数据：8 场 iOS 运行里，用过相对 `move` 的 6 场共 7 次 `pointer_*` 事故；零相对 move 的 2 场 0 次）。决定只做 Stage A：**把点击路径与指针检测器解耦**，相对机制保留为兼容/bench 路径，暂不删除。
+
+| 落点 | 内容 |
+|---|---|
+| `artemis/reflex/mouse.py::SessionTapController.tap` | 绝对能力可用时只走 `_tap_absolutely()`；不可用时才进兼容路径（`_verified_tap` 需 detector，或 `_tap_on_belief` 旧死推）。`_absolute_ready()` 从「探针结果」改成「能力判断」（只问控制层有没有 `mouse_move_abs`/`mouse_click_abs`） |
+| 同文件 `_tap_absolutely` | 一次 `amove`+`aclick`+目标 crop 验证；`amove/aclick` 被拒（抛异常）时重试 1 次，仍拒 → `incident=absolute_unavailable`（文案带固件升级与 `artemis ios-smoke` 提示）。`no_effect` 不重试（避免双击） |
+| 同文件 `_absolute_click` / `_verified_tap` | 删掉探针簿记（`_absolute_supported` / `_absolute_failures` / `probe_pending` 全部移除）与 `_verified_tap` 内的绝对预移；`_click_and_verify` 只发相对 `click`（绝对点击已不在该路径） |
+| `artemis/reflex/pointer_control.py` | **skills 手势也统一到绝对**：tap 走控制器绝对路径；swipe 先用 `move_abs` 落到起点、再用控制层 `swipe_mouse`（固件 `mswipe`）拖，拖完 `session.observe(终点)`；相对 `travel` + 分段 `move` 只剩兼容分支（无 `mouse_move_abs` 的控制层） |
+| `docs/ios-rig-playbook.md` §3.2 | 改写为「点击只走绝对路径」，并新增一条未验证交互：skills 相对 `travel` 之后的首次绝对点击可能被 iOS 丢弃（5/5 现象），需真机 10 次实验确认 |
+
+**验收**：`tests/unit/reflex/{test_pointer_session,test_pointer_control,test_mouse_controller,test_motion}.py` = **71 passed**（新增 3 例 + 改写 1 例：`test_a_tap_never_consults_the_pointer_detector`、`test_two_rejected_absolute_reports_are_named_absolute_unavailable`、`test_an_ignored_absolute_move_reports_no_effect_instead_of_falling_back`、`test_a_sink_without_absolute_reports_keeps_the_pointer_loop`）；`tests/unit/{reflex,perception,drivers}` = **665 passed**；全量 `uv run pytest tests/unit -q` = **14 failed / 3526 passed / 9 skipped**（14 项为既有基线）；`ruff check`/`format` 干净；`quality_ratchet` 仍 773 / 20（增量 0）。
+
+**它解决了什么**：§13 的 R1/P1 在**点击路径上**被剪断 —— 检测器再怎么错，也不会让点击被拒或让首次点击耗 25.7 s；这类失败现在表现为一次明确的 `absolute_unavailable`（能力缺失）或 `no_effect`（点了没变化）。
+
+**它没解决什么（仍待决策/待验证）**：
+
+1. **I1/I2 仍待决策**：LA 仍是 base 模型且仍被接在 detector 链首位 —— 它继续影响 `ios-smoke` 的 pointer 阶段、`travel_verified`、以及**目标定位**（P2，28/28 次改写）。Stage A 只让它不再是点击的前置条件。
+2. **无真机**：本机没有 `/dev/cu.usbmodem*`，改动只有单测；`absolute_unavailable` 分支也无法在旧固件上验证。
+3. **相对→绝对的丢弃风险**（playbook 条目）：skills 的 swipe 已改绝对，所以 skill 手势不再制造相对位移；剩余来源是 `ios-calibrate`（相对探针）与兼容分支。待真机 10 次实验：相对移动后紧接 `amove`+`aclick`，若出现 `no_effect` 就在 `move_abs` 前补 prime 报文。
+4. **Stage B 未做**：`_verified_tap` / `MotionCalibration` / 三个检测器 / `PointerTracker` / `MouseController` 仍在（约 600+ 行），删除条件见 §13 评估：10 场真机零 pointer 事故、固件能报绝对能力、AirPlay/camera 组合决策 —— 其中「skills 拖拽改绝对」已完成（见上表 `pointer_control.py` 一行）。
+
+### 13.2 追加（同日）：让 manage_app 优先被调用（提示词 + 工具描述）
+
+背景：§13 之后追问「为什么 manage_app 没被优先采用」。证据：8 场 iOS 运行里 6 场首步就是 `manage_app`；两个例外（11-05 15:18、本场）的思考文里都是同一句「桌面没有淘宝图标 → 先用 Spotlight 搜索」。本场两次调用（step 5 / 35）都是**假成功**（返回 `Opened`、post 帧是主屏），所以模型第二次干脆回去手搓。
+
+| 落点 | 内容 |
+|---|---|
+| `artemis/agents/flash/flash_runner.md` 规则 4 | 改成**排他**：禁止自己 `Cmd+Space`+输入+Enter、禁止找图标/滑屏；说明 `manage_app` 会清旧查询、收浮层、报屏幕；失败时先读消息与当前屏，再退回屏幕图标或 Siri 建议 |
+| `artemis/agents/ios_shortcuts.py` | 能力清单里 `Cmd+Space Spotlight` 标注为「仅 App 内搜索框」；规则 1 改成「launch/reset 只用 manage_app」，ASCII/pinyin 降为脚注 |
+| `artemis/mcp/action_specs.py` | operator 与 wire 描述改成**讲收益**（驱动 Spotlight、清旧查询、开首条结果、收浮层、报屏幕）并显式禁止手搓；pinyin/ASCII 作为脚注保留 |
+| `tests/fixtures/action_surfaces/*.json` | 三个 pinned schema 同步重新生成（diff 只有 manage_app 的 3 行描述） |
+
+**验收**：定向 `test_prompt_assembly`、`test_ios_shortcuts_prompt`、`test_action_specs`、`test_ios_rig_playbook`、`test_flash_runner` = **71 passed**（新增 3 例：`test_flash_app_launching_forbids_a_hand_rolled_spotlight_launch`、`test_the_spotlight_shortcut_is_annotated_as_in_app_search_only`、`test_manage_app_declaration_sells_the_launch_not_the_keyboard`）。
+
+**缺口**：
+
+1. **判据没改**：`manage_app` 仍按「整帧是否变化」判成功，从 Spotlight 里调用仍会假成功（§13 的 I5 待决策）。提示词只能减少"手搓"，不能纠正"Opened 但没开"。
+2. **无真机/无真跑**：收益只能等下一条 iOS 运行的首步动作来验证（期望 `manage_app` 先于 `press_key(SEARCH)`）。
+3. **只是提示词层约束**：没有工具层拦截（例如检测到 `press_key(SEARCH)` 后紧跟 `input_text`+`enter` 时给出提示），模型仍可能违背。
+
+### 13.3 追加（同日）：LocateAnything 的 P0（预热 / 退避 / 未校验可见）
+
+背景：15:58 那场（session `99d52e2c`，11 步 / 93 s，用户取消）的失败链——15:59:17 与 15:59:32 两次 `TimeoutError`（1 万毫秒，冷启动）→ 回退模型坐标 → 两次失败触发**固定 60 s 冷却**（到 16:00:32，而 run 16:00:26 就结束了）→ 后 5 次点击全部未经定位校验，模型连点到账号页 / 选择收货地址 / 错误的 tab。事后实测服务：进程存活 19 h，热 1.35 s、冷 3.6 s（14:04 曾测到冷启 25.5 s）。
+
+| 落点 | 内容 |
+|---|---|
+| `artemis/reflex/locate_anything.py` | 新增 `warm_up()`（自带 ≥30 s 预算、失败只返回 False、**不计入冷却**）与 `warm_up_locate_anything(url)`（每 URL 每进程一次、daemon 线程）；冷却从"固定 60 s"改成"基础 **4 s** × 2^(n-2)，上限 60 s"，成功即清零 |
+| `artemis/devices/ios_uvc.py` | 构建 session 时（LA 已配置）就地触发后台预热 |
+| `artemis/mcp/action_executor.py` | 目标未被定位校验时，把提示写进**模型看到的文案**：`Target was NOT verified by the locator (…); the coordinates are your own estimate — confirm on screen before the next step.`，并写 `metadata["target_unverified"]` |
+| `artemis/agents/flash/runner.py` | step 记录新增 `target_unverified` 字段（归档可查） |
+
+**验收**：`tests/unit/reflex/test_locate_anything.py` **6 passed**（新增 `test_a_warm_up_primes_the_service_with_a_budget_of_its_own`、`test_a_failed_warm_up_is_swallowed_not_counted`、`test_repeated_failures_back_off_instead_of_disabling_the_run`）；`tests/unit/mcp/test_action_executor_locate.py` **4 passed**（新增 `test_a_timed_out_target_is_reported_to_the_model_as_unverified`）；`tests/unit/devices/test_ios_uvc_session.py` **11 passed**（新增预热接线用例）；`tests/unit/{reflex,mcp,devices,agents}` = **1324 passed / 14 failed**（14 项为既有基线）；`ruff check`/`format` 干净；`quality_ratchet` 仍 **773 / 20**（增量 0）。
+
+**缺口**：
+
+1. **无真机**：预热/退避只有单测。下一次 iOS 运行要看两样东西：日志 `LocateAnything warm-up primed <url> in N ms`，以及首个带描述的点击是否还有 `TimeoutError`。
+2. **localhost 仍走 macOS 系统代理**：7861 实测返回 `502` 而不是 refused，会给预热/定位加一层延迟并掩盖"服务没起"。客户端直连（`ProxyHandler({})` 或 no-proxy 白名单）未做。
+3. **冷启动仍可能吃掉首击**：预热是并行的、不阻塞；点击路径预算仍是 10 s（"首调用 30 s"未做）。当前策略是"首击照点，但标记未校验"。
+4. `ask_explorer` 与执行器仍各持一个 detector 实例，冷却状态不共享（15:59:40 explorer 成功、执行器仍在冷却）。
