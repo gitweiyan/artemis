@@ -123,6 +123,7 @@ def test_a_healthy_rig_passes_every_stage():
     assert [step.name for step in report.steps] == [
         "connect",
         "snapshot",
+        "frame_fit",
         "pointer_motion",
         "locate",
         "pointer_precheck",
@@ -142,6 +143,7 @@ def test_a_missing_label_fails_the_locate_stage_and_stops():
     assert [step.name for step in report.steps] == [
         "connect",
         "snapshot",
+        "frame_fit",
         "pointer_motion",
         "locate",
     ]
@@ -350,3 +352,55 @@ def test_a_no_effect_tap_names_the_hid_button_hypothesis():
     assert steps["tap"].detail.startswith("screen=")
     assert "incident=no_effect" in steps["tap"].detail
     assert "replug" in steps["tap"].detail
+
+
+class SizedCapture(Capture):
+    """A card whose cropped picture has a size we choose (a mis-set crop)."""
+
+    def __init__(self, control, size):
+        super().__init__(control)
+        self.size = size
+
+    def grab(self):
+        self.grabs += 1
+        image = Image.new("RGB", self.size, (120, 120, 120))
+        buffer = BytesIO()
+        image.save(buffer, "PNG")
+        return SimpleNamespace(
+            image=buffer.getvalue(),
+            width=self.size[0],
+            height=self.size[1],
+            captured_at=time.monotonic(),
+        )
+
+
+def _sized_driver(size):
+    control = Esp32()
+    session = build_ios_uvc_session(
+        SizedCapture(control, size),
+        control,
+        frame_size=size,
+        screen_size=(1080, 2400),
+        detector=CenteredDetector(),
+        ocr_engine=Ocr(),
+    )
+    return IOSUvcHidDriver(session)
+
+
+def test_the_frame_must_fit_the_configured_screen():
+    report = asyncio.run(run_smoke(_sized_driver((449, 974)), tap=False))
+
+    fit = next(step for step in report.steps if step.name == "frame_fit")
+    assert fit.ok is True, fit.detail
+    assert "2.4%" in fit.detail
+
+
+def test_a_crop_that_does_not_frame_the_screen_stops_the_rig():
+    """A 449x600 crop is 32% off the phone's 1080x2400: every tap would be scaled wrong."""
+    report = asyncio.run(run_smoke(_sized_driver((449, 600)), tap=False))
+
+    fit = next(step for step in report.steps if step.name == "frame_fit")
+    assert fit.ok is False
+    assert "ARTEMIS_UVC_CROP" in fit.detail
+    assert report.ok is False
+    assert [step.name for step in report.steps] == ["connect", "snapshot", "frame_fit"]

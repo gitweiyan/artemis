@@ -107,3 +107,32 @@ def test_the_capture_mode_can_be_pinned_to_a_persistent_stream():
             {"ARTEMIS_ESP32_PORT": "/dev/fake", "ARTEMIS_IOS_CAPTURE": "hologram"}
         )
     assert "ARTEMIS_IOS_CAPTURE" in str(excinfo.value)
+
+
+def test_a_defaulted_crop_is_marked_as_not_explicit():
+    """The factory may replace a default; it must never second-guess an operator."""
+    from artemis.drivers.ios.config import IosRuntimeConfig
+
+    defaulted = IosRuntimeConfig.from_env({"ARTEMIS_ESP32_PORT": "/dev/tty.usbmodem1101"})
+    explicit = IosRuntimeConfig.from_env(
+        {
+            "ARTEMIS_ESP32_PORT": "/dev/tty.usbmodem1101",
+            "ARTEMIS_UVC_CROP": "700,40,1200,1040",
+        }
+    )
+
+    assert defaulted.uvc_crop_explicit is False
+    assert explicit.uvc_crop_explicit is True
+    assert explicit.uvc_crop == (700, 40, 1200, 1040)
+
+
+def test_replacing_the_crop_recomputes_the_frame_size():
+    """``frame_size`` is derived; a swapped crop must not keep the old frame."""
+    from dataclasses import replace
+
+    from artemis.drivers.ios.config import IosRuntimeConfig
+
+    config = IosRuntimeConfig.from_env({"ARTEMIS_ESP32_PORT": "/dev/tty.usbmodem1101"})
+    swapped = replace(config, uvc_crop=(700, 40, 1200, 1040))
+
+    assert swapped.frame_size == (500, 1000)

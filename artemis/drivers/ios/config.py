@@ -136,6 +136,9 @@ class IosRuntimeConfig:
     uvc_device: str = "USB Video"
     uvc_size: tuple[int, int] = DEFAULT_UVC_SIZE
     uvc_crop: tuple[int, int, int, int] = DEFAULT_UVC_CROP
+    #: True when ``ARTEMIS_UVC_CROP`` supplied the value. A defaulted crop may be
+    #: replaced by a measurement from a frame; an explicit one is never second-guessed.
+    uvc_crop_explicit: bool = False
     screen_size: tuple[int, int] = DEFAULT_SCREEN_SIZE
     pointer_gain: tuple[float, float] = DEFAULT_POINTER_GAIN
     enable_ocr: bool = True
@@ -170,6 +173,7 @@ class IosRuntimeConfig:
             esp32_port=port,
             uvc_device=_env(env, ENV_UVC_DEVICE) or "USB Video",
             uvc_crop=_crop(env),
+            uvc_crop_explicit=_env(env, ENV_UVC_CROP) is not None,
             screen_size=_size(env, ENV_SCREEN_SIZE) or DEFAULT_SCREEN_SIZE,
             pointer_gain=gain,
             enable_ocr=_flag(env, ENV_OCR, True),

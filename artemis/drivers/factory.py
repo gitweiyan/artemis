@@ -15,6 +15,7 @@
 """Device Driver Factory & Registry."""
 
 import os
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from adbutils import AdbClient
@@ -82,6 +83,30 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
         from artemis.reflex.control import Esp32HidControl
 
         ios = IosRuntimeConfig.from_env()
+        if not ios.uvc_crop_explicit and ios.capture_mode != "stream":
+            # The crop is a property of where the phone sits on the card, not of this
+            # code. Measure it once from a native frame instead of trusting a constant
+            # that a re-seat or a card swap silently invalidates; an explicit
+            # ARTEMIS_UVC_CROP always wins (a bad measurement is worse than a pin).
+            from artemis.drivers.ios.crop import detect_uvc_crop
+
+            measured, why = detect_uvc_crop(device=ios.uvc_device, size=ios.uvc_size)
+            if measured is not None:
+                ios = replace(ios, uvc_crop=measured)
+                logger.info(
+                    f"UV C crop measured from a frame: {measured} ({why});"
+                    f" pin it with ARTEMIS_UVC_CROP"
+                )
+            else:
+                logger.warning(f"UV C crop could not be measured ({why}); using {ios.uvc_crop}")
+        elif not ios.uvc_crop_explicit:
+            # Stream mode owns one persistent capture; a second one-shot grab to measure
+            # the crop would defeat the point. Keep the pinned value and let the smoke's
+            # frame_fit stage report a crop that no longer frames the phone.
+            logger.info(
+                "UV C crop stays as configured (stream mode): run ARTEMIS_IOS_CAPTURE=frame"
+                " artemis ios-smoke to measure it"
+            )
         composition = select_composition(
             DeviceProfile(
                 platform="ios",

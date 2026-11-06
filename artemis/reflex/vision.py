@@ -240,6 +240,11 @@ class RedPointerDetector:
         return Pointer(x, y, confidence, "red-ring")
 
 
+#: The ring's size/area windows as measured on a 449-wide frame (see ``scale`` below).
+DEFAULT_SIZE_RANGE = (12, 100)
+DEFAULT_AREA_RANGE = (150, 4000)
+
+
 class BluePointerDetector:
     """Find a hollow blue AssistiveTouch ring; reject solid blue logos/icons."""
 
@@ -249,8 +254,8 @@ class BluePointerDetector:
         hue_range: tuple[int, int] = (90, 135),
         min_saturation: int = 50,
         min_value: int = 60,
-        area_range: tuple[int, int] = (150, 4000),
-        size_range: tuple[int, int] = (12, 100),
+        area_range: tuple[int, int] = DEFAULT_AREA_RANGE,
+        size_range: tuple[int, int] = DEFAULT_SIZE_RANGE,
         min_circularity: float = 0.45,
         min_hole_ratio: float = 0.18,
         min_confidence: float = 0.5,
@@ -263,6 +268,29 @@ class BluePointerDetector:
         self.min_circularity = float(min_circularity)
         self.min_hole_ratio = float(min_hole_ratio)
         self.min_confidence = float(min_confidence)
+
+    @classmethod
+    def scaled_for(cls, frame_size: tuple[int, int] | None, **overrides) -> BluePointerDetector:
+        """A detector whose size/area windows follow ``frame_size``.
+
+        The defaults were measured on a 449-wide frame. On a 2x capture the same ring is
+        twice as wide and four times the area: keeping the absolute windows would reject
+        it as "too big" (or, on a smaller capture, accept UI icons as pointers). Shape
+        priors (circularity, hole ratio) are scale-free and stay as they are.
+        """
+        scale = frame_scale(frame_size)
+        options: dict = {
+            "area_range": (
+                round(DEFAULT_AREA_RANGE[0] * scale * scale),
+                round(DEFAULT_AREA_RANGE[1] * scale * scale),
+            ),
+            "size_range": (
+                round(DEFAULT_SIZE_RANGE[0] * scale),
+                round(DEFAULT_SIZE_RANGE[1] * scale),
+            ),
+        }
+        options.update(overrides)
+        return cls(**options)
 
     def detect(
         self, image: bytes, near: tuple[float, float] | None = None, *, roi_px: float | None = None
@@ -462,6 +490,21 @@ def changed(
 #: The AssistiveTouch pointer's radius in capture-frame pixels (the blue ring is ~40 px
 #: across on this rig). Used to size a motion corridor when no measurement exists yet.
 POINTER_RADIUS_PX = 20.0
+#: The frame width the pixel thresholds above were measured on. Every other frame size
+#: scales by ``frame_width / REFERENCE_FRAME_WIDTH``; a 2x capture halves the meaning of
+#: "8 px" and doubles the ring, so the thresholds are ratios, not constants.
+REFERENCE_FRAME_WIDTH = 449.0
+
+
+def frame_scale(frame_size: tuple[int, int] | None) -> float:
+    """How much bigger/smaller a capture is than the frame the thresholds were measured on."""
+    width = float(frame_size[0]) if frame_size else REFERENCE_FRAME_WIDTH
+    return max(0.05, width / REFERENCE_FRAME_WIDTH)
+
+
+def pointer_radius_px(frame_size: tuple[int, int] | None) -> float:
+    """The ring's radius on ``frame_size``, scaled from the reference measurement."""
+    return POINTER_RADIUS_PX * frame_scale(frame_size)
 
 
 def corridor_roi(
@@ -528,6 +571,7 @@ def detect_in_roi(
 
 __all__ = [
     "POINTER_RADIUS_PX",
+    "REFERENCE_FRAME_WIDTH",
     "Pointer",
     "PointerTracker",
     "RedPointerDetector",
@@ -535,5 +579,7 @@ __all__ = [
     "changed",
     "corridor_roi",
     "detect_in_roi",
+    "frame_scale",
+    "pointer_radius_px",
     "pointer",
 ]

@@ -55,9 +55,18 @@ def build_ios_uvc_session(
         locate_url = ""
     pointer = PointerSession(control, frame_size=frame_size, gain=pointer_gain)
     if detector is None:
-        detectors = [BluePointerDetector()]
+        # Size/area windows follow the capture: the defaults were measured on a 449-wide
+        # frame, and a 2x capture makes the same ring twice as wide (see `scaled_for`).
+        detectors = [BluePointerDetector.scaled_for(frame_size)]
         if locate_url:
             detectors.insert(0, LocateAnythingDetector(locate_url))
+            # The first inference after an idle period loads the model (measured 3.6 s and
+            # 25.5 s here). Pay it now, in the background, instead of inside the first
+            # click's 10 s budget — a cold timeout used to disable target resolution for
+            # the rest of the run (2026-11-06 15:58).
+            from artemis.reflex.locate_anything import warm_up_locate_anything
+
+            warm_up_locate_anything(locate_url)
         detector = CompositePointerDetector(detectors)
     controller = SessionTapController(
         pointer,

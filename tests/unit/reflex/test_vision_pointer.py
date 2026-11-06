@@ -75,3 +75,55 @@ def test_pointer_returns_the_before_position_for_a_large_nudge():
     assert found is not None
     assert abs(found[0] - 0.30) < 0.03
     assert abs(found[1] - 0.50) < 0.03
+
+
+def test_the_pointer_radius_scales_with_the_frame_width():
+    import pytest
+
+    from artemis.reflex.vision import POINTER_RADIUS_PX, pointer_radius_px
+
+    assert pointer_radius_px((449, 974)) == pytest.approx(POINTER_RADIUS_PX)
+    assert pointer_radius_px((898, 1948)) == pytest.approx(POINTER_RADIUS_PX * 2)
+
+
+def test_the_blue_detector_thresholds_scale_with_the_frame():
+    import pytest
+
+    from artemis.reflex.vision import BluePointerDetector
+
+    reference = BluePointerDetector()
+    scaled = BluePointerDetector.scaled_for((898, 1948))
+
+    assert scaled.size_range == pytest.approx(
+        (reference.size_range[0] * 2, reference.size_range[1] * 2), abs=1
+    )
+    assert scaled.area_range == pytest.approx(
+        (reference.area_range[0] * 4, reference.area_range[1] * 4), rel=0.02
+    )
+    assert scaled.min_hole_ratio == reference.min_hole_ratio, "shape priors are scale-free"
+
+
+def test_a_ring_at_three_times_the_reference_width_is_still_found():
+    """The thresholds are in frame pixels; a bigger capture must not hide the ring."""
+    import pytest
+    from PIL import Image, ImageDraw
+
+    from artemis.reflex.vision import BluePointerDetector
+
+    image = Image.new("RGB", (1347, 2922), (0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    radius = 60  # ~3x the ring on the 449-wide reference frame
+    draw.ellipse(
+        (674 - radius, 1461 - radius, 674 + radius, 1461 + radius),
+        outline=(60, 110, 235),
+        width=14,
+    )
+    out = io.BytesIO()
+    image.save(out, "PNG")
+    png = out.getvalue()
+
+    assert BluePointerDetector().detect(png) is None, "the 449-wide default rejects it"
+    found = BluePointerDetector.scaled_for((1347, 2922)).detect(png)
+    assert found is not None
+    assert found.x == pytest.approx(0.5, abs=0.02)
+    assert found.y == pytest.approx(0.5, abs=0.02)

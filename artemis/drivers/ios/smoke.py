@@ -15,11 +15,17 @@ from __future__ import annotations
 import time
 
 from artemis.perception.base import Target
+from artemis.perception.frame_bounds import frame_aspect_mismatch
 from artemis.perception.incidents import UnhealthyFrame
 from artemis.perception.text_locator import locate_text
 from dataclasses import asdict, dataclass, field
 
-__all__ = ["SmokeReport", "SmokeStep", "run_smoke"]
+__all__ = ["FRAME_FIT_TOLERANCE", "SmokeReport", "SmokeStep", "run_smoke"]
+
+#: How far the captured frame's aspect may be from the configured screen's. The live
+#: rig reads 0.024 (the card's raster is not exactly proportional); a mis-set crop
+#: reads 0.3+ and scales every tap by that error, so a band — not zero — is the test.
+FRAME_FIT_TOLERANCE = 0.08
 
 
 @dataclass(frozen=True)
@@ -112,6 +118,30 @@ async def run_smoke(
         )
     )
     if not healthy:
+        return report
+
+    # Does the crop still frame the phone's screen? A re-seated phone or a swapped card
+    # leaves a crop that is off by a few percent, and then every tap is scaled by it —
+    # invisible in the log ("normalized 500,500" looks right), visible only as misses.
+    started = time.monotonic()
+    footprint = frame_aspect_mismatch((frame.width, frame.height), driver.screen_size)
+    fitted = footprint <= FRAME_FIT_TOLERANCE
+    if fitted:
+        detail = (
+            f"frame {frame.width}x{frame.height} vs screen {driver.screen_size[0]}x"
+            f"{driver.screen_size[1]}: {footprint * 100:.1f}% off (tolerance"
+            f" {FRAME_FIT_TOLERANCE * 100:.0f}%)"
+        )
+    else:
+        detail = (
+            f"frame {frame.width}x{frame.height} does not frame the screen"
+            f" {driver.screen_size[0]}x{driver.screen_size[1]}: {footprint * 100:.0f}% off,"
+            " so every tap is scaled by that error. Set ARTEMIS_UVC_CROP (or unset it to"
+            " have the rig measure the phone rectangle from a frame)"
+        )
+    report.ok = report.ok and fitted
+    report.steps.append(SmokeStep("frame_fit", fitted, detail, (time.monotonic() - started) * 1000))
+    if not fitted:
         return report
 
     # Does the pointer actually move? A rig can ACK every HID command while iOS has

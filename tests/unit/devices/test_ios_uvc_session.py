@@ -175,3 +175,17 @@ def test_the_locate_service_is_the_first_target_locator(monkeypatch):
     assert target is not None
     assert target.source == "locate-anything"
     assert target.box == (0.495, 0.495, 0.505, 0.505)
+
+
+def test_building_a_session_warms_the_locator_in_the_background(monkeypatch):
+    """The model load must happen at run start, not inside the first click's budget."""
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7861")
+    warmed = []
+    monkeypatch.setattr(
+        "artemis.reflex.locate_anything.warm_up_locate_anything",
+        lambda url, **kwargs: warmed.append(url),
+    )
+
+    build_ios_uvc_session(Capture(), Control())
+
+    assert warmed == ["http://127.0.0.1:7861"]

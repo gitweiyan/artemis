@@ -200,3 +200,60 @@ def test_a_camera_only_rig_fails_loudly_today(monkeypatch):
         # uvc is still available, so the UVC composition wins; the camera flag alone
         # must never override a working capture path.
         assert create_driver(_ios_ctx()) is not None
+
+
+def test_an_unset_crop_is_measured_before_the_session_is_built(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.delenv("ARTEMIS_UVC_CROP", raising=False)
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+        patch(
+            "artemis.drivers.ios.crop.detect_uvc_crop",
+            return_value=((700, 40, 1200, 1040), "500x1000 inside 1920x1080"),
+        ),
+    ):
+        driver = create_driver(_ios_ctx())
+
+    assert driver.session.geometry.frame_size == (500, 1000), (
+        "the measured crop must reach the session's frame size, not just the log"
+    )
+
+
+def test_a_configured_crop_is_left_alone(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_UVC_CROP", "736,53,1185,1027")
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+        patch("artemis.drivers.ios.crop.detect_uvc_crop") as detect,
+    ):
+        driver = create_driver(_ios_ctx())
+
+    assert not detect.called, "never override what the operator pinned"
+    assert driver.session.geometry.frame_size == (449, 974)
+
+
+def test_stream_mode_does_not_grab_a_frame_just_to_measure_the_crop(monkeypatch):
+    """A persistent capture is deliberate; measuring would spawn the one-shot grabber."""
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_IOS_CAPTURE", "stream")
+    monkeypatch.delenv("ARTEMIS_UVC_CROP", raising=False)
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture") as single,
+        patch("artemis.reflex.capture.UvcStream") as stream,
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+        patch("artemis.drivers.ios.crop.detect_uvc_crop") as detect,
+    ):
+        driver = create_driver(_ios_ctx())
+
+    assert not detect.called
+    assert not single.called, "stream mode must not build a one-shot capture"
+    assert stream.called
+    assert driver.session.geometry.frame_size == (449, 974)
