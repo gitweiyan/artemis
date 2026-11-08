@@ -1,6 +1,12 @@
 # 目标架构迁移计划（2026-11-06）
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan batch-by-batch. Steps use checkbox (`- [ ]`) syntax for tracking. 每批开工前先把该批展开成 B1 粒度的 bite-sized 步骤。
+> **Superseded（2026-11-08）**：本计划的 B0–B6 批次已由
+> [`docs/architecture/REFACTOR_EXECUTION_PLAN.md`](../../architecture/REFACTOR_EXECUTION_PLAN.md) 的 Phase 0–9 取代；
+> 它引用的 `docs/artemis-target-architecture.md`（v1）也已标记 Superseded。
+> 本文仅作历史记录，**不要按本文的批次或“吸收表”实施**。其基线数字
+> （`14 failed / 3535 passed / 9 skipped`）是 2026-11-06 的历史值，不代表当前分支。
+>
+> **For agentic workers:** 此段规则已失效；新工作请遵守 `AGENTS.md` 与 `docs/architecture/` 下的契约与计划。
 
 **Goal:** 把 artemis 从"`BaseDeviceDriver` + Android 专属实现 + iOS 旁路"迁移到
 `docs/artemis-target-architecture.md` §3 的六层结构（PerceptionSource / ControlSink /

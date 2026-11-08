@@ -1,7 +1,7 @@
 # iOS UVC 执行计划
 
-Status: Proposed  
-Parent: [Artemis 目标架构 v1](artemis-target-architecture.md)  
+Status: Proposed（父规范已于 2026-11-08 迁移）  
+Parent: [Artemis 目标架构 v1](artemis-target-architecture.md)（已 Superseded；现行规范为 [ARCHITECTURE_CONTRACT](architecture/ARCHITECTURE_CONTRACT.md)）  
 Scope: iOS + UVC 感知 + ESP32 HID 控制，接入 Artemis 统一编排
 
 ## 1. 目标

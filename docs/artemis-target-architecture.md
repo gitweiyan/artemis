@@ -1,6 +1,13 @@
-# Artemis 目标架构 v1
+# Artemis 目标架构 v1（已废弃）
 
-Status: Proposed  
+> **Superseded（2026-11-08）**：当前架构以
+> [`docs/architecture/ARCHITECTURE_CONTRACT.md`](architecture/ARCHITECTURE_CONTRACT.md) 为唯一规范，
+> 迁移顺序以 [`docs/architecture/REFACTOR_EXECUTION_PLAN.md`](architecture/REFACTOR_EXECUTION_PLAN.md) 为准。
+> 本文的 §4 数据模型、§10 代码落位与“现有实现吸收”表**已被取代**：例如
+> `reflex/control.py::Esp32HidControl` 与 `reflex/mouse.py::PointerSession` 不再迁往 `control/hid.py`，
+> 而是下沉到 L4 Actuation/Pointer Adapter。本文只作历史背景，不得作为实现依据。
+
+Status: Superseded (v1, replaced 2026-11-08)  
 Scope: 统一 Android / iOS / Mac / 平板 / 外接摄像头的感知、控制、决策与编排  
 Related: [iOS UVC 执行计划](ios-uvc-execution-plan.md)
 

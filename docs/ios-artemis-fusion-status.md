@@ -28,7 +28,7 @@ Safety           = pointer precheck + pixel/diff
 
 ### 2.1 架构与契约
 
-- [目标架构](artemis-target-architecture.md)
+- [当前架构契约](architecture/ARCHITECTURE_CONTRACT.md)（现行唯一规范；旧 [目标架构 v1](artemis-target-architecture.md) 已于 2026-11-08 标记 Superseded）
 - [iOS UVC 执行计划](ios-uvc-execution-plan.md)
 - `CapabilitySet`
 - `Frame` / `Target` / `TextBox` / `UIElement`
