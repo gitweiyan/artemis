@@ -23,7 +23,7 @@
 5. **Reflex 自建 capture/control**（`default_capture` + `Esp32HidControl`/`HelperControl`/`AdbInputControl`），不复用 `DeviceSession`；只有指针控制通过 `driver.pointer_control` 借用 iOS 适配器。
 6. **iOS 是唯一真正经 `DeviceSession` 派发动作的链路**（`IOSUvcHidDriver` → `HidControlSink` → `SessionTapController` → ESP32 串口）。
 7. **平台知识在 L1/L2/L3 共发现 7 处泄漏**（`is_ios_device`、LocateAnything 路由、iOS App Launcher 等），与契约 §2/§6.2 的 MUST NOT 冲突。
-8. **单设备互斥只覆盖 MCP / daemon 入口**（`DeviceExecutionLock`），CLI `--standalone` 与 `artemis reflex` 不取锁；一个 UVC + 一个串口仍可能被两个进程同时打开。
+8. **设备级互斥由 `AgentBase.run_task` 获取**（CLI/standalone、MCP、SDK 任务路径都覆盖，`third_party/mobile_use/sdk/agent.py:490-516`），但 `artemis reflex`、`ios-smoke`、`ios-calibrate` 直接构造 UVC/串口、完全绕过它；且 `DeviceExecutionLock` 只锁逻辑设备，不锁 UVC/串口资源。
 
 ---
 
@@ -64,6 +64,7 @@ MCP mobile_run_task / daemon
 
 两条入口汇合到 AgentBase.run_task（继承自 vendored 基类）：
   -> 解析设备 / 构建 ArtemisContext                     [third_party/.../sdk/agent.py:160-165,456]
+  -> DeviceExecutionLock.acquire（逻辑设备互斥）       [third_party/.../sdk/agent.py:490-516]
   -> get_controller(context)  （录像）                 [third_party/.../sdk/agent.py:555]
   -> profile == "flash" -> FlashRunner                 [third_party/.../sdk/agent.py:581-600]
   |  否则               -> get_graph(...).astream      [third_party/.../sdk/agent.py:622-640]
@@ -302,7 +303,7 @@ McpActionExecutor.execute
 | N1 | 两个动作执行器（Flash 的 `McpActionExecutor` 与 Pro 的 `ValidatorNode`）语义不同 | `agents/flash/runner.py:168`、`agents/validator/validator.py:82` | 同一动作在 Flash/Pro 下安全与观测不一致 |
 | N2 | `third_party/mobile_use` 是双向依赖与执行主链 | `sdk/agent.py:456-640`、`controllers/unified_controller.py:36` | 契约的 L1/L2 边界在入口处被第三方包穿透 |
 | N3 | `CapabilitySet` 定义在 L4 `devices/`，被 L3 反向 import | `perception/base.py:8`、`control/base.py:8` | DTO 归属与依赖方向冲突（ADR-001 需解决） |
-| N4 | `DeviceExecutionLock` 只覆盖 MCP/daemon | `mcp_server/tools/task_runner.py:445`；CLI standalone 与 reflex 无锁 | 单 UVC/串口可被并发打开 |
+| N4 | `DeviceExecutionLock` 是**逻辑设备**锁，不是 UVC/串口资源锁；无 Agent 路径绕过它 | 取锁：`third_party/mobile_use/sdk/agent.py:490-516`；无锁：`interfaces/cli/commands/reflex.py`、`ios_smoke.py`、`ios_calibrate.py` | reflex/smoke/calibrate 与任务并发时争抢同一 UVC/串口 |
 | N5 | 坐标换算存在三套实现 | §G12 | ADR-002 前任何“统一归一化”都会引入行为变化 |
 | N6 | 每个动作都经过进程内 MCP 序列化 | `mcp/action_session.py:1-30` | Reflex 无法复用该通道（延迟预算不同） |
 

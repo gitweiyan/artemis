@@ -371,7 +371,7 @@ MUST：
 - 输入类 Adapter 在 Session 关闭、取消或异常退出时必须释放按键、鼠标按钮、触点等持续状态。
 - 资源竞争、跨进程抢占、Owner 崩溃恢复、取消释放和重复 close 必须有测试。
 
-Lease Manager 的实现是否复用/抽取 `DeviceExecutionLock` 的底层原语，以及 FIFO/公平性策略，由 ADR-003/ADR-011 决定。
+Lease Manager 的实现是否复用/抽取 `DeviceExecutionLock` 的底层原语，以及 FIFO/公平性策略，由 [ADR-003](../adr/ADR-003-device-identity-session-resource-ownership.md)/ADR-011 决定。
 
 ### 5.5 Observation / Frame / Grounding
 

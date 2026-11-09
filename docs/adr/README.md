@@ -25,7 +25,7 @@
 |---|---|---|---|
 | ADR-001 | Capability Model、Evidence、Fingerprint 与 Invalidation | Phase 1 PR-2；Phase 2；Phase 4.2 | Planned |
 | ADR-002 | Coordinate Space、Transform 与坐标兼容迁移 | Phase 1 PR-4；Phase 3 坐标链路 | Planned |
-| ADR-003 | Device/Target/Endpoint Identity、Session 生命周期与资源所有权 | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | Planned |
+| ADR-003 | [Device/Target/Endpoint Identity、Session 生命周期与资源所有权](ADR-003-device-identity-session-resource-ownership.md) | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | Proposed |
 | ADR-004 | Action Intent/Command/Receipt/Verification 状态语义 | Phase 1 PR-4；Phase 3；Phase 5 | Planned |
 | ADR-005 | Adapter Registry、Profile Builder、静态注册机制 | Phase 2 | Planned |
 | ADR-006 | BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件 | Phase 3；Phase 9-B | Planned |

@@ -628,7 +628,7 @@ ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs
 |---|---|---|---|
 | ADR-001 | Capability Model、Capability Evidence 与 Fingerprint/Invalidation | Phase 1 PR-2；Phase 2；Phase 4.2 固件能力握手 | Planned |
 | ADR-002 | Coordinate Space、Transform 与迁移兼容 | Phase 1 PR-4；Phase 3 所有坐标链路 | Planned |
-| ADR-003 | Device/Target/Endpoint Identity、Session 生命周期与资源所有权 | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | Planned |
+| ADR-003 | [Device/Target/Endpoint Identity、Session 生命周期与资源所有权](../adr/ADR-003-device-identity-session-resource-ownership.md) | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | **Proposed** |
 | ADR-004 | Action Intent/Command/Receipt/Verification 状态语义 | Phase 1 PR-4；Phase 3；Phase 5 | Planned |
 | ADR-005 | AdapterRegistry、Profile Builder 与静态注册契约 | Phase 2 | Planned |
 | ADR-006 | BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件 | Phase 3；Phase 9-B | Planned |
