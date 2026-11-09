@@ -1,13 +1,13 @@
 # ADR-003: Device/Target/Endpoint Identity, Session Lifecycle and Resource Ownership
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 1 PR-1（Identity & Descriptor）、PR-3（Session Lifecycle & Resource Lease）；Phase 2；Phase 3
 - **Related:** 契约 §5.1（Identity）、§5.4（DeviceSession）、§5.4.1（Lease）、§6.1（Adapter）、§10（依赖方向）；ADR-001（Capability Evidence/Fingerprint）、ADR-008（数据权威）、ADR-011（Resource Lease 机制）
 - **Audit evidence:** [`CURRENT_CALL_FLOWS.md`](../architecture/CURRENT_CALL_FLOWS.md) §3–§4、[`IMPORT_DEPENDENCY_MATRIX.md`](../architecture/IMPORT_DEPENDENCY_MATRIX.md)、[`TEST_BASELINE.md`](../architecture/TEST_BASELINE.md)
 
-> 状态说明：本 ADR 为 **Proposed**。批准前只允许做盘点、原型和测试设计；不得合入改变公共契约的实现。批准后本文件的 §4 成为可执行契约。
+> 状态说明：本 ADR 于 2026-11-09 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7，未在 §8 验证的能力不得标记为已验证。
 
 ---
 
@@ -90,7 +90,7 @@ Phase 1 PR-3 要求“Session 生命周期 + 资源 Lease”，而 Phase 2 的 R
 
 ---
 
-## 4. Proposed decision
+## 4. Decision (accepted)
 
 > 以下条目在 ADR 批准后成为 MUST/SHOULD；实现细节（文件格式、FIFO/公平性、Lease Manager 抽取方式）由 ADR-011 决定，但不得违反本节语义。
 
@@ -107,12 +107,13 @@ Phase 1 PR-3 要求“Session 生命周期 + 资源 Lease”，而 Phase 2 的 R
 规则：
 
 1. 一个 `device_id` 可以拥有 0..N 个 `endpoint_id`；新增 Endpoint **不得**改变 `device_id`。
-2. `device_id` 不得由端点路径派生；现有取值保持不变（Android serial、`ios-uvc`、`cloud_device`、`mock-device`）。同一 Host 接多台同类机台时，必须为每台配置稳定别名；默认 `ios-uvc` 只适用于单机台。
-3. `endpoint_id` 必须包含 `host_id` 或端点稳定硬件标识，避免多机/多卡冲突；优先使用 USB 硬件序列号，退化为“规范化路径 + host”。
-4. `resource_id` 必须与访问模式绑定（`capture` / `command` / `control`），不能只写端口名。
+2. `device_id` 不得由端点路径派生；现有取值保持不变（Android serial、`ios-uvc`、`cloud_device`、`mock-device`）。同一 Host 接多台同类机台时，必须为每台配置稳定别名：优先级为显式 `ARTEMIS_DEVICE_ALIAS` → 平台默认（Android serial、`ios-uvc`、`cloud_device`）；默认 `ios-uvc` 只适用于单机台。
+3. `endpoint_id` 必须包含 `host_id` 或端点稳定硬件标识，避免多机/多卡冲突；优先使用 USB 硬件序列号。
+4. `resource_id` 必须与访问模式绑定（`capture` / `command` / `control`）；UVC/Camera 等无硬件序列号的端点使用 **`host_id` + USB port path**（例如 `uvc:host-7f3a:usb-1-2.3/capture`），禁止使用会变化的 `/dev/videoN` 序号作为唯一身份。
 5. 禁止把 `platform_family` 编入 `device_id` 再做字符串解析；平台是独立字段（`ios-uvc` 只是历史别名）。
 6. `DeviceDescriptor` 是**纯数据**，不得持有 ADB/UVC/Serial 句柄；句柄只存在于 Session/Adapter。
 7. `host_id` 默认取平台稳定主机标识（machine UUID、安装 ID 或“主机名 + 安装 ID”），不得使用 PID/临时目录等易变值。
+8. PR-1 起有屏幕的 Profile 必须提供 `DeviceDescriptor.display`，其中 `surface_id` 必填（默认 `display:primary`）；多屏/窗口 surface 的枚举留到 Phase 7，不在 PR-1 实现。
 
 建议 DTO（Phase 1 PR-1 落地，位置 `artemis/core/identity.py`）：
 
@@ -133,7 +134,7 @@ class DeviceDescriptor:
     platform_family: Literal["android", "ios", "macos", "windows", "linux", "tv", "mock"]
     profile_id: str  # e.g. "ios.uvc_hid"
     endpoints: tuple[EndpointRef, ...]
-    display: DisplayInfo | None  # pixels, rotation, surface_id
+    display: DisplayInfo | None  # pixels/rotation; surface_id required
     fingerprint: Mapping[str, str]  # model/os_build/firmware/app（ADR-001 使用）
     metadata: Mapping[str, str]
 ```
@@ -179,7 +180,7 @@ new/ready/... --close()--> closing --(released)--> closed
 5. **同 Owner 可重入**：同一 `(pid, token/session_id)` 重复获取同一资源视为幂等成功；不同 session 即使同进程也必须 `ResourceBusy`。
 6. **陈旧回收**：只有 owner 进程死亡、`process_created_at` 不匹配或显式释放才可回收；**禁止 TTL 抢占活进程**；心跳只用于诊断/监督（计划 §0.2 D2）。
 7. **锁内容最小化**：lease 文件只写 id/pid/时间/owner token，不写屏幕内容、凭据或用户数据；临时目录权限与文件名做归一化（复用 `DeviceExecutionLock._normalize_device_id` 的清洗思路）。
-8. **覆盖范围**：UVC capture、ESP32 serial、Camera、BLE adapter 为独占资源；`ScreenAwakeLease`（`artemis/runtime/awake_lease.py:47-...`）是 ref-counted 共享资源，继续由现有实现管理，不并入独占 lease；Helper 端口转发由 `HelperManager` 按 serial 管理，Session 关闭时必须 `detach`。
+8. **覆盖范围**：UVC capture、ESP32 serial、Camera、BLE adapter 为独占资源；`ScreenAwakeLease`（`artemis/runtime/awake_lease.py:47-...`）是 ref-counted 共享资源，继续由现有实现管理，不并入独占 lease。**Helper 端口转发也使用独立 Resource Lease**（键形如 `helper:<adb-endpoint>/<serial>/<local-port>`）：`HelperManager` 的 per-serial registry 只是进程内缓存，不能证明跨进程独占；Session 在 attach 前取 lease，关闭时先 `detach` 再释放 lease。
 9. **无 Agent 路径必须补锁**：`artemis reflex`、`artemis ios-smoke`、`artemis ios-calibrate` 在打开 UVC/串口前必须获取同一套 Resource Lease；`DeviceExecutionLock` 仍只由 Agent 任务路径持有（`third_party/mobile_use/sdk/agent.py:490-516`），两者不互相替代。
 10. **非目标**：不保证对非 ARTEMIS 进程（相机 App、ffmpeg、OBS）的操作系统级独占；这一限制必须写进文档与错误信息。
 
@@ -290,13 +291,19 @@ new/ready/... --close()--> closing --(released)--> closed
 
 ---
 
-## 11. Open questions
+## 11. Resolved questions (2026-11-09)
 
-1. `device_id` 的别名配置键：`ARTEMIS_DEVICE_ALIAS` 还是按平台配置？（PR-1 决定）
-2. UVC 无硬件序列号时的 `resource_id` 稳定方案：USB port path + host，还是 USB descriptor hash？（PR-3 + ADR-011）
-3. `surface_id` 是否在 PR-1 就进入 descriptor，还是只保留 `display:primary`？（建议 PR-1 最小实现）
-4. Helper forward 是否需要独立 Resource Lease，还是继续由 `HelperManager` 的 per-serial registry 承担？（Phase 2/ADR-011）
-5. `DeviceContext` 迁出 third_party 的目标阶段（建议 Phase 9，不在 PR-1）。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | `device_id` 别名配置键 | 使用 `ARTEMIS_DEVICE_ALIAS`；未设置时按平台默认（Android serial / `ios-uvc` / `cloud_device`） | PR-1 |
+| 2 | UVC 无硬件序列号时的 `resource_id` | `host_id` + USB port path（有硬件序列号时优先用序列号） | PR-3 + ADR-011 |
+| 3 | `surface_id` 是否进 PR-1 descriptor | 是；`DisplayInfo.surface_id` 必填，默认 `display:primary`，多屏枚举留到 Phase 7 | PR-1 |
+| 4 | Helper 端口转发是否独立 Resource Lease | 是；`helper:<adb-endpoint>/<serial>/<local-port>` 独立 lease，不依赖进程内 registry | PR-3 + ADR-011 |
+| 5 | `DeviceContext` 迁出 third_party 的时机 | Phase 9；PR-1 只加适配器，不改 `DeviceContext` | Phase 9 |
+
+**Owner：** ARTEMIS architecture maintainers（评审维持不变）。
+
+尚未关闭的实现细节（不阻塞 PR-1/PR-3）：Lease 文件布局、FIFO/公平性、心跳与清理命令 → ADR-011。
 
 ---
 
@@ -305,6 +312,7 @@ new/ready/... --close()--> closing --(released)--> closed
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-09 | Proposed | Initial proposal | Phase 0 审计确认：Session 无生命周期、UVC/串口无 Owner、reflex/smoke 绕过设备锁；需要先定身份/所有权再实施 PR-1/PR-3 |
+| 2026-11-09 | Accepted | 评审通过；确定 `ARTEMIS_DEVICE_ALIAS`、UVC port-path 身份、PR-1 引入 `surface_id`、Helper forward 独立 lease | 5 项开放问题已由 Owner 答复，PR-1/PR-3 可进入实现 |
 
 ---
 
