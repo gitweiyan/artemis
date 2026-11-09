@@ -27,7 +27,7 @@ from typing import Any
 import uuid
 
 from artemis.config.paths import get_temp_dir
-from artemis.runtime.process_probe import pid_is_alive
+from artemis.runtime import lease_primitives
 
 
 class DeviceBusyError(RuntimeError):
@@ -160,64 +160,30 @@ class DeviceExecutionLock:
 
     @staticmethod
     def _current_process_created_at() -> float:
-        try:
-            import psutil
-
-            return float(psutil.Process(os.getpid()).create_time())
-        except Exception:
-            return 0.0
+        return lease_primitives.current_process_created_at()
 
     @staticmethod
     def _safe_unlink(path: Path, max_retries: int = 3, delay: float = 0.02) -> bool:
         """Safely unlink a file with retries on Windows PermissionError / sharing violations."""
-        for i in range(max_retries):
-            try:
-                path.unlink(missing_ok=True)
-                return True
-            except OSError:
-                if i < max_retries - 1:
-                    time.sleep(delay)
-        return False
+        return lease_primitives.safe_unlink(path, max_retries=max_retries, delay=delay)
 
     @staticmethod
     def _safe_replace(src: Path, dst: Path, max_retries: int = 3, delay: float = 0.02) -> bool:
         """Safely replace a file with retries on Windows PermissionError / sharing violations."""
-        for i in range(max_retries):
-            try:
-                os.replace(src, dst)
-                return True
-            except OSError:
-                if i < max_retries - 1:
-                    time.sleep(delay)
-        return False
+        return lease_primitives.safe_replace(src, dst, max_retries=max_retries, delay=delay)
 
     @staticmethod
     def _owner_is_alive(owner: DeviceLockOwner) -> bool:
-        if owner.pid <= 0:
-            return False
-        if owner.process_created_at <= 0:
-            # Legacy owner payloads without a create time cannot use PID-reuse
-            # protection; require an Artemis-looking process before trusting
-            # the record (a recycled PID must not keep a lock alive forever).
-            try:
-                import psutil
-
-                process = psutil.Process(owner.pid)
-                if not process.is_running():
-                    return False
-                name = process.name().lower()
-                cmdline = " ".join(process.cmdline()).lower()
-                return any(k in name or k in cmdline for k in ("python", "artemis", "pytest"))
-            except Exception:
-                return False
-        return pid_is_alive(owner.pid, owner.process_created_at)
+        return lease_primitives.pid_owned_by_artemis(owner.pid, owner.process_created_at)
 
     @staticmethod
     def _read_owner(path: Path) -> DeviceLockOwner | None:
+        payload = lease_primitives.read_payload(path)
+        if payload is None:
+            return None
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
             return DeviceLockOwner.from_dict(payload)
-        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError):
             return None
 
     def _remove_stale_lock(self) -> bool:
@@ -264,16 +230,7 @@ class DeviceExecutionLock:
     @classmethod
     def _atomic_write_json(cls, path: Path, payload: dict) -> bool:
         """Replace a ticket atomically so queue scans cannot read partial JSON."""
-        temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            temp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-            if not cls._safe_replace(temp_path, path):
-                return False
-        except OSError:
-            return False
-        finally:
-            cls._safe_unlink(temp_path)
-        return True
+        return lease_primitives.atomic_write_json(path, payload)
 
     @classmethod
     def _ticket_targets_device(
