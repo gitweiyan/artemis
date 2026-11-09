@@ -79,6 +79,9 @@ import urllib.request
 
 from artemis.config.constants import ENV_ARTEMIS_HELPER_AUTO_INSTALL
 from artemis.config.paths import get_temp_dir
+from artemis.core.identity import helper_resource_id
+from artemis.runtime.resource_lease import ResourceBusyError, ResourceLease, leases_enabled
+from artemis.runtime.host_identity import host_id as resolve_host_id
 from artemis.runtime.adb_endpoint import adb_command
 from third_party.mobile_use.utils.logger import get_logger
 
@@ -272,6 +275,8 @@ class HelperSession:
     #: Session token the helper expects in ``X-Artemis-Token``; None for pre-token helpers.
     token: str | None = field(default=None, repr=False)
     protocol_version: int = 1
+    #: ADR-011 host-resource lease for this tunnel (None when leases are disabled).
+    lease: Any | None = field(default=None, repr=False)
 
     @property
     def base_url(self) -> str:
@@ -280,6 +285,7 @@ class HelperSession:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("token", None)
+        data.pop("lease", None)
         data["base_url"] = self.base_url
         return data
 
@@ -342,6 +348,32 @@ class AccessibilityHelperManager:
         #: Guards the session registry and the per-device lock table only.
         self._registry_lock = threading.Lock()
         self._device_locks: dict[str, threading.RLock] = {}
+
+    def _acquire_forward_lease(self, serial: str) -> ResourceLease | None:
+        """ADR-011: one ARTEMIS owner per helper tunnel, across processes."""
+
+        if not leases_enabled():
+            return None
+        host = resolve_host_id()
+        endpoint = (os.getenv("ARTEMIS_ADB_ENDPOINT_ID") or "").strip()
+        if not endpoint:
+            adb_host = (os.getenv("ADB_HOST") or "127.0.0.1").strip()
+            adb_port = (os.getenv("ADB_PORT") or "5037").strip()
+            endpoint = f"tcp:{adb_host}:{adb_port}"
+        resource_id = helper_resource_id(host_id=host, adb_socket=endpoint, serial=serial)
+        lease = ResourceLease(
+            resource_id,
+            host_id=host,
+            description=f"helper tunnel {serial}",
+            session_id=os.getenv("ARTEMIS_SESSION_ID") or None,
+        )
+        try:
+            lease.acquire()
+        except ResourceBusyError as exc:
+            raise HelperUnavailable(
+                f"Another ARTEMIS process is using the accessibility helper on {serial}: {exc}"
+            ) from exc
+        return lease
 
     def _device_lock(self, serial: str) -> threading.RLock:
         """One re-entrant lock per device, so devices provision and attach in parallel."""
@@ -1019,124 +1051,136 @@ class AccessibilityHelperManager:
                 if not result.ok:
                     raise HelperUnavailable(result.error or "Provisioning the helper failed.")
 
-            reused_port = self.existing_forward(serial)
-            owns_forward = reused_port is None
-            local_port = reused_port if reused_port is not None else self._create_forward(serial)
-
-            attempts = _PING_ATTEMPTS_AFTER_PROVISION if provision else _PING_ATTEMPTS_LAZY
-            info = self._wait_for_ping(local_port, attempts)
-            suppressed_by: str | None = None
-            installed_now: int | None = None
-            version_known = True
-            if info is None:
-                # Only pay for the probe when the service is silent, and treat a
-                # probe that could not answer as "installed": re-binding an
-                # enabled service is cheap and reversible, giving up on it is not.
-                installed_now, version_known = self._probe_version(serial)
-            if info is None and (not version_known or installed_now is not None):
-                # Silent although installed. The usual cause is a UiAutomation
-                # holder (uiautomator2 / Appium) that made Android unbind every
-                # accessibility service; only then a killed service.
-                holders = self.uiautomation_holders(serial)
-                if holders["uiautomator2"] and revive:
-                    self.stop_uiautomator2_server(serial, holders["uiautomator2"])
-                    info = self._wait_for_ping(local_port, _PING_ATTEMPTS_AFTER_PROVISION)
-                elif holders["uiautomator2"]:
-                    suppressed_by = "uiautomator2's device server"
-                if info is None and holders["appium"]:
-                    suppressed_by = "Appium's UiAutomator2 server"
-                if info is None and revive and suppressed_by is None:
-                    # Installed and enabled but silent: the service was killed
-                    # (force-stop, ROM task killer) or has not bound yet after an
-                    # upgrade. Re-binding it is cheap and needs no install.
-                    if self.is_service_enabled(serial):
-                        self._revive_service(serial)
-                    else:
-                        self._enable_service(serial)
-                    info = self._wait_for_ping(local_port, _PING_ATTEMPTS_AFTER_PROVISION)
-            if info is None:
-                if owns_forward:
-                    self._remove_forward(serial, local_port)
-                if suppressed_by:
-                    raise HelperUnavailable(
-                        f"The accessibility helper on {serial} is suppressed by {suppressed_by}: "
-                        "Android unbinds accessibility services while a UiAutomation connection "
-                        "without FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES is alive. Stop that "
-                        "server (for Appium, set the disableSuppressAccessibilityServices "
-                        "capability) or run with ARTEMIS_HIERARCHY_BACKEND=uiautomator."
-                    )
-                raise HelperUnavailable(
-                    f"The accessibility helper on {serial} is not answering on "
-                    f"127.0.0.1:{local_port} (device port {DEVICE_PORT})."
+            lease = self._acquire_forward_lease(serial)
+            attached = False
+            try:
+                reused_port = self.existing_forward(serial)
+                owns_forward = reused_port is None
+                local_port = (
+                    reused_port if reused_port is not None else self._create_forward(serial)
                 )
 
-            protocol = _protocol_of(info)
-            if protocol < MIN_PROTOCOL_VERSION:
-                # A helper older than this host can talk to (a dev build with a
-                # newer versionCode but the old contract, or a downgrade). Reinstall
-                # the bundle when this caller may, otherwise say what to run.
-                bundled = self.bundled
-                if provision and self._auto_install() and bundled is not None:
-                    logger.warning(
-                        f"Accessibility helper on {serial} speaks protocol {protocol} "
-                        f"(host needs >= {MIN_PROTOCOL_VERSION}); reinstalling the bundled "
-                        f"v{bundled.version_name}."
+                attempts = _PING_ATTEMPTS_AFTER_PROVISION if provision else _PING_ATTEMPTS_LAZY
+                info = self._wait_for_ping(local_port, attempts)
+                suppressed_by: str | None = None
+                installed_now: int | None = None
+                version_known = True
+                if info is None:
+                    # Only pay for the probe when the service is silent, and treat a
+                    # probe that could not answer as "installed": re-binding an
+                    # enabled service is cheap and reversible, giving up on it is not.
+                    installed_now, version_known = self._probe_version(serial)
+                if info is None and (not version_known or installed_now is not None):
+                    # Silent although installed. The usual cause is a UiAutomation
+                    # holder (uiautomator2 / Appium) that made Android unbind every
+                    # accessibility service; only then a killed service.
+                    holders = self.uiautomation_holders(serial)
+                    if holders["uiautomator2"] and revive:
+                        self.stop_uiautomator2_server(serial, holders["uiautomator2"])
+                        info = self._wait_for_ping(local_port, _PING_ATTEMPTS_AFTER_PROVISION)
+                    elif holders["uiautomator2"]:
+                        suppressed_by = "uiautomator2's device server"
+                    if info is None and holders["appium"]:
+                        suppressed_by = "Appium's UiAutomator2 server"
+                    if info is None and revive and suppressed_by is None:
+                        # Installed and enabled but silent: the service was killed
+                        # (force-stop, ROM task killer) or has not bound yet after an
+                        # upgrade. Re-binding it is cheap and needs no install.
+                        if self.is_service_enabled(serial):
+                            self._revive_service(serial)
+                        else:
+                            self._enable_service(serial)
+                        info = self._wait_for_ping(local_port, _PING_ATTEMPTS_AFTER_PROVISION)
+                if info is None:
+                    if owns_forward:
+                        self._remove_forward(serial, local_port)
+                    if suppressed_by:
+                        raise HelperUnavailable(
+                            f"The accessibility helper on {serial} is suppressed by {suppressed_by}: "
+                            "Android unbinds accessibility services while a UiAutomation connection "
+                            "without FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES is alive. Stop that "
+                            "server (for Appium, set the disableSuppressAccessibilityServices "
+                            "capability) or run with ARTEMIS_HIERARCHY_BACKEND=uiautomator."
+                        )
+                    raise HelperUnavailable(
+                        f"The accessibility helper on {serial} is not answering on "
+                        f"127.0.0.1:{local_port} (device port {DEVICE_PORT})."
                     )
-                    result = self.provision(serial, force=True, on_event=on_event)
-                    if not result.ok:
-                        raise HelperUnavailable(result.error or "Reinstalling the helper failed.")
-                    info = self._wait_for_ping(local_port, _PING_ATTEMPTS_AFTER_PROVISION)
-                    protocol = _protocol_of(info) if info else 0
+
+                protocol = _protocol_of(info)
                 if protocol < MIN_PROTOCOL_VERSION:
-                    if owns_forward:
-                        self._remove_forward(serial, local_port)
-                    raise HelperUnavailable(
-                        f"The accessibility helper on {serial} speaks protocol {protocol}, "
-                        f"this host needs {MIN_PROTOCOL_VERSION} or newer. Reinstall it with: "
-                        f"artemis helper install --serial {serial} --force"
-                    )
+                    # A helper older than this host can talk to (a dev build with a
+                    # newer versionCode but the old contract, or a downgrade). Reinstall
+                    # the bundle when this caller may, otherwise say what to run.
+                    bundled = self.bundled
+                    if provision and self._auto_install() and bundled is not None:
+                        logger.warning(
+                            f"Accessibility helper on {serial} speaks protocol {protocol} "
+                            f"(host needs >= {MIN_PROTOCOL_VERSION}); reinstalling the bundled "
+                            f"v{bundled.version_name}."
+                        )
+                        result = self.provision(serial, force=True, on_event=on_event)
+                        if not result.ok:
+                            raise HelperUnavailable(
+                                result.error or "Reinstalling the helper failed."
+                            )
+                        info = self._wait_for_ping(local_port, _PING_ATTEMPTS_AFTER_PROVISION)
+                        protocol = _protocol_of(info) if info else 0
+                    if protocol < MIN_PROTOCOL_VERSION:
+                        if owns_forward:
+                            self._remove_forward(serial, local_port)
+                        raise HelperUnavailable(
+                            f"The accessibility helper on {serial} speaks protocol {protocol}, "
+                            f"this host needs {MIN_PROTOCOL_VERSION} or newer. Reinstall it with: "
+                            f"artemis helper install --serial {serial} --force"
+                        )
 
-            token: str | None = None
-            if info.get("auth_required", protocol >= 2):
-                token = self.host_token()
-                if not self.push_token(serial):
-                    if owns_forward:
-                        self._remove_forward(serial, local_port)
-                    raise HelperUnavailable(
-                        f"Could not securely deliver the session token to the accessibility "
-                        f"helper on {serial}; check the helper version and ADB shell access."
-                    )
-                if self.confirm_token(serial, local_port) is False:
-                    # Delivered, and the helper that answers here still has none: a
-                    # stale tunnel to another instance, or a service that restarted
-                    # between the two calls. Attaching would 401 on every request.
-                    if owns_forward:
-                        self._remove_forward(serial, local_port)
-                    raise HelperUnavailable(
-                        f"The accessibility helper on {serial} reported the session token as "
-                        f"unset right after it was delivered; is another helper instance "
-                        f"answering on 127.0.0.1:{local_port}? Reinstall it with: "
-                        f"artemis helper install --serial {serial} --force"
-                    )
+                token: str | None = None
+                if info.get("auth_required", protocol >= 2):
+                    token = self.host_token()
+                    if not self.push_token(serial):
+                        if owns_forward:
+                            self._remove_forward(serial, local_port)
+                        raise HelperUnavailable(
+                            f"Could not securely deliver the session token to the accessibility "
+                            f"helper on {serial}; check the helper version and ADB shell access."
+                        )
+                    if self.confirm_token(serial, local_port) is False:
+                        # Delivered, and the helper that answers here still has none: a
+                        # stale tunnel to another instance, or a service that restarted
+                        # between the two calls. Attaching would 401 on every request.
+                        if owns_forward:
+                            self._remove_forward(serial, local_port)
+                        raise HelperUnavailable(
+                            f"The accessibility helper on {serial} reported the session token as "
+                            f"unset right after it was delivered; is another helper instance "
+                            f"answering on 127.0.0.1:{local_port}? Reinstall it with: "
+                            f"artemis helper install --serial {serial} --force"
+                        )
 
-            version = info.get("version_code")
-            session = HelperSession(
-                serial=serial,
-                local_port=local_port,
-                transport_id=transport,
-                version_code=int(version) if isinstance(version, (int, float)) else None,
-                version_name=str(info.get("version_name") or ""),
-                owns_forward=owns_forward,
-                token=token,
-                protocol_version=protocol,
-            )
-            with self._registry_lock:
-                self._sessions[serial] = session
-            logger.info(
-                f"Accessibility helper attached on {serial}: 127.0.0.1:{local_port} "
-                f"(v{session.version_name or '?'}, protocol {protocol}, transport {transport})"
-            )
-            return session
+                version = info.get("version_code")
+                session = HelperSession(
+                    serial=serial,
+                    local_port=local_port,
+                    transport_id=transport,
+                    version_code=int(version) if isinstance(version, (int, float)) else None,
+                    version_name=str(info.get("version_name") or ""),
+                    owns_forward=owns_forward,
+                    token=token,
+                    protocol_version=protocol,
+                )
+                with self._registry_lock:
+                    self._sessions[serial] = session
+                logger.info(
+                    f"Accessibility helper attached on {serial}: 127.0.0.1:{local_port} "
+                    f"(v{session.version_name or '?'}, protocol {protocol}, transport {transport})"
+                )
+                session.lease = lease
+                attached = True
+                return session
+            finally:
+                if not attached and lease is not None:
+                    lease.release()
 
     def reattach(self, serial: str) -> HelperSession:
         """Rebuild the tunnel after a request failed; never installs anything.
@@ -1158,6 +1202,13 @@ class AccessibilityHelperManager:
             return
         if remove_forward and session.owns_forward:
             self._remove_forward(serial, session.local_port)
+        if session.lease is not None:
+            try:
+                session.lease.release()
+            except (OSError, RuntimeError, ValueError) as exc:
+                logger.warning(f"Releasing helper lease for {serial} failed: {exc}")
+            finally:
+                session.lease = None
 
     def detach_all(self) -> None:
         with self._registry_lock:

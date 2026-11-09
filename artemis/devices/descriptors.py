@@ -13,6 +13,7 @@ from artemis.core.identity import (
     DeviceDescriptor,
     DisplayInfo,
     derive_hardware_key,
+    helper_resource_id,
     IdentitySource,
     PlatformFamily,
     make_adb_endpoint,
@@ -256,5 +257,5 @@ def host_resource_ids(
             ids.extend(make_serial_endpoint(host_id=host_id, hardware_key=key).resource_ids)
     elif capture == "helper" and serial:
         socket = f"tcp:{str(adb_host).strip()}:{int(adb_port)}"
-        ids.append(f"helper:{host_id}:{socket}/{serial}/forward")
+        ids.append(helper_resource_id(host_id=host_id, adb_socket=socket, serial=serial))
     return tuple(ids)

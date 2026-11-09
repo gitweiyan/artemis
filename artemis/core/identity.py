@@ -29,6 +29,7 @@ __all__ = [
     "IdentitySource",
     "PlatformFamily",
     "derive_hardware_key",
+    "helper_resource_id",
     "make_adb_endpoint",
     "make_mock_endpoint",
     "make_serial_endpoint",
@@ -319,3 +320,17 @@ def make_mock_endpoint(device_id: str) -> EndpointRef:
         identity_source=IdentitySource.MOCK,
         metadata={},
     )
+
+
+def helper_resource_id(*, host_id: str, adb_socket: str, serial: str) -> str:
+    """Lease key for one accessibility-helper tunnel (ADR-011 D6).
+
+    The local port is allocated by ``adb forward tcp:0`` after the tunnel is
+    requested, so it cannot be part of the key; the serial + ADB endpoint scope
+    the resource instead.
+    """
+
+    host = _key(host_id, field_name="host_id")
+    socket = _text(adb_socket, field_name="adb_socket", max_length=128)
+    target = _text(serial, field_name="serial", max_length=96)
+    return f"helper:{host}:{socket}/{target}/forward"

@@ -339,7 +339,7 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 **PR-3 验收（代码与测试已满足，2026-11-09）：** 单设备任务锁与共享 Host 资源锁语义不混淆；多进程资源竞争、超时/取消、异常清理测试通过。
 证据：`tests/unit/runtime/test_resource_lease*.py`、`tests/unit/devices/test_session.py`、`tests/unit/drivers/test_factory_descriptor.py`、`tests/unit/reflex/test_control_esp32.py`、`tests/unit/test_context.py`；`pytest tests/unit -q` 为 14 个既有失败 + 3605 passed（新增 33 个测试）。
 
-> 剩余：`HelperManager.attach` 尚未直接获取 helper-forward lease（reflex/CLI 已按同一 key 取 lease；Agent 任务路径的 helper 隧道仍只有进程内 registry）。真机验证（UVC/串口释放、并发拒绝、取消释放）待在机台执行。两项都作为 PR-3 收尾项。
+> 剩余：真机验证（UVC/串口释放、并发拒绝、取消释放）待在机台执行。`HelperManager.attach` 已按同一 `helper:<adb-endpoint>/<serial>/forward` 键获取/释放 lease，reflex/CLI 与 Agent 路径共用。
 
 #### PR-4 — Observation / Geometry / Action Contract
 
