@@ -626,14 +626,14 @@ ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs
 
 | ADR | 决策主题 | 阻塞的 PR / Phase | 状态 |
 |---|---|---|---|
-| ADR-001 | Capability Model、Capability Evidence 与 Fingerprint/Invalidation | Phase 1 PR-2；Phase 2；Phase 4.2 固件能力握手 | Planned |
+| ADR-001 | [Capability Model、Capability Evidence 与 Fingerprint/Invalidation](../adr/ADR-001-capability-model-evidence-fingerprint.md) | Phase 1 PR-2；Phase 2；Phase 4.2 固件能力握手 | **Proposed** |
 | ADR-002 | Coordinate Space、Transform 与迁移兼容 | Phase 1 PR-4；Phase 3 所有坐标链路 | Planned |
 | ADR-003 | [Device/Target/Endpoint Identity、Session 生命周期与资源所有权](../adr/ADR-003-device-identity-session-resource-ownership.md) | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | **Accepted**（2026-11-09） |
 | ADR-004 | Action Intent/Command/Receipt/Verification 状态语义 | Phase 1 PR-4；Phase 3；Phase 5 | Planned |
 | ADR-005 | AdapterRegistry、Profile Builder 与静态注册契约 | Phase 2 | Planned |
 | ADR-006 | BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件 | Phase 3；Phase 9-B | Planned |
 | ADR-007 | Reflex Runtime、SafetyNet 与高频闭环安全预算 | Phase 3；Phase 5 | Planned |
-| ADR-008 | Data Engine / Telemetry / Runtime Trace 数据权威；Capability Evidence Artifact 归属 | Phase 1 PR-2；Phase 6 | Planned |
+| ADR-008 | [Data Engine / Telemetry / Runtime Trace 数据权威；Capability Evidence Artifact 归属](../adr/ADR-008-data-engine-evidence-ownership.md) | Phase 1 PR-2；Phase 6 | **Proposed** |
 | ADR-009 | ESP32 Host-Firmware Protocol Versioning、Capability Handshake 与 ACK 语义 | Phase 4.2 | Planned |
 | ADR-010 | Platform Extension、语义动作映射、Prompt Guidance/App Lifecycle/Locator 插件 | Phase 4.3（含 MCP iOS 分支清理） | Planned |
 | ADR-011 | UVC/Serial 等共享 Host Resource Lease、并发和回收语义 | Phase 1 PR-3；Phase 2 | Planned |

@@ -336,7 +336,7 @@ MUST：
 - 证据过期/不新鲜应转为 `unknown` 或 `revalidation_required`，不能误报为 `unavailable`。
 - 缺少 evidence reference 或 fingerprint 的能力不得标记为 `verified`。
 
-证据存储位置、Snapshot 缓存与 fingerprint 字段清单由 ADR-001/ADR-008 决定。推荐将原始证据和 Artifact 放在 Observability/Data Engine；Capability Registry 只维护派生 Snapshot 与引用；Memory 不得作为验证证据的权威存储。
+证据存储位置、Snapshot 缓存与 fingerprint 字段清单由 [ADR-001](../adr/ADR-001-capability-model-evidence-fingerprint.md)/[ADR-008](../adr/ADR-008-data-engine-evidence-ownership.md) 决定。推荐将原始证据和 Artifact 放在 Observability/Data Engine；Capability Registry 只维护派生 Snapshot 与引用；Memory 不得作为验证证据的权威存储。
 
 ### 5.4 DeviceSession
 
