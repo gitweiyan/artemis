@@ -336,7 +336,7 @@ MUST：
 - 证据过期/不新鲜应转为 `unknown` 或 `revalidation_required`，不能误报为 `unavailable`。
 - 缺少 evidence reference 或 fingerprint 的能力不得标记为 `verified`。
 
-证据存储位置、Snapshot 缓存与 fingerprint 字段清单由 [ADR-001](../adr/ADR-001-capability-model-evidence-fingerprint.md)/[ADR-008](../adr/ADR-008-data-engine-evidence-ownership.md) 决定。推荐将原始证据和 Artifact 放在 Observability/Data Engine；Capability Registry 只维护派生 Snapshot 与引用；Memory 不得作为验证证据的权威存储。
+证据存储位置、Snapshot 缓存与 fingerprint 字段清单见 [ADR-001](../adr/ADR-001-capability-model-evidence-fingerprint.md)/[ADR-008](../adr/ADR-008-data-engine-evidence-ownership.md)（Accepted 2026-11-09）。推荐将原始证据和 Artifact 放在 Observability/Data Engine；Capability Registry 只维护派生 Snapshot 与引用；Memory 不得作为验证证据的权威存储。
 
 ### 5.4 DeviceSession
 
@@ -570,6 +570,7 @@ Validator 内部专用、不进入跨层表的取值：`none`、`general`、`pix
 | 数据 | 唯一责任模块 | 内容 |
 |---|---|---|
 | 原始 Task/Step/Action 事实、截图/视频 Artifact 引用 | Data Engine | 可回放、可审计的执行证据 |
+| Capability Evidence、验证结论与验证 Artifact | Data Engine（全局证据库） | 跨运行的验证记录、指纹与证据引用 |
 | LLM/Tool/Adapter 调用 Span、Latency、Token、Metrics | Telemetry | 性能与调用链观察 |
 | Agent Transcript、压缩摘要、History Retrieval View | Memory | 下一轮 Agent 可用上下文 |
 | 后台进程状态、MCP Worker 状态、status.json 并发写入 | Runtime Status Store | 任务进程运行状态 |
@@ -580,6 +581,7 @@ Validator 内部专用、不进入跨层表的取值：`none`、`general`、`pix
 - Memory 可以引用 Data Engine Artifact/Step；不能成为原始截图/视频唯一存储。
 - Telemetry Span 可以引用 Step/Action；不负责持久化所有屏幕帧。
 - Runtime Status Store 不承担 UI 交互证据或 Replay 数据库。
+- 能力证据库不随单次运行目录（`--traces-path`）隔离；标记 `verified` 前证据必须已提交。
 - 敏感屏幕、个人账号、Token、密码和设备凭据不得进入普通 Trace Payload；存储需遵守保留/脱敏策略。
 
 ---

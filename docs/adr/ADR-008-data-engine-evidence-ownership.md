@@ -1,13 +1,13 @@
 # ADR-008: Data Engine / Telemetry / Runtime Trace 数据权威与 Capability Evidence 归属
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 1 PR-2（证据存储与查询）；Phase 6（数据/遥测/回放职责收敛）
 - **Related:** 契约 §8（数据所有权）、§5.3.1（Evidence）；[ADR-001](ADR-001-capability-model-evidence-fingerprint.md)（能力/证据/指纹定义）、[ADR-003](ADR-003-device-identity-session-resource-ownership.md)（Accepted，`device_id`/`endpoint_id`）、ADR-004（Action 状态）
 - **Audit evidence:** [`CURRENT_CALL_FLOWS.md`](../architecture/CURRENT_CALL_FLOWS.md) §10、`artemis/data_engine/`、`artemis/telemetry/`、`artemis/runtime/trace_store.py`
 
-> 状态说明：Proposed。批准前只允许盘点、原型和测试设计；不得合入改变公共契约的实现。
+> 状态说明：本 ADR 于 2026-11-09 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7。
 
 ---
 
@@ -92,7 +92,7 @@ ADR-001 定义了证据“长什么样”，但没有回答“存在哪里、谁
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — 权威矩阵
 
@@ -305,11 +305,13 @@ CREATE INDEX capability_evidence_lookup
 - Telemetry 不是权威，当前保持 dormant。
 - Memory/Status Store 不承担证据。
 
-待定（不阻塞 PR-2 骨架）：
+2026-11-09 Owner 确认的细节：
 
-1. artifact 大小上限（建议 5 MB）与保留天数默认值。
-2. 证据库与 artifacts 的备份/清理入口放在 CLI 还是 Admin Console（Phase 6）。
-3. 是否需要把 `history_chunks` 的表从运行库拆出（建议不做；它属于运行证据）。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | artifact 大小上限与保留 | 单 artifact ≤ **5 MB**；能力证据不自动过期删除，`revalidate_after` 只影响可用性；显式删除需审计 | PR-2 / Phase 6 |
+| 2 | 备份/清理入口 | 放 **CLI**（可脚本化、无 UI 依赖）；Admin Console 只读展示，不直接写证据库 | Phase 6 |
+| 3 | `history_chunks` 归属 | 继续留在运行库（Data Engine），不拆出；它属于运行证据 | Phase 6 |
 
 ---
 
@@ -318,3 +320,4 @@ CREATE INDEX capability_evidence_lookup
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-09 | Proposed | Initial proposal | 现有 Data Engine 是运行证据权威；Telemetry 未接线；Capability Evidence 无落点且不能放进按运行隔离的 `--traces-path` |
+| 2026-11-09 | Accepted | 评审通过；确认 5 MB artifact 上限、CLI 维护入口、`history_chunks` 留在运行库 | 3 项待定细节已由 Owner 确认，PR-2/Phase 6 可进入实现 |

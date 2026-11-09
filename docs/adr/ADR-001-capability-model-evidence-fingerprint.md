@@ -1,13 +1,13 @@
 # ADR-001: Capability Model, Evidence, Fingerprint and Invalidation
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 1 PR-2（Capability Catalog & Evidence）；Phase 2（Registry/Profile 选择）；Phase 4.2（固件能力握手）
 - **Related:** 契约 §5.2（Profile）、§5.3（Capability Model）、§5.3.1（Evidence/Fingerprint）、§6.1（Adapter）、§9（ADR 触发条件）；[ADR-003](ADR-003-device-identity-session-resource-ownership.md)（Accepted）、[ADR-008](ADR-008-data-engine-evidence-ownership.md)、ADR-009（固件协议）
 - **Audit evidence:** [`CURRENT_CALL_FLOWS.md`](../architecture/CURRENT_CALL_FLOWS.md) §8–§12、[`IMPORT_DEPENDENCY_MATRIX.md`](../architecture/IMPORT_DEPENDENCY_MATRIX.md)、[`TEST_BASELINE.md`](../architecture/TEST_BASELINE.md)
 
-> 状态说明：Proposed。批准前只允许盘点、原型和测试设计；不得合入改变公共契约的实现。
+> 状态说明：本 ADR 于 2026-11-09 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7，未在 §8 验证的能力不得标记为已验证。
 
 ---
 
@@ -100,7 +100,7 @@ class CapabilitySet:
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — 规范 Catalog
 
@@ -362,11 +362,13 @@ class CapabilityEvidence:
 - `requires_pointer_precheck` 不是能力，留在 Policy。
 - `app.launch` 不再默认 True。
 
-待定（不阻塞 PR-2 骨架）：
+2026-11-09 Owner 确认的细节：
 
-1. 重新验证窗口默认 30 天是否合适（可按硬件/OS 分档）。
-2. 探针注册表放 `core` 还是 `devices/runtime`（建议 `devices`，core 只放 DTO）。
-3. 是否允许“同型号设备”共享证据（建议推迟到真实第二台设备接入后）。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | 证据重新验证窗口 | 默认 30 天，可按测试/能力覆盖；过期只标 `stale`，不删证据 | PR-2b |
+| 2 | 探针注册表位置 | `artemis/devices/runtime`（或同级 L4 子模块）；`core` 只放 Catalog/DTO/Port | PR-2c |
+| 3 | 同型号设备共享证据 | 暂不做；v1 只按 `device_id + endpoint_ids + fingerprint`，未来有第二台真实同型号设备时再提 ADR | 未来 ADR |
 
 ---
 
@@ -375,3 +377,4 @@ class CapabilityEvidence:
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-09 | Proposed | Initial proposal | 现状 Boolean 无法表达声明/可用/已验证；契约 §5.3.1 要求证据与指纹；PR-2/Phase 2 被阻塞 |
+| 2026-11-09 | Accepted | 评审通过；确认 30 天重新验证窗口、探针注册表放 L4、同型号证据共享暂缓 | 3 项待定细节已由 Owner 确认，PR-2 可进入实现 |
