@@ -318,14 +318,17 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 
 #### PR-2 — Capability Catalog & Evidence
 
-- [ ] 将当前混合 Boolean `CapabilitySet` 拆为 Observation、Actuation、Transport、Diagnostics 能力视图；旧字段通过唯一转换层兼容。
-- [ ] 统一使用契约 §5.3 的规范 Capability ID，禁止调用方自行拼写 ID。
-- [ ] 能力状态区分 `declared`、`available`、`verified`、`unavailable`、`unknown`；状态必须带来源、适用指纹、探测/验证时间和证据引用。
-- [ ] 采用 D1 推荐的证据所有权：Data Engine/Observability 保存不可变验证记录和 Artifact；Capability Registry 保存派生 Snapshot 与 evidence reference。
-- [ ] 定义 capability-specific fingerprint/invalidation；固件/协议、Adapter、OS/Build、权限或相关配置变化时，只使受影响能力证据失效。
-- [ ] 缺少验证证据不得标为 `verified`；没有置信度/探测来源时保留 unknown/null，不伪造数值。
+- [x] 将当前混合 Boolean `CapabilitySet` 拆为 Observation、Actuation、Transport、Diagnostics 能力视图；旧字段通过唯一转换层兼容（`artemis/core/capabilities.py`、`artemis/devices/capabilities_compat.py`）。
+- [x] 统一使用契约 §5.3 的规范 Capability ID，禁止调用方自行拼写 ID（`CapabilityId` 闭集 + `CATALOG` + `spec()`；未知 ID 抛错）。
+- [x] 能力状态区分 `declared`、`available`、`verified`、`unavailable`、`unknown`；状态必须带来源、适用指纹、验证时间和证据引用（`CapabilityRecord`/`CapabilityView`/`CapabilityRegistry`）。
+- [x] 采用 D1 推荐的证据所有权：Data Engine/Observability 保存不可变验证记录和 Artifact；Capability Registry 保存派生 Snapshot 与 evidence reference（`SqliteCapabilityEvidenceStore` + `CapabilityArtifactStore`，全局 SQLite，不随 `--traces-path`）。
+- [x] 定义 capability-specific fingerprint/invalidation；固件/协议、Adapter、OS/Build、权限或相关配置变化时，只使受影响能力证据失效（`fingerprint_fields`/`capability_fingerprint`；证据按 device + endpoints + fingerprint 查找）。
+- [x] 缺少验证证据不得标为 `verified`；没有置信度/探测来源时保留 unknown/null，不伪造数值（manual 不能 verified；无 evidence 保持 declared/available）。
 
-**PR-2 验收：** 可以从 Capability Snapshot 追溯到验证证据；指纹变化后旧证据不再支持 verified；Session 断连不会错误覆盖历史验证事实。
+**PR-2 验收（代码与测试已满足，2026-11-09）：** 可以从 Capability Snapshot 追溯到验证证据；指纹变化后旧证据不再支持 verified；Session 断连不会错误覆盖历史验证事实。
+证据：`tests/unit/core/test_capability_{catalog,registry}.py`、`tests/unit/data_engine/test_capability_evidence_store.py`、`tests/unit/devices/test_capabilities_compat.py`、`tests/unit/devices/test_session.py`；`pytest tests/unit -q` 为 14 个既有失败 + 3644 passed（新增 36 个测试）。
+
+> 剩余：真实探针（UVC/串口/helper）与 `ios-smoke` 产出 evidence 在 Phase 4.2 接线；Adapter 显式 `CapabilityManifest` 目前由 `CapabilitySet` 兼容生成，后续补显式声明；factory 目前不自动创建证据库，`DeviceSession.capability_view` 在未注入 registry 时保持声明视图。跨同型号设备共享证据仍按 ADR-001 暂缓。
 
 #### PR-3 — Session Lifecycle & Resource Lease
 

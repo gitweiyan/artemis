@@ -14,8 +14,11 @@ import inspect
 from typing import TYPE_CHECKING, Any
 
 from artemis.control.base import ControlSink
+from artemis.core.capabilities import CapabilityView
+from artemis.core.capability_registry import declared_view
 from artemis.core.identity import DeviceDescriptor
 from artemis.devices.capabilities import CapabilitySet
+from artemis.devices.capabilities_compat import manifest_from_capability_set
 from artemis.devices.geometry import ScreenGeometry
 from artemis.perception.base import Frame, PerceptionSource
 from third_party.mobile_use.utils.logger import get_logger
@@ -51,6 +54,9 @@ class DeviceSession:
     descriptor: DeviceDescriptor | None = None
     leases: LeaseSet | None = None
     session_id: str | None = None
+    #: Optional evidence-backed resolver; without it the view is declaration-only.
+    capability_registry: Any | None = None
+    capability_probes: Any | None = None
     #: Adapter-private state (e.g. the relative-pointer belief). Kept in one bag so the
     #: generic session does not grow platform-specific fields (ADR-003 §5.4).
     adapter_state: dict[str, Any] = field(default_factory=dict)
@@ -66,6 +72,25 @@ class DeviceSession:
         """Deprecated read-only compatibility view (ADR-003 §5.4; remove in Phase 9)."""
 
         return self.adapter_state.get("pointer")
+
+    @property
+    def capability_view(self) -> CapabilityView:
+        """Declared + probe + evidence snapshot for this session (ADR-001)."""
+
+        manifests = [
+            manifest_from_capability_set(
+                participant.capabilities,
+                adapter_id=type(participant).__name__,
+            )
+            for participant in [*self.perception, *self.control]
+        ]
+        if self.capability_registry is None or self.descriptor is None:
+            return declared_view(manifests)
+        return self.capability_registry.resolve(
+            descriptor=self.descriptor,
+            manifests=manifests,
+            probes=self.capability_probes,
+        )
 
     @property
     def capabilities(self) -> CapabilitySet:

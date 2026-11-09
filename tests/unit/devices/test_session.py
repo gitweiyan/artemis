@@ -152,3 +152,79 @@ def test_pointer_is_a_read_only_adapter_state_view():
     assert session.pointer is pointer
     with pytest.raises(AttributeError):
         session.pointer = None  # type: ignore[misc]
+
+
+def test_session_capability_view_is_declaration_only_without_evidence():
+    from artemis.core.capabilities import CapabilityId
+
+    class OcrSource:
+        capabilities = CapabilitySet(supports_ocr=True, supports_app_launch=False)
+
+    class PointerSink:
+        capabilities = CapabilitySet(supports_relative_pointer=True, supports_app_launch=False)
+
+    session = DeviceSession([OcrSource()], [PointerSink()], geometry())
+    view = session.capability_view
+
+    assert view.supports(CapabilityId.OCR_READ) is True
+    assert view.supports(CapabilityId.OCR_READ, for_execution=True) is False
+    assert view.supports(CapabilityId.POINTER_RELATIVE) is True
+    assert view.supports(CapabilityId.TOUCH_ABSOLUTE) is False
+
+
+def test_session_capability_view_can_use_evidence_and_probes():
+    from dataclasses import replace
+
+    from artemis.core.capabilities import (
+        CapabilityEvidence,
+        CapabilityId,
+        capability_fingerprint,
+        fingerprint_fields,
+    )
+    from artemis.core.capability_registry import CapabilityRegistry, ProbeResult
+    from artemis.devices.descriptors import build_mock_descriptor
+
+    class PointerSink:
+        capabilities = CapabilitySet(supports_relative_pointer=True, supports_app_launch=False)
+
+    fields = fingerprint_fields(
+        platform_family="mock", adapter_id="PointerSink", adapter_version="1"
+    )
+    descriptor = replace(
+        build_mock_descriptor(device_id="mock-device", screen_size=(1080, 2400)),
+        fingerprint=fields,
+    )
+    evidence = CapabilityEvidence(
+        evidence_id="ev-pointer",
+        capability_id=CapabilityId.POINTER_RELATIVE,
+        conclusion="verified",
+        device_id=descriptor.device_id,
+        endpoint_ids=descriptor.endpoint_ids,
+        fingerprint=capability_fingerprint(fields),
+        fingerprint_fields=fields,
+        test_id="test.pointer",
+        test_version="1",
+        evidence_kind="smoke",
+        executed_at=100.0,
+        artifact_refs=("a" * 64,),
+    )
+
+    class Store:
+        def record(self, evidence):
+            raise AssertionError("not used")
+
+        def lookup(self, **kwargs):
+            return evidence
+
+    session = DeviceSession(
+        [],
+        [PointerSink()],
+        geometry(),
+        descriptor=descriptor,
+        capability_registry=CapabilityRegistry(Store()),
+        capability_probes={CapabilityId.POINTER_RELATIVE: ProbeResult(True, "test_probe")},
+    )
+
+    record = session.capability_view[CapabilityId.POINTER_RELATIVE]
+    assert record.state == "verified"
+    assert record.evidence_ref == "ev-pointer"
