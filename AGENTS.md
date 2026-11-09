@@ -114,6 +114,8 @@ ARTEMIS 正在从 Android 优先、已接入 iOS 的移动 UI Agent，演进为*
 
 ## 10. 架构变更 ADR
 
+ADR 的唯一索引和模板分别为 [`docs/adr/README.md`](docs/adr/README.md) 与 [`docs/adr/ADR_TEMPLATE.md`](docs/adr/ADR_TEMPLATE.md)。所有 ADR 必须放在 `docs/adr/`，不得只在执行计划或聊天记录中记录决策；Proposed 不等于批准，只有 Accepted 才解除对应 Phase 的实现阻塞。
+
 以下情况必须先创建 ADR：改变层级职责；改变公共 Port/DTO；引入/删除 Capability；改变坐标/时间/session 规则；改变 Action 状态语义；引入新物理执行器/Transport/Firmware 协议；删除公开兼容接口；改变 Reflex 高频安全预算。
 
 ADR 至少包含：背景、当前实现证据、决策、备选方案、依赖影响、迁移/回滚、测试证据和安全影响。

@@ -3,7 +3,8 @@
 > 文档类型：实施路线图（Execution Plan）  
 > 基线仓库：[`gitweiyan/artemis`](https://github.com/gitweiyan/artemis)  
 > 基线分支：`integration/10101205-all-fixes`  
-> 基线 Commit：`1281fc3ddf0d08ec8086d46111c2e6040a02b2d2`（2026-11-08）  
+> 代码现状基线 Commit：`1281fc3ddf0d08ec8086d46111c2e6040a02b2d2`（2026-11-08）  
+> P0 文档治理 Commit：`e50bed0b6bd8b590d31b0f872bc00a955b217623`（2026-11-09；仅文档变更，不改变代码基线）  
 > 配套规范：[`ARCHITECTURE_CONTRACT.md`](ARCHITECTURE_CONTRACT.md)  
 > Coding Agent 规则：仓库根目录 `AGENTS.md`  
 > 状态：基于上述 commit 的建议执行计划；开始每个批次前必须重新盘点分支状态。
@@ -222,6 +223,52 @@ third_party/                      # 外部代码，保留来源与许可证
 
 每个 Phase 可拆成独立 PR。一个 PR 尽量只改变一个主要架构边界；先写/更新测试，再迁移实现。移动文件和改变行为必须分开提交。
 
+## 0.2 P1 决策基线（实施前必须形成 ADR）
+
+以下是本轮架构评审的**推荐决策**，不是已经批准的实现细节。对应 ADR 状态在 `docs/adr/README.md` 中维护；ADR 为 Proposed 时只允许盘点、原型和测试设计，不得开始会改变公共契约的实现。
+
+### D1 — verified Capability 的证据归属与失效
+
+推荐采用“三段式事实来源”：
+
+1. Adapter Manifest 声明静态能力（declared）；运行时 Probe 判断本次 Session 是否可用（available/unavailable）；Contract/Smoke 测试产生可验证证据（verified）。
+2. **原始证据与不可变验证记录归 Observability/Data Engine**；Capability Registry 保存当前派生 Snapshot、设备指纹和 evidence reference，不复制大体积截图/日志；Memory 不作为能力证据库。
+3. 每条验证证据必须绑定能力 ID 和适用指纹，至少考虑稳定 Device ID、目标 OS/Build、Adapter 版本、固件 Build/Protocol、连接端点身份，以及该能力依赖的权限/配置。
+4. 当相关指纹变化、权限撤销、固件/协议或 Adapter 变化时，该能力的旧 `verified` 证据失效并回到 `unknown` / `declared`，等待重新验证；Session 断开只影响本次 `available`，不自动抹掉仍适用于同一指纹的历史验证证据。
+5. 过了重新验证窗口应标为 stale/unknown 并触发验证，不得把“时间过期”误报成设备不支持。
+
+**理由：** “verified”是带适用范围的证据结论，不是永久布尔属性；把原始证据放在 Trace/Artifact 体系中才能审计和复现。
+
+### D2 — 设备与共享硬件资源的独占
+
+推荐保留现有 `artemis/runtime/device_lock.py::DeviceExecutionLock`，继续负责“同一逻辑目标设备不可并发执行任务”；不要把它误认为 UVC/串口等 Host 资源锁。
+
+在此基础上增加独立的 Resource Lease 抽象，至少覆盖：
+
+- UVC Capture Device：同一采集卡实例同一时刻只允许一个 Capture Owner；
+- ESP32 Serial Port：同一串口端点同一时刻只允许一个 Firmware Bridge Owner；
+- 后续可扩展到 Camera、BLE Adapter、CEC Adapter 等真实共享资源。
+
+Lease Key 必须使用稳定资源身份（USB VID/PID/Serial、系统稳定设备 UID、规范化端点），不能用会变化的设备枚举 index。一个 Device Session 可以拥有多个 Lease；多资源按稳定排序原子式获取/失败回滚，按相反顺序释放。复用现有 PID + process-created-at + owner token 的跨进程陈旧 Owner 判断思路，但不要用“给 DeviceExecutionLock 传一个伪 device_id”的方式偷渡资源锁语义。活进程的 Lease 不得仅因 TTL 到期而被另一个任务抢占；进程死亡/明确释放才可回收，心跳用于诊断与监督而非无证据抢锁。
+
+### D3 — 剩余 iOS 分支的归位原则
+
+不直接删除行为，不把平台判断继续留在通用 MCP/Action Executor：
+
+- `mcp/action_executor.py` 的 LocateAnything 坐标补全与 Explorer 快速定位，迁入通用 L3 Grounding/Target Resolution Port；LocateAnything 是可注册的视觉定位实现，不是 iOS 专属能力。
+- `mcp/actuators/adb.py` 的 ASCII/pinyin 文本转换迁入 Text Input Adapter/Platform Extension；BACK 的 iOS 左边缘手势与失败提示迁入语义 Navigation Action 的平台映射；App 启动/停止迁入 App Lifecycle Port。
+- iOS Extension 负责提供具体策略和提示；Action Executor 只读取可用 Port、Capability 和结构化结果。迁移期间保留旧路径兼容，并用 Android/iOS 回归锁定行为。
+
+### D4 — macOS 与 TV 的排期
+
+Phase 7（macOS）和 Phase 8（TV）先降为 **design-only backlog**：当前只维护能力矩阵、权限/动作语义、Profile 草图和 Mock Contract Fixture，不实现生产 Adapter，不阻塞 Phase 1–6。核心 Port、Capability、Session、Lease 和 Android/iOS 双平台接入稳定后，优先选择 macOS 做第一个真实非移动设备纵向切片；TV 等 Remote/D-pad/CEC/IR 语义契约明确后再排期。
+
+### D5 — 勾选状态
+
+Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”保留 `[x]`：它们是**已经完成的单项任务**。这不代表 Phase 0 或 Phase 9 整体完成；只有各 Phase 的 Exit Criteria 全部满足后，才能宣布该 Phase 完成。不得为了让计划“看起来未开工”把真实完成的工作改回 `[ ]`。
+
+---
+
 ### Phase 0 — 基线重核与架构差距登记（不改业务代码）
 
 **目的：** 让本次改造完全锚定当前分支，而不是使用过期目录清单或推测。
@@ -246,29 +293,62 @@ third_party/                      # 外部代码，保留来源与许可证
 
 **Exit Criteria：** 当前测试基线、Android/iOS/Reflex 三条调用链、关键旧接口调用方都有可复现证据。Phase 0 不做大规模重构。
 
-### Phase 1 — 稳定现有 Contracts（不重造已存在的接口）
+### Phase 1 — 稳定现有 Contracts（拆成四个独立 PR）
 
-**目的：** 将现有 `PerceptionSource` / `ControlSink` / `DeviceSession` 从“可工作抽象”提升为可被多平台长期依赖的稳定契约。
+**目的：** 将已经存在的 `PerceptionSource` / `ControlSink` / `DeviceSession` 从“可工作抽象”提升为多平台可长期依赖的契约。不要一次性改完所有调用方；每个 PR 必须有自己的 Contract Tests 和兼容边界。
 
-任务：
+| PR | 主题 | 主要交付 | 依赖 ADR |
+|---|---|---|---|
+| **PR-1** | Device Identity & Descriptor | 区分 Host、物理设备、逻辑 Target、连接 Endpoint、Profile、Adapter Resource；建立稳定 Device/Resource ID | ADR-003 |
+| **PR-2** | Capability Catalog & Evidence | 能力分域、规范 Capability ID、状态/来源/指纹/evidence reference；保留旧 CapabilitySet 转换层 | ADR-001、ADR-008 |
+| **PR-3** | Session Lifecycle & Resource Lease | 明确 Session 生命周期与所有权；将 pointer state 从 DeviceSession 移出；保护 UVC/Serial 等共享资源 | ADR-003、ADR-011 |
+| **PR-4** | Observation / Geometry / Action Contract | Frame/Target 证据关联、坐标空间、Transform、ActionResult/Receipt 状态语义及契约测试 | ADR-002、ADR-004 |
 
-- [ ] 评估并定义 `DeviceDescriptor`：区分物理设备、逻辑目标、Host、连接接口和 Profile。
-- [ ] 将当前混合 `CapabilitySet` 拆分为观察、动作、传输、诊断能力视图；先提供兼容 `CapabilitySet` 的转换层，不一次性改全仓。
-- [ ] 能力状态至少区分 `declared`、`available`、`verified`、`unavailable`、`unknown`，并附来源/检测时间/前置条件；未在真实环境验证不得宣称 verified。
-- [ ] 把 `DeviceSession.pointer: object` 迁移到相对指针控制 Adapter 自己的状态对象；兼容期间允许旧属性只读转发，但新代码不得依赖它。
-- [ ] 明确 `DeviceSession` 的 connect / health / snapshot / execute / close 生命周期；设备资源由 Session/Adapter 所有，不由 Agent 所有。
-- [ ] 为 `Frame` 增加稳定的 `frame_id` 或可关联标识、时间域说明、健康状态和来源信息。
-- [ ] 为 `Target` 增加引用的 frame、坐标空间、来源、可选 confidence；confidence 缺失必须表达为 unknown/null，不得伪造 0 或低置信。
-- [ ] 给 `ScreenGeometry` 增加显式 `CoordinateSpace` / Transform 约束。当前 0–1000 Point、0–1 Box、Frame Pixel、Device Pixel 必须标明空间；统一归一化尺度须通过 ADR 决策，先不直接改写现有 Prompt/Action 参数。
-- [ ] 将 `ActionResult.ok` 的语义固定为“所选 Adapter 接受/派发动作”，不表示操作系统已响应，更不表示用户目标完成。
-- [ ] 增加 Contract Tests：缺能力、能力状态未知、坐标空间不匹配、过期 Frame、关闭后操作、资源重复释放等。
+#### PR-1 — Device Identity & Descriptor
 
-建议文件：
+- [ ] 定义 `DeviceDescriptor`：区分 Host、物理设备、逻辑 Target、连接 Endpoint、显示 Surface 和 Platform Profile。
+- [ ] 定义稳定的 `device_id`、`target_id`、`endpoint_id`、`resource_id`；同一个 iPhone 可以有 UVC 与 ESP32 两个 Endpoint，但不能因此被误认为两台 Target Device。
+- [ ] 将设备发现信息、用户配置和运行时连接句柄分开；Descriptor 不持有 ADB/USB/Serial 句柄。
+- [ ] 先为 Android/iOS/Mock 生成 Descriptor，不改变现有 Driver 选择与动作行为。
 
-- 现有：`artemis/perception/base.py`、`artemis/control/base.py`、`artemis/devices/{capabilities,session,geometry}.py`
-- 可新增：`artemis/core/contracts/`（只放稳定 DTO/Enums/Ports；不要再造第二套同义类）
+**PR-1 验收：** 相同 Target 在不同 Observation/Actuation Adapter 组合下身份稳定；不同共享资源拥有独立 Resource ID；无平台 SDK 依赖的单测通过。
 
-**Exit Criteria：** Core Contract 不导入 ADB、UVC、pyserial、TinyUSB、Android/iOS SDK；现有 Android/iOS 测试保持兼容；能力缺失能够明确返回 `capability_unavailable` / `unknown`（契约 §7.2），而不是 AttributeError。
+#### PR-2 — Capability Catalog & Evidence
+
+- [ ] 将当前混合 Boolean `CapabilitySet` 拆为 Observation、Actuation、Transport、Diagnostics 能力视图；旧字段通过唯一转换层兼容。
+- [ ] 统一使用契约 §5.3 的规范 Capability ID，禁止调用方自行拼写 ID。
+- [ ] 能力状态区分 `declared`、`available`、`verified`、`unavailable`、`unknown`；状态必须带来源、适用指纹、探测/验证时间和证据引用。
+- [ ] 采用 D1 推荐的证据所有权：Data Engine/Observability 保存不可变验证记录和 Artifact；Capability Registry 保存派生 Snapshot 与 evidence reference。
+- [ ] 定义 capability-specific fingerprint/invalidation；固件/协议、Adapter、OS/Build、权限或相关配置变化时，只使受影响能力证据失效。
+- [ ] 缺少验证证据不得标为 `verified`；没有置信度/探测来源时保留 unknown/null，不伪造数值。
+
+**PR-2 验收：** 可以从 Capability Snapshot 追溯到验证证据；指纹变化后旧证据不再支持 verified；Session 断连不会错误覆盖历史验证事实。
+
+#### PR-3 — Session Lifecycle & Resource Lease
+
+- [ ] 明确 DeviceSession 的 `open/connect → health → observe/execute → close` 生命周期、取消行为和资源所有权。
+- [ ] 将 `DeviceSession.pointer: object` 迁移到 Pointer/HID Adapter 私有状态；兼容期允许只读转发，但新代码不得读取该字段。
+- [ ] 保留 `DeviceExecutionLock` 的逻辑目标设备互斥语义；新增 Resource Lease 保护共享 UVC 设备、ESP32 Serial Port 等 Host 侧资源。
+- [ ] Lease 使用稳定资源身份、owner token、PID + process-created-at 陈旧 Owner 检测；多资源获取顺序固定，失败时回滚已取得的 Lease。
+- [ ] Session/Adapter 的 close、异常、任务取消路径必须释放按键/触点、串口、Capture Handle 和所有 Lease；不能只在正常结束时释放。
+- [ ] 增加并发测试：同一 UVC/串口被两个进程争用时只有一个成功；不同资源可并行；进程崩溃后可回收；正常长任务不会因简单 TTL 被抢占。
+
+**PR-3 验收：** 单设备任务锁与共享 Host 资源锁语义不混淆；多进程资源竞争、取消、异常和清理测试通过。
+
+#### PR-4 — Observation / Geometry / Action Contract
+
+- [ ] 为 Frame 建立稳定 frame_id/时间域/source/health/artifact reference；Target 必须引用产生它的 Observation/Frame。
+- [ ] Point/Box 必须携带 CoordinateSpace；显式区分 Agent Point（现有 0–1000）、Target Box（现有 0–1）、Frame Pixel、Device Pixel、Window/Display Coordinate。
+- [ ] 给 ScreenGeometry 增加可组合 Transform，覆盖 Crop、Letterbox、Rotation、Display Scale、Window Offset；迁移期保留旧格式 Compatibility Adapter。
+- [ ] 统一 Action Intent、Action Command、Action Receipt、Verification Result 的字段和状态边界；现有 `ActionResult.ok` 仅表示所选 Adapter 接受/派发，不表示 OS/UI/业务目标成功。
+- [ ] 过期 Frame、坐标空间不匹配、Transform 无效时拒绝执行；不允许裸坐标跨层传递。
+- [ ] Contract Tests 覆盖缺能力、unknown 能力、坐标错配、Frame 过期、关闭后调用、重复释放、Adapter ACK 与后续效果分离。
+
+**PR-4 验收：** 旧 Agent Action 格式仍能通过兼容层工作；新 Port/DTO 显式表达坐标与动作阶段；不改变现有 Android/iOS 点击策略，除非另有行为变更 PR。
+
+**Phase 1 Exit Criteria：** 四个 PR 合并；Core Contract 不导入 ADB、UVC、pyserial、TinyUSB、Android/iOS SDK；Android/iOS 兼容测试保持；能力缺失可明确报告 `capability_unavailable` / `unknown`，不会退化为 AttributeError；设备与共享硬件资源生命周期可测试、可恢复。
+
+---
 
 ### Phase 2 — 建立 Device Runtime / Adapter Registry / Profile Composer
 
@@ -362,6 +442,11 @@ Application Service / Agent Tool
 - [ ] `perception/ios_targets.py::icon_above_label` 迁移为 iOS Profile 的目标调整插件；通用 OCR/Locator 不知道 SpringBoard 图标布局。
 - [ ] `reflex/ios_apps.py`、`agents/ios_shortcuts.py` 迁为 iOS Profile 提供的可选 App Launcher / Keyboard Guidance。上层只读取可用能力和操作提示，不硬编码 `is_ios_device`。
 - [ ] `drivers/ios/smoke.py` 和 `calibration.py` 保留为平台 Adapter 的诊断/校准工具，不塞入通用 Agent 核心。
+- [ ] **补齐 MCP/Agent Executor 中遗留的平台分支（本项不能只删 if）：**
+  - `artemis/mcp/action_executor.py`：`_locate_coordinate_target` 与 `_ask_explorer` 的 iOS LocateAnything 快速路径，迁入通用 L3 Grounding/Target Resolution Port；LocateAnything 作为可注册 Locator，能否使用由 Observation/Capability/配置决定。
+  - `artemis/mcp/actuators/adb.py`：iOS ASCII/pinyin 输入转换迁入 Text Input Adapter/Platform Extension；BACK 左边缘手势及失败后的 fallback 文案迁入语义 Navigation Action 的平台映射；`manage_app` 迁入 App Lifecycle Port，由能力决定 launch/stop 是否可用。
+  - `McpActionExecutor` 不再 import `is_ios_device`；`AdbActuator` 仅作为 Android/旧链兼容 Adapter，不承担跨平台决策。
+  - 迁移前后保持 iOS 文本输入、BACK、App Launch、LocateAnything 和 Android 原有行为的回归测试；旧路径清零后再删除平台分支。
 
 **Exit Criteria：** iOS Profile 仅由通用 Adapter + iOS 专属 Extension 组合；UVC 与 ESP32 HID 能被 Mock/其他 Profile 复用；Android 主链不依赖 iOS 代码。
 
@@ -404,58 +489,44 @@ Application Service / Agent Tool
 
 **Exit Criteria：** 能从一次失败动作还原“观察到什么、用哪个 Adapter、执行了什么、收到什么 ACK、屏幕如何变化、为什么判定成功/失败”。
 
-### Phase 7 — macOS Target Profile（在 Core 契约稳定后）
+### Phase 7 — macOS Target Profile（Design-only；暂不进入实现主线）
 
-**目的：** 验证同一 Agent Core 可以控制桌面设备，而不仅是手机。
+**状态：** 设计验证 / Backlog。Phase 1–6 未完成前，不实现生产 macOS Adapter，不以此阻塞当前重构。
 
-重要区分：`artemis/platform/darwin.py` 当前是运行 ARTEMIS 的 macOS Host PAL，不能视为被控 Mac 适配器。
+**设计交付：**
 
-建议组合（具体能力按 macOS 权限和环境验证）：
+- [ ] 区分 `artemis/platform/darwin.py`（ARTEMIS Host OS PAL）与被控 Mac 的 Target Adapter；前者不算 macOS 控制能力。
+- [ ] 输出 `macos.desktop` Profile 设计：ScreenCaptureKit/截图、Accessibility/AX Tree、窗口/焦点、原生键鼠、权限状态。
+- [ ] 明确多显示器、Retina Scale、Window Offset、Display Rotation/坐标转换要求。
+- [ ] 建立 Mock Observation/Input Contract Fixture 与权限状态矩阵；不实现生产 Adapter、不承诺实机能力。
+- [ ] Phase 1–6 的核心契约稳定后，再由独立 ADR 决定是否启动 macOS 真实纵向切片。
 
-- Observation：ScreenCaptureKit/系统截屏、Accessibility API/AX Tree、窗口与焦点信息。
-- Actuation：原生键盘/鼠标输入事件、可选应用/窗口操作接口。
-- Transport：本机 IPC/API 或远程 Host Agent；不需要 ESP32 时不应引入 HID 依赖。
-- Profile：`macos.desktop`；记录 Screen Recording、Accessibility、Input Monitoring 等权限状态。
+**激活条件：** Android/iOS 使用统一 Ports；Capability Evidence、Session/Lease、Geometry 和 Action Receipt 契约通过测试；有明确真实 Mac 设备、权限环境和验收任务。
 
-任务：
+### Phase 8 — TV / Media Device Profile（Design-only；晚于 macOS）
 
-- [ ] 新增独立 `MacOSObservationAdapter` 和 `MacOSInputAdapter`，不复用 `platform/darwin.py` 作为目标平台实现。
-- [ ] 把权限不足表示为 `unavailable`，不伪造空 UI Tree 或假成功。
-- [ ] 验证窗口、桌面、多屏、缩放、Retina 坐标转换和焦点语义。
-- [ ] 用相同 Planner/Operator/Checker 执行最小真实任务；不为 macOS 复制 Agent。
+**状态：** 设计验证 / Backlog。当前不实现 TV Remote、CEC、IR 或厂商 API Adapter。
 
-**Exit Criteria：** macOS Profile 可通过相同 Device Runtime 被发现、连接、观察、输入和验证；Agent 核心不增加平台判断。
+**设计交付：**
 
-### Phase 8 — TV / Media Device Profile
+- [ ] 定义非触屏 Remote Action 语义：D-pad、Select、Back、Home、Volume、Power、Input Source。
+- [ ] 建立 TV Profile 草图：HDMI/API/Frame Observation + Remote/CEC/IR/Network Actuation。
+- [ ] 区分“命令发送成功”“设备接受命令”“UI 状态变化”；电源/输入源等非幂等命令禁止盲目重试。
+- [ ] 建立 Mock Focus-Navigation Fixture；不伪装为已接入真实电视。
 
-**目的：** 验证架构可以处理非触屏设备，而不是把手机模型改名为电视。
-
-可组合能力：
-
-- Observation：HDMI/UVC 采集、系统截图 API、厂商状态 API、可选 OCR/视觉。
-- Actuation：遥控器按键、BLE/Network Remote、HDMI-CEC、IR、厂商 API。
-- 特殊语义：D-pad、Select、Back、Home、Volume、Power、Input Source 等；这些是 Remote Action，不应伪装成 Touch Gesture。
-
-任务：
-
-- [ ] 定义 TV Profile 和 Remote Control Adapter。
-- [ ] 区分“命令发送成功”“电视接受命令”“界面状态变化”。
-- [ ] 对 IR/CEC 等重复命令谨慎处理；非幂等或电源切换命令禁止盲目自动重试。
-- [ ] 测试没有 UI Tree、只有画面观察的流程；验证焦点导航和 D-pad 状态。
-
-**Exit Criteria：** TV Profile 不要求实现 `tap_abs`；Operator 通过可用 Action Schema/Capability 理解 D-pad/Remote 操作。
+**激活条件：** macOS 真实纵向切片证明非移动设备可复用 Agent Core；Remote Action、权限和安全语义形成 ADR；有明确电视型号、控制协议和真实验收环境。
 
 ### Phase 9 — 清理兼容层与目录收敛
 
-**前置：** Android、iOS、至少一个非 Android/iOS Profile 已通过 Adapter Contract Test；旧调用方已经迁移。
+**前置：** P9-A 的安全清理只要求 Android/iOS 已通过统一 Ports 的兼容测试且调用方已清零；P9-B 退役广义 Mobile Driver 契约前，仍要求至少一个真实非 Android/iOS Profile 通过 Adapter Contract Test。macOS/TV 目前是 design-only，不得假装已满足 P9-B。
 
 任务：
 
-- [ ] 搜索旧 `BaseDeviceDriver`、`UnifiedMobileController`、`artemis/mcp`、`reflex.capture/control/mouse/vision` 的生产引用。
-- [ ] 只有调用方为零、公开 API 迁移说明完成后，才删除 Facade/shim。
-- [ ] 根据实际变更频率和依赖关系决定是否把 `control/`、`perception/` 的实现拆到 `adapters/`，不进行纯美观式重命名。
-- [x] 旧规范已标记 Superseded（2026-11-08）；本阶段只保留历史记录，不再回填内容（历史 B0–B6 计划与 v1 spec 均不再更新）。
+- [ ] **P9-A 安全清理：** 搜索旧 `BaseDeviceDriver`、`UnifiedMobileController`、`artemis/mcp`、`reflex.capture/control/mouse/vision` 的生产引用；只删除调用方为零且迁移说明完成的兼容 shim。
+- [ ] 根据真实依赖/变化原因决定是否把 `control/`、`perception/` 实现下沉到 Adapter；不做纯美观式重命名。
+- [x] 旧规范已标记 Superseded（2026-11-08）；本阶段只保留历史记录，不回填新决策（历史 B0–B6 计划与 v1 spec 均不再更新）。
 - [ ] 更新 root AGENTS 和子目录 AGENTS，确保架构规则可被 Coding Agent 直接加载。
+- [ ] **P9-B 条件性退役：** 第一个真实非 Android/iOS Profile 通过 Contract/Integration Test 后，再评估退役 `BaseDeviceDriver` 中剩余 Mobile 专属 API；未满足条件时保留兼容 Facade。
 
 **Exit Criteria：** 旧兼容入口不存在隐式业务依赖；新增平台可按 Adapter/Profile 模式扩展；Architecture Test 阻止新违规依赖。
 
@@ -549,20 +620,25 @@ tests/
 
 ---
 
-## 8. 重要架构决策（ADR）清单
+## 8. ADR 与 Phase 阻塞关系
 
-开始对应 Phase 前，以下问题必须有 ADR，不允许 Coding Agent 自行猜测：
+ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs/adr/ADR_TEMPLATE.md`](../adr/ADR_TEMPLATE.md)。**ADR 未达到 Accepted 状态时，对应 Phase 只能做盘点/原型/测试设计，不得合入改变公共契约的实现。**
 
-- [ ] ADR-001：统一能力模型（按 Observation/Actuation/Transport/Diagnostics 分域及状态）
-- [ ] ADR-002：Normalized Point/Box 的规范尺度与坐标空间标识
-- [ ] ADR-003：DeviceSession 与 Device Registry 生命周期/所有权
-- [ ] ADR-004：BaseDeviceDriver 兼容期和最终退役条件
-- [ ] ADR-005：Platform Profile 与 Adapter Registry 的静态注册契约
-- [ ] ADR-006：Reflex Runtime 与通用 DeviceSession 的适配方式
-- [ ] ADR-007：SafetyNet 对普通动作与高频 Skill 的双策略
-- [ ] ADR-008：Data Engine / Telemetry / Runtime Trace 的数据权威边界
-- [ ] ADR-009：ESP32 Host-Firmware Protocol Versioning 与 Capability Handshake
-- [ ] ADR-010：平台扩展提供 Prompt Guidance / App Launcher / Platform Quirks 的注入机制
+| ADR | 决策主题 | 阻塞的 PR / Phase | 状态 |
+|---|---|---|---|
+| ADR-001 | Capability Model、Capability Evidence 与 Fingerprint/Invalidation | Phase 1 PR-2；Phase 2；Phase 4.2 固件能力握手 | Planned |
+| ADR-002 | Coordinate Space、Transform 与迁移兼容 | Phase 1 PR-4；Phase 3 所有坐标链路 | Planned |
+| ADR-003 | Device/Target/Endpoint Identity、Session 生命周期与资源所有权 | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | Planned |
+| ADR-004 | Action Intent/Command/Receipt/Verification 状态语义 | Phase 1 PR-4；Phase 3；Phase 5 | Planned |
+| ADR-005 | AdapterRegistry、Profile Builder 与静态注册契约 | Phase 2 | Planned |
+| ADR-006 | BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件 | Phase 3；Phase 9-B | Planned |
+| ADR-007 | Reflex Runtime、SafetyNet 与高频闭环安全预算 | Phase 3；Phase 5 | Planned |
+| ADR-008 | Data Engine / Telemetry / Runtime Trace 数据权威；Capability Evidence Artifact 归属 | Phase 1 PR-2；Phase 6 | Planned |
+| ADR-009 | ESP32 Host-Firmware Protocol Versioning、Capability Handshake 与 ACK 语义 | Phase 4.2 | Planned |
+| ADR-010 | Platform Extension、语义动作映射、Prompt Guidance/App Lifecycle/Locator 插件 | Phase 4.3（含 MCP iOS 分支清理） | Planned |
+| ADR-011 | UVC/Serial 等共享 Host Resource Lease、并发和回收语义 | Phase 1 PR-3；Phase 2 | Planned |
+
+建议顺序：ADR-003 → ADR-001/008 → ADR-002/004 → ADR-005/006 → ADR-007 → ADR-011 → ADR-009/010。实际开始某一 Phase 前，只要求其阻塞 ADR 已 Accepted；不要求提前批准所有未来平台决策。
 
 ---
 

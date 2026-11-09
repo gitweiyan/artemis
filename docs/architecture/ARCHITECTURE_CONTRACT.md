@@ -323,6 +323,21 @@ requirements:
 
 规则：新增代码只能使用规范能力 ID；`CapabilitySet` 作为兼容视图继续存在，字段到 ID 的映射只允许出现在一处转换层，不得由调用方手写能力字符串。
 
+### 5.3.1 Capability Evidence、Fingerprint 与失效
+
+`verified` 必须是可追溯、范围明确的证据结论，不是 Adapter 自报的永久 Boolean。
+
+MUST：
+
+- 每条 `verified` 记录引用不可变的 Smoke/Contract Test 结果或真实设备验证 Artifact，至少包括 capability ID、验证结论、时间、设备身份、适用 fingerprint、测试版本和执行环境。
+- 区分静态声明、当前 Session 可用性和历史验证证据：断连影响当前 `available`，不自动删除同一设备/版本上的历史 `verified` 证据。
+- 验证证据必须限定适用范围；不同设备、固件 Build、协议版本或权限状态不得继承彼此的 verified。
+- 相关 fingerprint 变化、权限撤销、Adapter/Driver 语义变化、Firmware/Protocol 变化、目标 OS/Build 变化时，使受影响 Capability 的旧证据失效并要求重新验证。
+- 证据过期/不新鲜应转为 `unknown` 或 `revalidation_required`，不能误报为 `unavailable`。
+- 缺少 evidence reference 或 fingerprint 的能力不得标记为 `verified`。
+
+证据存储位置、Snapshot 缓存与 fingerprint 字段清单由 ADR-001/ADR-008 决定。推荐将原始证据和 Artifact 放在 Observability/Data Engine；Capability Registry 只维护派生 Snapshot 与引用；Memory 不得作为验证证据的权威存储。
+
 ### 5.4 DeviceSession
 
 `DeviceSession` 是一台目标设备在一次运行期间的交互上下文，负责：
@@ -339,6 +354,24 @@ MUST NOT：
 - 放入 `pointer: object` 这类某种 Adapter 专属状态；指针 Belief、Gain、轨迹应属于 Pointer/HID Adapter 的私有 Session State。
 - 直接暴露 ADB/Serial/UVC 句柄给 Agent。
 - 依赖 `IOSUvcHidDriver` 等具体平台类。
+
+#### 5.4.1 Device Lease 与共享 Resource Lease
+
+设备任务互斥和 Host 资源互斥是两个不同范围：
+
+- 目标设备级任务锁：防止同一逻辑 Target 同时被两个任务操作。当前 `artemis/runtime/device_lock.py::DeviceExecutionLock` 已提供 PID-aware FIFO/per-device 互斥，应优先保留并演进。
+- Host 共享资源 Lease：防止两个不同 Target 或进程同时打开同一个 UVC Capture Device、ESP32 Serial Port、Camera、BLE Adapter 等独占资源。现有 DeviceExecutionLock 不能自动证明这些资源已被独占。
+
+MUST：
+
+- 每个共享资源具有稳定 `resource_id`；禁止使用易变化的枚举 index 作为唯一身份。
+- 一个 DeviceSession/Runtime Allocation 可以持有多个 Lease；资源 Lease 在 Adapter 打开句柄前取得，在 close/cancel/error 路径释放。
+- 多资源获取顺序必须确定；部分获取失败时回滚已取得的 Lease，防止死锁和半启动。
+- 跨进程 Owner 必须可识别（process ID、process creation time、owner token、session/task ID）；只有确认 Owner 进程已死亡或显式释放后才能回收。不得只因 TTL 到期就抢占仍存活的长任务。
+- 输入类 Adapter 在 Session 关闭、取消或异常退出时必须释放按键、鼠标按钮、触点等持续状态。
+- 资源竞争、跨进程抢占、Owner 崩溃恢复、取消释放和重复 close 必须有测试。
+
+Lease Manager 的实现是否复用/抽取 `DeviceExecutionLock` 的底层原语，以及 FIFO/公平性策略，由 ADR-003/ADR-011 决定。
 
 ### 5.5 Observation / Frame / Grounding
 
@@ -442,6 +475,8 @@ proposed
 - `tv.remote`：HDMI/API Observation + Remote/D-pad/CEC/IR Actuation。
 
 以上为组合示例，不代表全部能力已实现或 verified。
+
+平台扩展还可声明语义动作映射与可选指导信息，例如 Back 的实现方式、文本输入编码、App Launch/Stop、窗口焦点策略、Remote Key Map 和平台权限提示。上层 Action Executor 只读取标准 Port、Capability 和结构化 Extension Result，不按 `platform == ...` 分支。LocateAnything/OCR/Visual Grounding 是可复用 L3 Locator，不应作为某一平台的专属执行流程。
 
 **允许** `drivers.factory`/Registry/Profile Builder 根据平台 ID 选择对应 Profile。**禁止** Planner/Operator/Checker/通用 Perception/Action Policy 直接根据平台字符串选择协议或假设平台能力。
 
