@@ -24,10 +24,14 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
+from artemis.config import settings
+from artemis.devices.descriptors import host_resource_ids
 from artemis.reflex import registry
 from artemis.reflex.capture import default_capture
 from artemis.reflex.control import AdbInputControl, Esp32HidControl, HelperControl, esp32_port
 from artemis.reflex.runtime import DEFAULT_FPS_CAP, ReflexRuntime
+from artemis.runtime.host_identity import host_id as resolve_host_id
+from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError, leases_enabled
 from rich.console import Console
 from rich.table import Table
 import typer
@@ -95,18 +99,49 @@ def probe(
         typer.secho(f"Skill not loadable: {exc}", fg=typer.colors.RED)
         raise typer.Exit(code=1) from exc
 
-    frame_source = default_capture(target, prefer=capture)
-    # An ESP32-S3 HID board, when one is named, replaces both assisted paths.
+    host = resolve_host_id()
     esp = esp32_port()
-    if esp:
-        actuator = Esp32HidControl(esp)
-    elif capture == "helper":
-        actuator = HelperControl(target)
-    else:
-        actuator = AdbInputControl(target)
-    runtime = ReflexRuntime(capture=frame_source, control=actuator, fps_cap=fps_cap)
-    typer.echo(f"Running reflex skill '{skill}' on {target} for {seconds:g}s ({capture} capture)…")
-    result = runtime.run(handle, seconds=seconds)
+    resources = host_resource_ids(
+        host_id=host,
+        serial=target,
+        capture=capture,
+        esp32_port=esp,
+        adb_host=settings.ADB_HOST or "127.0.0.1",
+        adb_port=settings.ADB_PORT or 5037,
+    )
+    leases = LeaseSet(host_id=host, description=f"reflex:{skill}")
+    if leases_enabled() and resources:
+        try:
+            leases.acquire(resources)
+        except ResourceBusyError as exc:
+            typer.secho(f"Device is busy: {exc}", fg=typer.colors.RED)
+            raise typer.Exit(code=2)
+
+    frame_source = None
+    actuator = None
+    try:
+        frame_source = default_capture(target, prefer=capture)
+        # An ESP32-S3 HID board, when one is named, replaces both assisted paths.
+        if esp:
+            actuator = Esp32HidControl(esp)
+        elif capture == "helper":
+            actuator = HelperControl(target)
+        else:
+            actuator = AdbInputControl(target)
+        runtime = ReflexRuntime(capture=frame_source, control=actuator, fps_cap=fps_cap)
+        typer.echo(
+            f"Running reflex skill '{skill}' on {target} for {seconds:g}s ({capture} capture)…"
+        )
+        result = runtime.run(handle, seconds=seconds)
+    finally:
+        for resource in (actuator, frame_source):
+            closer = getattr(resource, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                    typer.echo(f"cleanup warning: {exc}", err=True)
+        leases.release()
 
     if as_json:
         typer.echo(json.dumps(result.as_dict(), ensure_ascii=False, indent=2))

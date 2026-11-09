@@ -577,3 +577,18 @@ def test_clearing_text_is_select_all_then_backspace(esp32):
     control, recorder = esp32()
     control.clear_text()
     assert recorder.lines == ["keymod 8 4\n", "key 42\n"]
+
+
+def test_release_all_releases_held_keys_and_the_mouse_button(esp32):
+    control, recorder = esp32()
+
+    control.key_down(4)
+    control.key_down(40)
+    control.mouse_down()
+    recorder.lines.clear()
+
+    control.release_all()
+
+    assert recorder.lines == ["kup 4\n", "kup 40\n", "mup\n"]
+    assert control._pressed_keys == set()
+    assert control._mouse_down is False

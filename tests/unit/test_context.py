@@ -89,3 +89,20 @@ def test_context_carries_the_read_only_device_descriptor():
 
     assert context.device_descriptor is descriptor
     assert ArtemisContext(device=DeviceContext()).device_descriptor is None
+
+
+@pytest.mark.asyncio
+async def test_context_closes_the_device_session_on_exit():
+    class Session:
+        closed = False
+
+        async def close(self):
+            self.closed = True
+
+    session = Session()
+    context = ArtemisContext(device=DeviceContext(device_id="dummy"), device_session=session)
+
+    await context.__aexit__(None, None, None)
+
+    assert session.closed is True
+    assert context.device_session is None

@@ -25,7 +25,24 @@ from artemis.core.identity import (
 if TYPE_CHECKING:  # pragma: no cover - typing only, keeps devices -> drivers out
     from artemis.drivers.ios.config import IosRuntimeConfig
 
+ENV_DEVICE_ALIAS = "ARTEMIS_DEVICE_ALIAS"
+
+
+def device_alias(env=None) -> str | None:
+    """ADR-003 D1: an explicit alias wins over the platform default device id."""
+
+    import os
+
+    values = os.environ if env is None else env
+    value = values.get(ENV_DEVICE_ALIAS)
+    if not value:
+        return None
+    return value.strip() or None
+
+
 __all__ = [
+    "device_alias",
+    "host_resource_ids",
     "build_android_descriptor",
     "build_ios_descriptor",
     "build_mock_descriptor",
@@ -210,3 +227,34 @@ def descriptor_from_device_context(
             alias=alias,
         )
     raise ValueError(f"unsupported platform {platform!r}; expected android, ios or mock")
+
+
+def host_resource_ids(
+    *,
+    host_id: str,
+    serial: str,
+    capture: str = "helper",
+    esp32_port: str | None = None,
+    uvc_device: str | None = None,
+    adb_host: str = "127.0.0.1",
+    adb_port: int = 5037,
+) -> tuple[str, ...]:
+    """Host resources a non-Agent (reflex/smoke) run must lease.
+
+    ``capture='uvc'`` uses ``serial`` as the UVC device name; a helper tunnel is keyed
+    by the ADB endpoint + serial (ADR-011) because the local port is allocated later.
+    """
+
+    ids: list[str] = []
+    if capture in ("uvc", "uvc-stream"):
+        key = derive_hardware_key(uvc_device or serial)
+        if key:
+            ids.extend(make_uvc_endpoint(host_id=host_id, hardware_key=key).resource_ids)
+    if esp32_port:
+        key = derive_hardware_key(esp32_port)
+        if key:
+            ids.extend(make_serial_endpoint(host_id=host_id, hardware_key=key).resource_ids)
+    elif capture == "helper" and serial:
+        socket = f"tcp:{str(adb_host).strip()}:{int(adb_port)}"
+        ids.append(f"helper:{host_id}:{socket}/{serial}/forward")
+    return tuple(ids)

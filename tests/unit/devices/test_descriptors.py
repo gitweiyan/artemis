@@ -160,3 +160,27 @@ def test_descriptor_does_not_expose_device_handles():
 
     for forbidden in ("handle", "driver", "session", "adb_client", "capture", "serial_fd"):
         assert not hasattr(descriptor, forbidden)
+
+
+def test_host_resource_ids_for_a_helper_tunnel_and_a_uvc_rig():
+    from artemis.devices.descriptors import host_resource_ids
+
+    helper_ids = host_resource_ids(
+        host_id="host-a",
+        serial="emulator-5554",
+        capture="helper",
+        adb_host="127.0.0.1",
+        adb_port=5037,
+    )
+    assert helper_ids == ("helper:host-a:tcp:127.0.0.1:5037/emulator-5554/forward",)
+
+    rig_ids = host_resource_ids(
+        host_id="host-a",
+        serial="USB Video",
+        capture="uvc",
+        esp32_port="/dev/cu.usbmodem21101",
+    )
+    assert set(rig_ids) == {
+        "uvc:host-a:USB-Video/capture",
+        "serial:host-a:cu.usbmodem21101/command",
+    }

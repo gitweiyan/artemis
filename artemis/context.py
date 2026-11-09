@@ -124,6 +124,12 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
     Built by ``drivers.factory`` after the context exists. It never participates in
     driver selection or actions; locks/evidence/traces read it for stable IDs.
     """
+    device_session: Any | None = None
+    """The task's DeviceSession (ADR-003), closed before Data Engine shutdown.
+
+    ``Any`` keeps pydantic from re-validating this stateful dataclass; the runtime
+    lifecycle is owned by :mod:`artemis.devices.session`.
+    """
     llm_config: LLMConfig | None = None
     agent_config: Any = None
     adb_client: Any | None = None
@@ -215,6 +221,14 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
                 logger.debug(f"Action session close failed; skipped: {exc}", exc_info=True)
             finally:
                 self.action_session = None
+
+        if self.device_session is not None:
+            try:
+                await self.device_session.close()
+            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                logger.debug(f"Device session close failed; skipped: {exc}", exc_info=True)
+            finally:
+                self.device_session = None
 
         # Drain in-flight step-summary jobs before the generic background-task
         # sweep: the shared service owns its own bounded flush semantics. On an

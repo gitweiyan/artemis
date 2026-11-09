@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 from artemis.control.base import ActionResult
 from artemis.control.hid import HidControlSink
@@ -17,6 +18,10 @@ from artemis.reflex.locate_anything import (
     LocateAnythingDetector,
 )
 from artemis.reflex.vision import BluePointerDetector, CompositePointerDetector, PointerTracker
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from artemis.core.identity import DeviceDescriptor
+    from artemis.runtime.resource_lease import LeaseSet
 
 
 class _GrabLatest:
@@ -47,6 +52,9 @@ def build_ios_uvc_session(
     detector=None,
     ocr_engine=None,
     assistive_button_box: tuple[int, int, int, int] | None = None,
+    descriptor: DeviceDescriptor | None = None,
+    leases: LeaseSet | None = None,
+    session_id: str | None = None,
 ) -> DeviceSession:
     # One URL for both locators: the pointer detector chain and the perception target
     # locator. `off`/`none`/`0` disables the service everywhere.
@@ -89,7 +97,10 @@ def build_ios_uvc_session(
         ],
         control=[HidControlSink(pointer, controller, geometry=geometry)],
         geometry=geometry,
-        pointer=pointer,
+        descriptor=descriptor,
+        leases=leases,
+        session_id=session_id,
+        adapter_state={"pointer": pointer},
     )
 
 

@@ -1,17 +1,46 @@
-"""Compose perception sources and control sinks for one device session."""
+"""Compose perception sources and control sinks for one device session.
+
+ADR-003 §5.4: a session owns adapters, geometry, adapter-private state and host
+resource leases; it never owns a task, a plan or an Agent. Lifecycle is
+``new -> ready <-> degraded -> closing -> closed`` with a terminal ``failed``.
+Closing is idempotent, releases inputs before handles, then releases leases.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
+from enum import StrEnum
+import inspect
+from typing import TYPE_CHECKING, Any
 
+from artemis.control.base import ControlSink
+from artemis.core.identity import DeviceDescriptor
 from artemis.devices.capabilities import CapabilitySet
 from artemis.devices.geometry import ScreenGeometry
 from artemis.perception.base import Frame, PerceptionSource
-from artemis.control.base import ControlSink
+from third_party.mobile_use.utils.logger import get_logger
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from artemis.runtime.resource_lease import LeaseSet
+
+logger = get_logger(__name__)
+
+
+class SessionState(StrEnum):
+    NEW = "new"
+    READY = "ready"
+    DEGRADED = "degraded"
+    CLOSING = "closing"
+    CLOSED = "closed"
+    FAILED = "failed"
 
 
 class DeviceSessionError(RuntimeError):
     """A session cannot satisfy a requested perception or control capability."""
+
+
+class SessionClosedError(DeviceSessionError):
+    """The session has been closed (or is closing) and cannot serve requests."""
 
 
 @dataclass
@@ -19,10 +48,24 @@ class DeviceSession:
     perception: list[PerceptionSource] = field(default_factory=list)
     control: list[ControlSink] = field(default_factory=list)
     geometry: ScreenGeometry | None = None
-    #: The relative-pointer belief when a control sink drives one (iOS UVC + HID). The
-    #: driver anchors it (`home`) on connect and a caller may nudge it to wake the
-    #: pointer before a precheck. ``None`` for platforms with absolute control.
-    pointer: object | None = None
+    descriptor: DeviceDescriptor | None = None
+    leases: LeaseSet | None = None
+    session_id: str | None = None
+    #: Adapter-private state (e.g. the relative-pointer belief). Kept in one bag so the
+    #: generic session does not grow platform-specific fields (ADR-003 §5.4).
+    adapter_state: dict[str, Any] = field(default_factory=dict)
+    _state: SessionState = field(default=SessionState.NEW, init=False, repr=False)
+    _close_errors: list[str] = field(default_factory=list, init=False, repr=False)
+
+    @property
+    def state(self) -> SessionState:
+        return self._state
+
+    @property
+    def pointer(self) -> Any | None:
+        """Deprecated read-only compatibility view (ADR-003 §5.4; remove in Phase 9)."""
+
+        return self.adapter_state.get("pointer")
 
     @property
     def capabilities(self) -> CapabilitySet:
@@ -33,7 +76,80 @@ class DeviceSession:
                 values[name] = values[name] or bool(getattr(caps, name))
         return CapabilitySet(**values)
 
+    def open(self) -> DeviceSession:
+        """Mark the session usable; idempotent. Handles are opened by the composition root."""
+
+        if self._state in (SessionState.CLOSING, SessionState.CLOSED):
+            raise SessionClosedError("cannot open a closing/closed device session")
+        if self._state in (SessionState.READY, SessionState.DEGRADED):
+            return self
+        self._state = SessionState.READY
+        return self
+
+    def mark_degraded(self, reason: str) -> None:
+        if self._state is SessionState.READY:
+            logger.warning(f"Device session degraded: {reason}")
+            self._state = SessionState.DEGRADED
+
+    def mark_failed(self, reason: str) -> None:
+        if self._state not in (SessionState.CLOSED, SessionState.CLOSING):
+            logger.error(f"Device session failed: {reason}")
+            self._state = SessionState.FAILED
+
+    def health(self) -> SessionState:
+        return self._state
+
+    def _ensure_usable(self) -> None:
+        if self._state in (SessionState.CLOSING, SessionState.CLOSED):
+            raise SessionClosedError("device session is closed")
+        if self._state is SessionState.NEW:
+            self.open()
+
+    async def _close_participant(self, participant: Any) -> None:
+        closer = getattr(participant, "aclose", None) or getattr(participant, "close", None)
+        if not callable(closer):
+            return
+        try:
+            result = closer()
+            if inspect.isawaitable(result):
+                await result
+        except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+            name = type(participant).__name__
+            message = f"{name}: {exc}"
+            self._close_errors.append(message)
+            logger.warning(f"Closing {name} failed: {exc}")
+
+    async def close(self) -> None:
+        """Release inputs, handles, then leases. Idempotent; never raises on cleanup."""
+
+        if self._state in (SessionState.CLOSING, SessionState.CLOSED):
+            return
+        self._state = SessionState.CLOSING
+        self._close_errors.clear()
+
+        # Inputs first (control), then capture (perception), as ADR-003 requires.
+        for participant in [*self.control, *self.perception]:
+            await self._close_participant(participant)
+
+        if self.leases is not None:
+            try:
+                self.leases.release()
+            except (OSError, RuntimeError, ValueError) as exc:
+                message = f"leases: {exc}"
+                self._close_errors.append(message)
+                logger.warning(f"Releasing device-session leases failed: {exc}")
+            finally:
+                self.leases = None
+
+        self._state = SessionState.CLOSED
+        if self._close_errors:
+            logger.warning(
+                f"Device session closed with {len(self._close_errors)} cleanup failure(s): "
+                f"{'; '.join(self._close_errors)}"
+            )
+
     async def snapshot(self) -> Frame:
+        self._ensure_usable()
         errors: list[str] = []
         for source in self.perception:
             try:
@@ -48,9 +164,16 @@ class DeviceSession:
         raise DeviceSessionError(f"no healthy perception frame: {detail}")
 
     def control_for(self, *, absolute: bool) -> ControlSink:
+        self._ensure_usable()
         capability = "supports_absolute_tap" if absolute else "supports_relative_pointer"
         for sink in self.control:
             if getattr(sink.capabilities, capability):
                 return sink
         mode = "absolute" if absolute else "relative"
         raise DeviceSessionError(f"no {mode} control sink with {capability}")
+
+    async def __aenter__(self) -> DeviceSession:
+        return self.open()
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        await self.close()

@@ -34,6 +34,12 @@ class CompositePerception:
                 values[name] = values[name] or bool(getattr(caps, name))
         return CapabilitySet(**values)
 
+    def close(self) -> None:
+        for source in self.sources:
+            closer = getattr(source, "close", None)
+            if callable(closer):
+                closer()
+
     async def snapshot(self) -> Frame:
         failures: list[str] = []
         for source in self.sources:

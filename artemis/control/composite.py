@@ -49,6 +49,12 @@ class CompositeControlSink:
     def _unavailable(action: str, what: str) -> ActionResult:
         return ActionResult(False, action, "unsupported", f"no control surface supports {what}")
 
+    def close(self) -> None:
+        for sink in self.sinks:
+            closer = getattr(sink, "close", None)
+            if callable(closer):
+                closer()
+
     async def tap_abs(self, x: int, y: int) -> ActionResult:
         sink = self._absolute()
         if sink is None:

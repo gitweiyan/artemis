@@ -26,6 +26,18 @@ import pytest
 from artemis.drivers.mock.mock_driver import MockDeviceDriver
 
 
+@pytest.fixture(autouse=True)
+def _isolate_host_resource_leases(monkeypatch):
+    """Keep unit tests from opening real UVC/serial leases.
+
+    Tests that exercise the lease wiring opt back in with
+    ``ARTEMIS_RESOURCE_LEASE=1`` and a tmp lease directory.
+    """
+
+    monkeypatch.setenv("ARTEMIS_RESOURCE_LEASE", "0")
+    monkeypatch.delenv("ARTEMIS_RESOURCE_LEASE_DIR", raising=False)
+
+
 @pytest.fixture
 def mock_driver():
     """Provide an isolated mock mobile driver."""

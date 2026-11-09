@@ -96,6 +96,9 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         return self._screen_size
 
     async def connect(self) -> None:
+        opener = getattr(self.session, "open", None)
+        if callable(opener):
+            opener()
         pointer = getattr(self.session, "pointer", None)
         if pointer is None:
             return
@@ -135,6 +138,10 @@ class IOSUvcHidDriver(BaseDeviceDriver):
             )
 
     async def disconnect(self) -> None:
+        closer = getattr(self.session, "close", None)
+        if callable(closer):
+            await closer()
+            return
         pointer = getattr(self.session, "pointer", None)
         if pointer is not None:
             pointer.connected = False

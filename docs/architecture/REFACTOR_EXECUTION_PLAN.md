@@ -329,14 +329,17 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 
 #### PR-3 — Session Lifecycle & Resource Lease
 
-- [ ] 明确 DeviceSession 的 `open/connect → health → observe/execute → close` 生命周期、取消行为和资源所有权。
-- [ ] 将 `DeviceSession.pointer: object` 迁移到 Pointer/HID Adapter 私有状态；兼容期允许只读转发，但新代码不得读取该字段。
-- [ ] 保留 `DeviceExecutionLock` 的逻辑目标设备互斥语义；新增 Resource Lease 保护共享 UVC 设备、ESP32 Serial Port 等 Host 侧资源。
-- [ ] Lease 使用稳定资源身份、owner token、PID + process-created-at 陈旧 Owner 检测；多资源获取顺序固定，失败时回滚已取得的 Lease。
-- [ ] Session/Adapter 的 close、异常、任务取消路径必须释放按键/触点、串口、Capture Handle 和所有 Lease；不能只在正常结束时释放。
-- [ ] 增加并发测试：同一 UVC/串口被两个进程争用时只有一个成功；不同资源可并行；进程崩溃后可回收；正常长任务不会因简单 TTL 被抢占。
+- [x] 明确 DeviceSession 的 `open/connect → health → observe/execute → close` 生命周期、取消行为和资源所有权（`artemis/devices/session.py`：状态机、幂等 close、先 control 后 perception、最后 lease）。
+- [x] 将 `DeviceSession.pointer: object` 迁移到 Pointer/HID Adapter 私有状态；兼容期只读转发（`adapter_state["pointer"]` + 只读 property；iOS builder 不再写字段）。
+- [x] 保留 `DeviceExecutionLock` 的逻辑目标设备互斥语义；新增 Resource Lease 保护共享 UVC 设备、ESP32 Serial Port 等 Host 侧资源（`artemis/runtime/resource_lease.py`、`drivers/factory.py`、`ios-smoke`/`ios-calibrate`、`play_reflex`/`artemis reflex`）。
+- [x] Lease 使用稳定资源身份、owner token、PID + process-created-at 陈旧 Owner 检测；多资源获取顺序固定，失败时回滚已取得的 Lease（`LeaseSet` + `tests/unit/runtime/test_resource_lease.py`）。
+- [x] Session/Adapter 的 close、异常、任务取消路径必须释放按键/触点、串口、Capture Handle 和所有 Lease（`Esp32HidControl.release_all`、`UvcSource.close`、`HidControlSink.close`、`ArtemisContext.__aexit__`）。
+- [x] 增加并发测试：同一 UVC/串口被两个进程争用时只有一个成功；进程崩溃后可回收；正常长任务不被 TTL 抢占（含真实子进程测试）。
 
-**PR-3 验收：** 单设备任务锁与共享 Host 资源锁语义不混淆；多进程资源竞争、取消、异常和清理测试通过。
+**PR-3 验收（代码与测试已满足，2026-11-09）：** 单设备任务锁与共享 Host 资源锁语义不混淆；多进程资源竞争、超时/取消、异常清理测试通过。
+证据：`tests/unit/runtime/test_resource_lease*.py`、`tests/unit/devices/test_session.py`、`tests/unit/drivers/test_factory_descriptor.py`、`tests/unit/reflex/test_control_esp32.py`、`tests/unit/test_context.py`；`pytest tests/unit -q` 为 14 个既有失败 + 3605 passed（新增 33 个测试）。
+
+> 剩余：`HelperManager.attach` 尚未直接获取 helper-forward lease（reflex/CLI 已按同一 key 取 lease；Agent 任务路径的 helper 隧道仍只有进程内 registry）。真机验证（UVC/串口释放、并发拒绝、取消释放）待在机台执行。两项都作为 PR-3 收尾项。
 
 #### PR-4 — Observation / Geometry / Action Contract
 

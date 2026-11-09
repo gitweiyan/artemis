@@ -15,11 +15,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from artemis.config import settings
 from artemis.core.tool_declaration import ToolDeclaration
+from artemis.devices.descriptors import host_resource_ids
 from artemis.reflex import registry
 from artemis.reflex.capture import default_capture
 from artemis.reflex.control import AdbInputControl, Esp32HidControl, HelperControl, esp32_port
 from artemis.reflex.runtime import DEFAULT_FPS_CAP, ReflexRuntime
+from artemis.runtime.host_identity import host_id as resolve_host_id
+from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError, leases_enabled
 from artemis.tools.base import ArtemisTool
 from artemis.tools.tool_wrapper import ToolWrapper
 from third_party.mobile_use.utils.logger import get_logger
@@ -146,6 +150,41 @@ class PlayReflexTool(ArtemisTool):
         except RuntimeError as exc:
             return f"Error: {exc}"
 
+        host = resolve_host_id()
+        esp = esp32_port()
+        resources = host_resource_ids(
+            host_id=host,
+            serial=serial,
+            capture=capture,
+            esp32_port=esp,
+            adb_host=settings.ADB_HOST or "127.0.0.1",
+            adb_port=settings.ADB_PORT or 5037,
+        )
+        engine = getattr(ctx, "data_engine", None)
+        leases = LeaseSet(
+            host_id=host,
+            description=f"reflex:{name}",
+            session_id=str(getattr(engine, "current_session_id", "") or "") or None,
+        )
+        if leases_enabled() and resources:
+            try:
+                leases.acquire(resources)
+            except ResourceBusyError as exc:
+                return f"Error: {exc}"
+
+        frame_source = None
+        actuator = None
+
+        def _release_resources() -> None:
+            for resource in (actuator, frame_source):
+                closer = getattr(resource, "close", None)
+                if callable(closer):
+                    try:
+                        closer()
+                    except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                        logger.debug(f"play_reflex resource close failed: {exc}")
+            leases.release()
+
         try:
             frame_source = default_capture(serial, prefer=capture)
             # A device without absolute touch (iOS) can only be driven through its
@@ -153,11 +192,11 @@ class PlayReflexTool(ArtemisTool):
             pointer = _pointer_control_for(driver)
             # An ESP32-S3 HID board, when one is named, replaces both assisted paths: the
             # board is the touchscreen, so there is no helper and no adb input.
-            esp = esp32_port()
             if pointer is not None:
                 try:
                     pointer.preflight()
                 except RuntimeError as exc:
+                    _release_resources()
                     return f"Error: ESP32 HID preflight failed: {exc}"
                 actuator = pointer
             elif esp:
@@ -165,12 +204,14 @@ class PlayReflexTool(ArtemisTool):
                 try:
                     actuator.preflight()
                 except RuntimeError as exc:
+                    _release_resources()
                     return f"Error: ESP32 HID preflight failed: {exc}"
             elif capture == "helper":
                 actuator = HelperControl(serial)
             else:
                 actuator = AdbInputControl(serial)
         except (OSError, ValueError, RuntimeError, KeyError, AttributeError) as exc:
+            _release_resources()
             return (
                 f"Error: the {capture} capture/control path could not be built on {serial}: {exc}"
             )
@@ -189,12 +230,15 @@ class PlayReflexTool(ArtemisTool):
 
         session = ReflexRuntime(capture=frame_source, control=actuator, fps_cap=fps_cap)
         try:
-            result = session.run(handle, seconds=seconds, should_stop=should_stop)
-        except Exception as exc:  # noqa: BLE001 - a third-party skill may raise anything
-            logger.error(f"play_reflex('{name}') aborted: {exc}", exc_info=True)
-            return f"Error: reflex skill '{name}' aborted: {exc}"
-        logger.info(result.summary_line())
-        return _render_result(result)
+            try:
+                result = session.run(handle, seconds=seconds, should_stop=should_stop)
+            except Exception as exc:  # noqa: BLE001 - a third-party skill may raise anything
+                logger.error(f"play_reflex('{name}') aborted: {exc}", exc_info=True)
+                return f"Error: reflex skill '{name}' aborted: {exc}"
+            logger.info(result.summary_line())
+            return _render_result(result)
+        finally:
+            _release_resources()
 
 
 def _render_result(result: Any) -> str:

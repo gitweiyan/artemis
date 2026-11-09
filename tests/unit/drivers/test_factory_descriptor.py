@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -74,3 +75,24 @@ def test_android_factory_attaches_an_adb_descriptor():
     assert descriptor.platform_family is PlatformFamily.ANDROID
     assert [endpoint.kind for endpoint in descriptor.endpoints] == [EndpointKind.ADB]
     assert driver.device_id == "emulator-5554"
+
+
+def test_ios_factory_leases_the_uvc_and_serial_resources_until_session_close(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_RESOURCE_LEASE", "1")
+    monkeypatch.setenv("ARTEMIS_RESOURCE_LEASE_DIR", str(tmp_path))
+    ctx = _ctx("ios", "ios-uvc")
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+    ):
+        driver = create_driver(ctx)
+
+    assert driver.session.leases is not None
+    leases = list(tmp_path.glob("resource-*.lock"))
+    assert len(leases) == 2, "UVC capture and ESP32 serial each need a lease"
+
+    asyncio.run(ctx.device_session.close())
+    assert not list(tmp_path.glob("resource-*.lock")), "closing the session releases both"

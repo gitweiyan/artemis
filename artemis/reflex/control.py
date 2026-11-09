@@ -298,6 +298,9 @@ class Esp32HidControl(Control):
         #: The firmware prints ``OK`` after each command; the next line is not sent first.
         self.ack_timeout_s = float(ack_timeout_s)
         self._fd: int | None = None
+        #: Keys/buttons currently held, so a close or crash path can release them.
+        self._pressed_keys: set[int] = set()
+        self._mouse_down = False
 
     def _frame(self, x: float, y: float) -> tuple[int, int]:
         """Scale a device-frame point into the firmware reference frame, then clamp."""
@@ -612,10 +615,30 @@ class Esp32HidControl(Control):
         return self.press_key(usage)
 
     def key_down(self, usage: int) -> float:
-        return self._timed(f"kdown {int(usage)}")
+        elapsed = self._timed(f"kdown {int(usage)}")
+        self._pressed_keys.add(int(usage))
+        return elapsed
 
     def key_up(self, usage: int) -> float:
-        return self._timed(f"kup {int(usage)}")
+        elapsed = self._timed(f"kup {int(usage)}")
+        self._pressed_keys.discard(int(usage))
+        return elapsed
+
+    def release_all(self) -> None:
+        """Best-effort key/button release for close, cancel and error paths."""
+
+        for usage in sorted(self._pressed_keys):
+            try:
+                self._send(f"kup {usage}")
+            except (OSError, RuntimeError, ValueError) as exc:
+                logger.debug(f"Releasing held key {usage} failed: {exc}")
+        self._pressed_keys.clear()
+        if self._mouse_down:
+            try:
+                self._send("mup")
+            except (OSError, RuntimeError, ValueError) as exc:
+                logger.debug(f"Releasing held mouse button failed: {exc}")
+            self._mouse_down = False
 
     def mouse_move(self, dx: int, dy: int) -> float:
         """Move the pointer by a relative ``(dx, dy)`` — iOS assistive-touch style.
@@ -730,10 +753,14 @@ class Esp32HidControl(Control):
         return (time.monotonic() - started) * 1000.0
 
     def mouse_down(self) -> float:
-        return self._timed("mdown")
+        elapsed = self._timed("mdown")
+        self._mouse_down = True
+        return elapsed
 
     def mouse_up(self) -> float:
-        return self._timed("mup")
+        elapsed = self._timed("mup")
+        self._mouse_down = False
+        return elapsed
 
     def _timed(self, command: str) -> float:
         started = time.monotonic()
@@ -741,7 +768,9 @@ class Esp32HidControl(Control):
         return (time.monotonic() - started) * 1000.0
 
     def close(self) -> None:
-        """Release the serial port, if it was opened."""
+        """Release held inputs, then the serial port, if it was opened."""
+
+        self.release_all()
         if self._fd is not None:
             os.close(self._fd)
             self._fd = None

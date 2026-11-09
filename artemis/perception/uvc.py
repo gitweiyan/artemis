@@ -9,6 +9,9 @@ from PIL import Image
 
 from artemis.devices.capabilities import CapabilitySet
 from artemis.perception.base import Frame, Target, TextBox
+from third_party.mobile_use.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _classify(image: bytes) -> str:
@@ -64,6 +67,17 @@ class UvcSource:
             source=self.name,
             health=_classify(raw.image),
         )
+
+    def close(self) -> None:
+        """Close the underlying capture handle (idempotent, best effort)."""
+
+        closer = getattr(self.capture, "close", None)
+        if not callable(closer):
+            return
+        try:
+            closer()
+        except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+            logger.warning(f"Closing UVC capture failed: {exc}")
 
     async def ui_tree(self):
         return None

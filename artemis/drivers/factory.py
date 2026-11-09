@@ -24,12 +24,14 @@ from artemis.config import settings
 from artemis.devices.descriptors import (
     build_mock_descriptor,
     descriptor_from_device_context,
+    device_alias,
 )
 from artemis.drivers.android.adb_driver import AndroidAdbDriver
 from artemis.drivers.base import BaseDeviceDriver
 from artemis.drivers.mock.mock_driver import MockDeviceDriver
 from artemis.perception.ocr_engine import default_ocr_engine
 from artemis.runtime.host_identity import host_id as resolve_host_id
+from artemis.runtime.resource_lease import LeaseSet, leases_enabled
 from third_party.mobile_use.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -50,13 +52,14 @@ def _describe_capabilities(capabilities) -> str:
     )
 
 
-def _device_alias() -> str | None:
-    """ADR-003 D1: an explicit alias wins over the platform default device id."""
-
-    value = os.environ.get("ARTEMIS_DEVICE_ALIAS")
-    if not value:
-        return None
-    return value.strip() or None
+def _close_quietly(obj) -> None:
+    closer = getattr(obj, "close", None)
+    if not callable(closer):
+        return
+    try:
+        closer()
+    except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+        logger.debug(f"Closing {type(obj).__name__} during factory cleanup failed: {exc}")
 
 
 def _attach_descriptor(ctx: "ArtemisContext", descriptor) -> None:
@@ -149,46 +152,69 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
                 f"composition {composition.kind!r} is not buildable yet ({composition.reason})"
             )
 
-        capture_factory = UvcStream if ios.capture_mode == "stream" else UvcCapture
-        capture = capture_factory(
-            ios.uvc_device,
-            size=ios.uvc_size,
-            framerate=30,
-            crop=ios.uvc_crop,
-            timeout_s=3.0 if ios.capture_mode == "stream" else 12.0,
+        host = resolve_host_id()
+        session_id = os.environ.get("ARTEMIS_SESSION_ID") or None
+        descriptor = descriptor_from_device_context(
+            ctx,
+            host_id=host,
+            alias=device_alias(),
+            ios_config=ios,
         )
-        control = Esp32HidControl(ios.esp32_port, ack_timeout_s=3.0)
-        # The action layer converts normalized coordinates against the *device
-        # descriptor*, so the session geometry must use the same screen size or every
-        # tap lands off by the ratio. The descriptor is itself derived from this config
-        # (ios_device_context); a disagreement is a bug worth seeing in the log.
-        screen_size = _descriptor_screen_size(ctx) or ios.screen_size
-        if screen_size != ios.screen_size:
-            logger.warning(
-                f"iOS descriptor screen size {screen_size} differs from configured"
-                f" {ios.screen_size}; using the descriptor (the action layer's frame)."
+        leases = LeaseSet(
+            host_id=host,
+            description="ios.uvc_hid",
+            session_id=session_id,
+        )
+        if leases_enabled():
+            leases.acquire(descriptor.resource_ids)
+
+        capture = None
+        control = None
+        completed = False
+        try:
+            capture_factory = UvcStream if ios.capture_mode == "stream" else UvcCapture
+            capture = capture_factory(
+                ios.uvc_device,
+                size=ios.uvc_size,
+                framerate=30,
+                crop=ios.uvc_crop,
+                timeout_s=3.0 if ios.capture_mode == "stream" else 12.0,
             )
-        session = build_ios_uvc_session(
-            capture,
-            control,
-            frame_size=ios.frame_size,
-            screen_size=screen_size,
-            pointer_gain=ios.pointer_gain,
-            ocr_engine=default_ocr_engine() if ios.enable_ocr else None,
-        )
-        driver = IOSUvcHidDriver(session)
+            control = Esp32HidControl(ios.esp32_port, ack_timeout_s=3.0)
+            # The action layer converts normalized coordinates against the *device
+            # descriptor*, so the session geometry must use the same screen size or every
+            # tap lands off by the ratio. The descriptor is itself derived from this config
+            # (ios_device_context); a disagreement is a bug worth seeing in the log.
+            screen_size = _descriptor_screen_size(ctx) or ios.screen_size
+            if screen_size != ios.screen_size:
+                logger.warning(
+                    f"iOS descriptor screen size {screen_size} differs from configured"
+                    f" {ios.screen_size}; using the descriptor (the action layer's frame)."
+                )
+            session = build_ios_uvc_session(
+                capture,
+                control,
+                frame_size=ios.frame_size,
+                screen_size=screen_size,
+                pointer_gain=ios.pointer_gain,
+                ocr_engine=default_ocr_engine() if ios.enable_ocr else None,
+                descriptor=descriptor,
+                leases=leases,
+                session_id=session_id,
+            )
+            driver = IOSUvcHidDriver(session)
+            completed = True
+        finally:
+            if not completed:
+                _close_quietly(control)
+                _close_quietly(capture)
+                leases.release()
+
+        ctx.device_session = session
+        _attach_descriptor(ctx, descriptor)
         logger.info(
             f"Device driver: {driver.device_id} ({ios.describe()}); "
             f"capabilities: {_describe_capabilities(driver.capabilities)}"
-        )
-        _attach_descriptor(
-            ctx,
-            descriptor_from_device_context(
-                ctx,
-                host_id=resolve_host_id(),
-                alias=_device_alias(),
-                ios_config=ios,
-            ),
         )
         return driver
 
@@ -206,7 +232,7 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
             build_mock_descriptor(
                 device_id=device_id,
                 screen_size=(width, height),
-                alias=_device_alias(),
+                alias=device_alias(),
             ),
         )
         return driver
@@ -240,7 +266,7 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
         descriptor_from_device_context(
             ctx,
             host_id=resolve_host_id(),
-            alias=_device_alias(),
+            alias=device_alias(),
             adb_host=settings.ADB_HOST or "127.0.0.1",
             adb_port=settings.ADB_PORT or 5037,
         ),

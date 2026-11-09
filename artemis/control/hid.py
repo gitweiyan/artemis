@@ -7,6 +7,9 @@ import asyncio
 from artemis.control.base import ActionResult
 from artemis.devices.capabilities import CapabilitySet
 from artemis.reflex.vision import changed
+from third_party.mobile_use.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 #: Where a drag starts, as a fraction of the frame height. iOS reads a downward drag
 #: from the very top as Control Center and an upward drag from the bottom as Home (it
@@ -101,6 +104,26 @@ class HidControlSink:
                 getattr(motion, "global_recoveries", 0) or 0
             )
         return metrics
+
+    def close(self) -> None:
+        """Release held inputs and close the HID transport (idempotent)."""
+
+        control = getattr(self, "_control", None)
+        release = getattr(control, "release_all", None)
+        if callable(release):
+            try:
+                release()
+            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                logger.warning(f"Releasing HID input state failed: {exc}")
+        closer = getattr(control, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                logger.warning(f"Closing HID control failed: {exc}")
+        pointer = getattr(self, "session", None)
+        if pointer is not None:
+            pointer.connected = False
 
     async def tap_abs(self, x: int, y: int) -> ActionResult:
         frame_x, frame_y = self._frame_point(x, y)

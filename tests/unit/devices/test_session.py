@@ -72,3 +72,83 @@ def test_capabilities_union_across_sources_and_sinks():
     assert session.capabilities.supports_ocr is True
     assert session.capabilities.supports_relative_pointer is True
     assert session.capabilities.supports_absolute_tap is False
+
+
+def test_session_lifecycle_is_idempotent_and_closed_sessions_refuse_work():
+    from artemis.devices.session import SessionClosedError, SessionState
+
+    session = DeviceSession([], [], geometry())
+    session.open()
+    session.open()
+    assert session.state is SessionState.READY
+
+    asyncio.run(session.close())
+    asyncio.run(session.close())
+    assert session.state is SessionState.CLOSED
+
+    with pytest.raises(SessionClosedError):
+        asyncio.run(session.snapshot())
+    with pytest.raises(SessionClosedError):
+        session.control_for(absolute=False)
+
+
+def test_close_releases_inputs_handles_then_leases():
+    events: list[str] = []
+
+    class ClosingSink(Sink):
+        def close(self):
+            events.append("control")
+
+    class ClosingSource(Source):
+        def close(self):
+            events.append("perception")
+
+    class Leases:
+        def release(self):
+            events.append("leases")
+
+    session = DeviceSession(
+        [ClosingSource()],
+        [ClosingSink()],
+        geometry(),
+        leases=Leases(),
+    )
+    asyncio.run(session.close())
+
+    assert events == ["control", "perception", "leases"]
+
+
+def test_close_continues_after_a_failing_participant():
+    events: list[str] = []
+
+    class BrokenSink(Sink):
+        def close(self):
+            raise RuntimeError("boom")
+
+    class ClosingSource(Source):
+        def close(self):
+            events.append("perception")
+
+    class Leases:
+        def release(self):
+            events.append("leases")
+
+    session = DeviceSession(
+        [ClosingSource()],
+        [BrokenSink()],
+        geometry(),
+        leases=Leases(),
+    )
+    asyncio.run(session.close())
+
+    assert events == ["perception", "leases"]
+    assert session.state.value == "closed"
+
+
+def test_pointer_is_a_read_only_adapter_state_view():
+    pointer = object()
+    session = DeviceSession([], [], geometry(), adapter_state={"pointer": pointer})
+
+    assert session.pointer is pointer
+    with pytest.raises(AttributeError):
+        session.pointer = None  # type: ignore[misc]
