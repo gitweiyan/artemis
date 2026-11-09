@@ -96,3 +96,23 @@ def test_ios_factory_leases_the_uvc_and_serial_resources_until_session_close(mon
 
     asyncio.run(ctx.device_session.close())
     assert not list(tmp_path.glob("resource-*.lock")), "closing the session releases both"
+
+
+def test_ios_factory_attaches_an_evidence_registry_when_enabled(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_CAPABILITY_EVIDENCE", "1")
+    monkeypatch.setenv("ARTEMIS_CAPABILITY_DB", str(tmp_path / "evidence.db"))
+    monkeypatch.setenv("ARTEMIS_CAPABILITY_ARTIFACTS", str(tmp_path / "artifacts"))
+    ctx = _ctx("ios", "ios-uvc")
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+    ):
+        driver = create_driver(ctx)
+
+    assert driver.session.capability_registry is not None
+    assert driver.session.descriptor is not None
+    assert driver.session.descriptor.fingerprint["adapter_id"] == "esp32_hid"
+    asyncio.run(driver.session.close())

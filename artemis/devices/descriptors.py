@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
 
+from artemis.core.capabilities import fingerprint_fields
 from artemis.core.identity import (
     DeviceDescriptor,
     DisplayInfo,
@@ -42,6 +43,7 @@ def device_alias(env=None) -> str | None:
 
 
 __all__ = [
+    "capability_fields_for",
     "device_alias",
     "host_resource_ids",
     "build_android_descriptor",
@@ -259,3 +261,27 @@ def host_resource_ids(
         socket = f"tcp:{str(adb_host).strip()}:{int(adb_port)}"
         ids.append(helper_resource_id(host_id=host_id, adb_socket=socket, serial=serial))
     return tuple(ids)
+
+
+def capability_fields_for(
+    descriptor: DeviceDescriptor,
+    *,
+    adapter_id: str,
+    adapter_version: str,
+    firmware_build: str = "unknown",
+    protocol_version: str = "unknown",
+    permissions: Mapping[str, str] | None = None,
+) -> Mapping[str, str]:
+    """ADR-001 fingerprint fields shared by the factory, smoke and evidence."""
+
+    known = descriptor.fingerprint
+    return fingerprint_fields(
+        platform_family=descriptor.platform_family.value,
+        device_model=str(known.get("device_model", "unknown")),
+        os_build=str(known.get("os_build", "unknown")),
+        adapter_id=adapter_id,
+        adapter_version=adapter_version,
+        firmware_build=firmware_build,
+        protocol_version=protocol_version,
+        permissions=permissions,
+    )

@@ -536,6 +536,12 @@ class SessionTapController:
         self._travel_on_belief(x, y)
         return TapResult(True, 1, None, None, "moved by pointer state; not verified")
 
+    @property
+    def absolute_ready(self) -> bool:
+        """Public read-only view of the absolute-pointer capability (diagnostics)."""
+
+        return self._absolute_ready()
+
     def _absolute_ready(self) -> bool:
         """Whether this sink can place the pointer in one absolute report.
 

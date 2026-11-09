@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 import sqlite3
 import threading
-from typing import Any, Iterable, Literal, Sequence, cast
+from typing import Any, Iterable, Literal, Mapping, Sequence, cast
 
 from artemis.config.paths import get_app_dir
 from artemis.core.capabilities import CapabilityEvidence, canonical_endpoint_ids
@@ -29,12 +29,22 @@ logger = get_logger(__name__)
 __all__ = [
     "CapabilityArtifactStore",
     "SqliteCapabilityEvidenceStore",
+    "capability_evidence_enabled",
     "default_evidence_dir",
 ]
 
 ENV_DB = "ARTEMIS_CAPABILITY_DB"
 ENV_ARTIFACTS = "ARTEMIS_CAPABILITY_ARTIFACTS"
+ENV_EVIDENCE = "ARTEMIS_CAPABILITY_EVIDENCE"
 MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
+
+
+def capability_evidence_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Global evidence store switch; enabled unless explicitly disabled."""
+
+    values = os.environ if env is None else env
+    value = (values.get(ENV_EVIDENCE) or "1").strip().lower()
+    return value not in {"0", "false", "off", "no"}
 
 
 def default_evidence_dir() -> Path:

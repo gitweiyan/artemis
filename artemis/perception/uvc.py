@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import asyncio
 from io import BytesIO
+import time
 
 from PIL import Image
 
+from artemis.core.capabilities import (
+    CapabilityDeclaration,
+    CapabilityId,
+    CapabilityManifest,
+)
+from artemis.core.capability_registry import ProbeResult
 from artemis.devices.capabilities import CapabilitySet
 from artemis.perception.base import Frame, Target, TextBox
 from third_party.mobile_use.utils.logger import get_logger
@@ -67,6 +74,40 @@ class UvcSource:
             source=self.name,
             health=_classify(raw.image),
         )
+
+    @property
+    def capability_manifest(self) -> CapabilityManifest:
+        declarations = [
+            CapabilityDeclaration(CapabilityId.FRAME_CAPTURE),
+            CapabilityDeclaration(CapabilityId.CAPTURE_HEALTH),
+        ]
+        if self.ocr_engine is not None:
+            declarations.append(CapabilityDeclaration(CapabilityId.OCR_READ))
+        return CapabilityManifest("uvc", "1", tuple(declarations))
+
+    async def probe_capabilities(self) -> dict[str, ProbeResult]:
+        """One frame + OCR availability; never clicks and never raises."""
+
+        now = time.time()
+        try:
+            frame = await self.snapshot()
+        except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+            reason = f"capture_failed: {exc}"
+            return {
+                CapabilityId.FRAME_CAPTURE: ProbeResult(False, self.name, reason, now),
+                CapabilityId.CAPTURE_HEALTH: ProbeResult(False, self.name, reason, now),
+            }
+        healthy = getattr(frame, "health", "ok") == "ok"
+        reason = None if healthy else f"frame_health={getattr(frame, 'health', 'unknown')}"
+        return {
+            CapabilityId.FRAME_CAPTURE: ProbeResult(healthy, self.name, reason, now),
+            CapabilityId.CAPTURE_HEALTH: ProbeResult(healthy, self.name, reason, now),
+            CapabilityId.OCR_READ: (
+                ProbeResult(True, f"{self.name}.ocr", None, now)
+                if self.ocr_engine is not None
+                else ProbeResult(False, f"{self.name}.ocr", "no_ocr_engine", now)
+            ),
+        }
 
     def close(self) -> None:
         """Close the underlying capture handle (idempotent, best effort)."""

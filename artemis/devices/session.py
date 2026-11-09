@@ -77,13 +77,15 @@ class DeviceSession:
     def capability_view(self) -> CapabilityView:
         """Declared + probe + evidence snapshot for this session (ADR-001)."""
 
-        manifests = [
-            manifest_from_capability_set(
-                participant.capabilities,
-                adapter_id=type(participant).__name__,
-            )
-            for participant in [*self.perception, *self.control]
-        ]
+        manifests = []
+        for participant in [*self.perception, *self.control]:
+            manifest = getattr(participant, "capability_manifest", None)
+            if manifest is None:
+                manifest = manifest_from_capability_set(
+                    participant.capabilities,
+                    adapter_id=type(participant).__name__,
+                )
+            manifests.append(manifest)
         if self.capability_registry is None or self.descriptor is None:
             return declared_view(manifests)
         return self.capability_registry.resolve(
@@ -129,6 +131,26 @@ class DeviceSession:
             raise SessionClosedError("device session is closed")
         if self._state is SessionState.NEW:
             self.open()
+
+    async def probe_capabilities(self) -> dict[str, Any]:
+        """Ask each adapter for a non-destructive availability probe (ADR-001)."""
+
+        probes: dict[str, Any] = {}
+        for participant in [*self.perception, *self.control]:
+            prober = getattr(participant, "probe_capabilities", None)
+            if not callable(prober):
+                continue
+            try:
+                result = prober()
+                if inspect.isawaitable(result):
+                    result = await result
+            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                logger.warning(f"Capability probe failed on {type(participant).__name__}: {exc}")
+                continue
+            if result:
+                probes.update(result)
+        self.capability_probes = probes
+        return probes
 
     async def _close_participant(self, participant: Any) -> None:
         closer = getattr(participant, "aclose", None) or getattr(participant, "close", None)

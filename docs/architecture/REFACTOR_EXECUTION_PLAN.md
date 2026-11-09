@@ -326,9 +326,14 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 - [x] 缺少验证证据不得标为 `verified`；没有置信度/探测来源时保留 unknown/null，不伪造数值（manual 不能 verified；无 evidence 保持 declared/available）。
 
 **PR-2 验收（代码与测试已满足，2026-11-09）：** 可以从 Capability Snapshot 追溯到验证证据；指纹变化后旧证据不再支持 verified；Session 断连不会错误覆盖历史验证事实。
-证据：`tests/unit/core/test_capability_{catalog,registry}.py`、`tests/unit/data_engine/test_capability_evidence_store.py`、`tests/unit/devices/test_capabilities_compat.py`、`tests/unit/devices/test_session.py`；`pytest tests/unit -q` 为 14 个既有失败 + 3644 passed（新增 36 个测试）。
+证据：`tests/unit/core/test_capability_{catalog,registry}.py`、`tests/unit/data_engine/test_capability_evidence_store.py`、`tests/unit/devices/test_capabilities_compat.py`、`tests/unit/devices/test_session.py`；`pytest tests/unit -q` 为 14 个既有失败 + 3657 passed（新增 49 个测试）。
 
-> 剩余：真实探针（UVC/串口/helper）与 `ios-smoke` 产出 evidence 在 Phase 4.2 接线；Adapter 显式 `CapabilityManifest` 目前由 `CapabilitySet` 兼容生成，后续补显式声明；factory 目前不自动创建证据库，`DeviceSession.capability_view` 在未注入 registry 时保持声明视图。跨同型号设备共享证据仍按 ADR-001 暂缓。
+> 真机证据（2026-11-09，iPhone 14 Pro Max + ESP32-S3）：`ios-smoke --target 设置` 四段门禁全绿，
+> 写入 7 条 `verified` evidence（`frame.capture`、`capture.health`、`ocr.read`、`pointer.relative`、
+> `pointer.absolute`、`serial.command`、`usb.hid`）；session capability view 在 smoke 结束时 7 项均为 verified。
+>
+> 剩余：Android/Mock 的显式 `CapabilityManifest` 与探针（iOS 的 UVC/HID 已显式声明）；固件 Build/协议版本
+> 进入 fingerprint 需 ADR-009 握手；跨同型号设备共享证据仍按 ADR-001 暂缓。
 
 #### PR-3 — Session Lifecycle & Resource Lease
 

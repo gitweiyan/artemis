@@ -36,6 +36,9 @@ def _isolate_host_resource_leases(monkeypatch):
 
     monkeypatch.setenv("ARTEMIS_RESOURCE_LEASE", "0")
     monkeypatch.delenv("ARTEMIS_RESOURCE_LEASE_DIR", raising=False)
+    monkeypatch.setenv("ARTEMIS_CAPABILITY_EVIDENCE", "0")
+    monkeypatch.delenv("ARTEMIS_CAPABILITY_DB", raising=False)
+    monkeypatch.delenv("ARTEMIS_CAPABILITY_ARTIFACTS", raising=False)
 
 
 @pytest.fixture

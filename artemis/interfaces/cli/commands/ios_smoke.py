@@ -20,16 +20,28 @@ a real-device run in a script.
 """
 
 import asyncio
+from dataclasses import replace
 import json
 from typing import Annotated
 
 from rich.console import Console
 import typer
 
-from artemis.devices.descriptors import build_ios_descriptor, device_alias
+from artemis._version import get_version
+from artemis.core.capability_registry import CapabilityRegistry
+from artemis.data_engine.capability_evidence import (
+    SqliteCapabilityEvidenceStore,
+    capability_evidence_enabled,
+)
+from artemis.devices.descriptors import (
+    build_ios_descriptor,
+    capability_fields_for,
+    device_alias,
+)
 from artemis.devices.ios_uvc import build_ios_uvc_session
 from artemis.drivers.ios.config import IosConfigError, IosRuntimeConfig
 from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
+from artemis.drivers.ios.evidence import record_smoke_evidence
 from artemis.drivers.ios.smoke import run_smoke
 from artemis.perception.ocr_engine import default_ocr_engine
 from artemis.reflex.capture import UvcCapture
@@ -85,6 +97,20 @@ def ios_smoke_command(
         esp32_port=config.esp32_port,
         alias=device_alias(),
     )
+    descriptor = replace(
+        descriptor,
+        fingerprint=capability_fields_for(
+            descriptor,
+            adapter_id="esp32_hid",
+            adapter_version=get_version(),
+        ),
+    )
+    store = None
+    if capability_evidence_enabled():
+        try:
+            store = SqliteCapabilityEvidenceStore()
+        except (OSError, RuntimeError, ValueError) as exc:
+            console.print(f"[yellow]⚠ capability evidence store unavailable: {exc}[/yellow]")
     leases = LeaseSet(host_id=host, description="ios.smoke")
     if leases_enabled():
         try:
@@ -115,8 +141,21 @@ def ios_smoke_command(
             descriptor=descriptor,
             leases=leases,
         )
+        if store is not None:
+            session.capability_registry = CapabilityRegistry(store)
         driver = IOSUvcHidDriver(session)
-        _smoke_or_exit(console, driver, session, target=target, no_tap=no_tap, as_json=as_json)
+        _smoke_or_exit(
+            console,
+            driver,
+            session,
+            target=target,
+            no_tap=no_tap,
+            as_json=as_json,
+            store=store,
+            descriptor=descriptor,
+            test_version=get_version(),
+            capture_mode=config.capture_mode,
+        )
     finally:
         if session is not None:
             asyncio.run(session.close())
@@ -128,7 +167,19 @@ def ios_smoke_command(
             leases.release()
 
 
-def _smoke_or_exit(console, driver, session, *, target, no_tap, as_json):
+def _smoke_or_exit(
+    console,
+    driver,
+    session,
+    *,
+    target,
+    no_tap,
+    as_json,
+    store=None,
+    descriptor=None,
+    test_version="unknown",
+    capture_mode=None,
+):
     if target and not session.capabilities.supports_ocr:
         console.print(
             "[bold red]✖ --target needs an OCR engine, but none is available[/bold red]"
@@ -139,12 +190,41 @@ def _smoke_or_exit(console, driver, session, *, target, no_tap, as_json):
 
     report = asyncio.run(run_smoke(driver, target=target, tap=not no_tap))
 
+    evidence_ids: tuple[str, ...] = ()
+    if store is not None and descriptor is not None:
+        sink = session.control_for(absolute=False)
+        controller = getattr(sink, "controller", None)
+        absolute_ready = bool(getattr(controller, "absolute_ready", False))
+        try:
+            evidence_ids = record_smoke_evidence(
+                store=store,
+                descriptor=descriptor,
+                report=report,
+                test_version=test_version,
+                absolute_ready=absolute_ready,
+                capture_mode=capture_mode,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            console.print(f"[yellow]⚠ capability evidence was not recorded: {exc}[/yellow]")
+
     if as_json:
-        console.print_json(json.dumps(report.to_dict(), ensure_ascii=False))
+        payload = report.to_dict()
+        payload["evidence_ids"] = list(evidence_ids)
+        console.print_json(json.dumps(payload, ensure_ascii=False))
     else:
         for line in report.summary().splitlines():
             console.print(line)
 
     if not report.ok:
         raise SystemExit(1)
+    if evidence_ids:
+        verified = sorted(
+            str(record.capability_id)
+            for record in session.capability_view.records
+            if record.state == "verified"
+        )
+        console.print(
+            f"[dim]capability evidence: {len(evidence_ids)} record(s);"
+            f" verified now: {', '.join(verified) or 'none'}[/dim]"
+        )
     console.print("[bold green]✅ iOS rig smoke passed[/bold green]")

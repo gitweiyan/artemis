@@ -20,9 +20,16 @@ from typing import TYPE_CHECKING
 
 from adbutils import AdbClient
 
+from artemis._version import get_version
 from artemis.config import settings
+from artemis.core.capability_registry import CapabilityRegistry
+from artemis.data_engine.capability_evidence import (
+    SqliteCapabilityEvidenceStore,
+    capability_evidence_enabled,
+)
 from artemis.devices.descriptors import (
     build_mock_descriptor,
+    capability_fields_for,
     descriptor_from_device_context,
     device_alias,
 )
@@ -160,6 +167,14 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
             alias=device_alias(),
             ios_config=ios,
         )
+        descriptor = replace(
+            descriptor,
+            fingerprint=capability_fields_for(
+                descriptor,
+                adapter_id="esp32_hid",
+                adapter_version=get_version(),
+            ),
+        )
         leases = LeaseSet(
             host_id=host,
             description="ios.uvc_hid",
@@ -202,6 +217,13 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
                 leases=leases,
                 session_id=session_id,
             )
+            if capability_evidence_enabled():
+                try:
+                    session.capability_registry = CapabilityRegistry(
+                        SqliteCapabilityEvidenceStore()
+                    )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    logger.warning(f"Capability evidence store unavailable: {exc}")
             driver = IOSUvcHidDriver(session)
             completed = True
         finally:

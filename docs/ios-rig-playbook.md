@@ -196,6 +196,28 @@
 
 经验：**不要**用“连续盲点”去验证点击是否恢复；用 smoke 的 `tap` 阶段（带指针校验与 diff）。
 
+## 5.5 Capability Evidence（PR-2，2026-11-09）
+
+`artemis ios-smoke` 现在会把通过的阶段写成 **capability evidence**，供后续运行判断
+“这台机台/这个固件是否真的支持该能力”，而不是只留一段日志：
+
+| 阶段 | 写入的 capability |
+|---|---|
+| connect（preflight + Cmd+H + absolute home） | `serial.command`、`usb.hid` |
+| snapshot + frame_fit | `frame.capture`、`capture.health` |
+| locate | `ocr.read` |
+| pointer_motion | `pointer.relative` |
+| tap（且控制层支持绝对报文） | `pointer.absolute` |
+
+- 存储：`~/Library/Application Support/artemis/capabilities/evidence.db`（Linux/Windows 在对应 app dir）；
+  报告 JSON 作为 artifact 存在同目录 `artifacts/`，证据可按 artifact 回溯到本次 run。
+- 失败阶段写 `conclusion=failed`，会取代旧的 `verified`；未执行的阶段不写证据。
+- 指纹包含 platform/adapter/version/device/os/firmware（未握手时为 `unknown`），换固件/Adapter/OS 后
+  旧证据不再算 `verified`。
+- `ARTEMIS_CAPABILITY_EVIDENCE=0` 关闭写入；`ARTEMIS_CAPABILITY_DB` / `ARTEMIS_CAPABILITY_ARTIFACTS`
+  可改路径（测试用）。
+- `--json` 输出里带 `evidence_ids`；通过后 summary 会打印本次新 verified 的能力。
+
 ## 6. 校准（已落地）
 
 ```bash
@@ -251,3 +273,5 @@ pkill -9 -f "USB Video"
 | `ARTEMIS_IOS_POINTER_GAIN` | 指针 gain 起点（控制器会在线修正） |
 | `ARTEMIS_IOS_CAPTURE` | `frame`（默认）/ `stream` |
 | `ARTEMIS_IOS_OCR` | `1`/`0`，关闭 OCR（无文本目标时） |
+| `ARTEMIS_CAPABILITY_EVIDENCE` | `0` 关闭 smoke 的能力证据写入（默认开） |
+| `ARTEMIS_CAPABILITY_DB` / `ARTEMIS_CAPABILITY_ARTIFACTS` | 证据库/Artifact 目录覆盖（默认 app dir `capabilities/`） |

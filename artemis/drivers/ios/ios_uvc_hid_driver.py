@@ -110,9 +110,15 @@ class IOSUvcHidDriver(BaseDeviceDriver):
             # screen would tap blind (2026-11-05: the first click of a run dismissed
             # Settings mid-tap; `reflex/mouse.py::_connect_pointer` is the backstop).
             await asyncio.to_thread(ritual)
-            return
-        pointer.connected = True
-        pointer.home()
+        else:
+            pointer.connected = True
+            pointer.home()
+        prober = getattr(self.session, "probe_capabilities", None)
+        if callable(prober):
+            try:
+                await prober()
+            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                logger.warning(f"Capability probes failed after connect: {exc}")
 
     async def _prepare_pointer(self) -> None:
         """Run the pointer session's connect ritual before the first observed frame.

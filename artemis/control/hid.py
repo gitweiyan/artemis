@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from artemis.control.base import ActionResult
+from artemis.core.capabilities import (
+    CapabilityDeclaration,
+    CapabilityId,
+    CapabilityManifest,
+)
+from artemis.core.capability_registry import ProbeResult
 from artemis.devices.capabilities import CapabilitySet
 from artemis.reflex.vision import changed
 from third_party.mobile_use.utils.logger import get_logger
@@ -104,6 +111,54 @@ class HidControlSink:
                 getattr(motion, "global_recoveries", 0) or 0
             )
         return metrics
+
+    @property
+    def capability_manifest(self) -> CapabilityManifest:
+        declarations = [
+            CapabilityDeclaration(CapabilityId.SERIAL_COMMAND),
+            CapabilityDeclaration(CapabilityId.USB_HID),
+            CapabilityDeclaration(CapabilityId.POINTER_RELATIVE),
+        ]
+        if self.capabilities.supports_text_input:
+            declarations.extend(
+                (
+                    CapabilityDeclaration(CapabilityId.TEXT_INPUT),
+                    CapabilityDeclaration(CapabilityId.KEYBOARD_KEY),
+                )
+            )
+        if getattr(self.controller, "absolute_ready", False):
+            declarations.append(CapabilityDeclaration(CapabilityId.POINTER_ABSOLUTE))
+        return CapabilityManifest("esp32_hid", "1", tuple(declarations))
+
+    def probe_capabilities(self) -> dict[str, ProbeResult]:
+        """Ask the HID board which interfaces are ready; never sends an action."""
+
+        control = getattr(self, "_control", None)
+        preflight = getattr(control, "preflight", None)
+        if not callable(preflight):
+            return {}
+        now = time.time()
+        try:
+            state = preflight()
+        except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+            return {
+                CapabilityId.SERIAL_COMMAND: ProbeResult(
+                    False, "esp32_hid", f"preflight_failed: {exc}", now
+                )
+            }
+        probes = {CapabilityId.SERIAL_COMMAND: ProbeResult(True, "esp32_hid", None, now)}
+        if int(state.get("mounted") or 0) == 1:
+            probes[CapabilityId.USB_HID] = ProbeResult(True, "esp32_hid", None, now)
+        if int(state.get("mouse") or 0) == 1:
+            probes[CapabilityId.POINTER_RELATIVE] = ProbeResult(True, "esp32_hid.mouse", None, now)
+            if getattr(self.controller, "absolute_ready", False):
+                probes[CapabilityId.POINTER_ABSOLUTE] = ProbeResult(
+                    True, "esp32_hid.absolute", None, now
+                )
+        if int(state.get("keyboard") or 0) == 1:
+            probes[CapabilityId.KEYBOARD_KEY] = ProbeResult(True, "esp32_hid.keyboard", None, now)
+            probes[CapabilityId.TEXT_INPUT] = ProbeResult(True, "esp32_hid.keyboard", None, now)
+        return probes
 
     def close(self) -> None:
         """Release held inputs and close the HID transport (idempotent)."""
