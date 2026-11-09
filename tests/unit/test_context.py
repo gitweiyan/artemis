@@ -75,3 +75,17 @@ async def test_artemis_context_cancels_background_tasks_after_grace_period():
     assert task.cancelled()
     assert task_cancelled is True
     assert context.background_tasks == []
+
+
+def test_context_carries_the_read_only_device_descriptor():
+    """PR-1: the factory records identity data on the context; it is not a handle."""
+    from artemis.devices.descriptors import build_mock_descriptor
+
+    descriptor = build_mock_descriptor(device_id="mock-device", screen_size=(1080, 2400))
+    context = ArtemisContext(
+        device=DeviceContext(mobile_platform=DevicePlatform.ANDROID, device_id="mock-device"),
+        device_descriptor=descriptor,
+    )
+
+    assert context.device_descriptor is descriptor
+    assert ArtemisContext(device=DeviceContext()).device_descriptor is None

@@ -1,0 +1,76 @@
+"""The factory attaches a read-only DeviceDescriptor without changing selection."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from artemis.core.identity import EndpointKind, PlatformFamily
+from artemis.drivers.factory import create_driver
+from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
+from artemis.drivers.mock.mock_driver import MockDeviceDriver
+
+
+def _ctx(platform: str, device_id: str, width: int = 1080, height: int = 2400):
+    return SimpleNamespace(
+        device=SimpleNamespace(
+            mobile_platform=platform,
+            device_id=device_id,
+            device_width=width,
+            device_height=height,
+        ),
+        adb_client=None,
+        ui_adb_client=None,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _stable_host(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_HOST_ID", "test-host")
+    monkeypatch.delenv("ARTEMIS_DEVICE_ALIAS", raising=False)
+
+
+def test_ios_factory_attaches_a_two_endpoint_descriptor(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    ctx = _ctx("ios", "ios-uvc")
+
+    with (
+        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+    ):
+        driver = create_driver(ctx)
+
+    assert isinstance(driver, IOSUvcHidDriver)
+    descriptor = ctx.device_descriptor
+    assert descriptor.device_id == "ios-uvc"
+    assert descriptor.platform_family is PlatformFamily.IOS
+    assert [endpoint.kind for endpoint in descriptor.endpoints] == [
+        EndpointKind.UVC,
+        EndpointKind.SERIAL,
+    ]
+
+
+def test_mock_factory_attaches_a_mock_descriptor():
+    ctx = _ctx("mock", "mock-device")
+
+    driver = create_driver(ctx)
+
+    assert isinstance(driver, MockDeviceDriver)
+    assert ctx.device_descriptor.platform_family is PlatformFamily.MOCK
+    assert ctx.device_descriptor.endpoints[0].endpoint_id == "mock:mock-device"
+
+
+def test_android_factory_attaches_an_adb_descriptor():
+    ctx = _ctx("android", "emulator-5554")
+    ctx.adb_client = MagicMock()
+
+    driver = create_driver(ctx)
+
+    descriptor = ctx.device_descriptor
+    assert descriptor.device_id == "emulator-5554"
+    assert descriptor.platform_family is PlatformFamily.ANDROID
+    assert [endpoint.kind for endpoint in descriptor.endpoints] == [EndpointKind.ADB]
+    assert driver.device_id == "emulator-5554"

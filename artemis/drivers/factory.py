@@ -21,10 +21,15 @@ from typing import TYPE_CHECKING
 from adbutils import AdbClient
 
 from artemis.config import settings
+from artemis.devices.descriptors import (
+    build_mock_descriptor,
+    descriptor_from_device_context,
+)
 from artemis.drivers.android.adb_driver import AndroidAdbDriver
 from artemis.drivers.base import BaseDeviceDriver
 from artemis.drivers.mock.mock_driver import MockDeviceDriver
 from artemis.perception.ocr_engine import default_ocr_engine
+from artemis.runtime.host_identity import host_id as resolve_host_id
 from third_party.mobile_use.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -42,6 +47,25 @@ def _describe_capabilities(capabilities) -> str:
     """The capability flags that decide perception/control composition, for the log."""
     return ", ".join(
         f"{name}={getattr(capabilities, name)}" for name in capabilities.__dataclass_fields__
+    )
+
+
+def _device_alias() -> str | None:
+    """ADR-003 D1: an explicit alias wins over the platform default device id."""
+
+    value = os.environ.get("ARTEMIS_DEVICE_ALIAS")
+    if not value:
+        return None
+    return value.strip() or None
+
+
+def _attach_descriptor(ctx: "ArtemisContext", descriptor) -> None:
+    """Record the read-only descriptor on the context (never selects a driver)."""
+
+    ctx.device_descriptor = descriptor
+    logger.info(
+        f"Device descriptor: {descriptor.device_id}"
+        f" ({descriptor.platform_family.value}, {len(descriptor.endpoints)} endpoint(s))"
     )
 
 
@@ -157,6 +181,15 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
             f"Device driver: {driver.device_id} ({ios.describe()}); "
             f"capabilities: {_describe_capabilities(driver.capabilities)}"
         )
+        _attach_descriptor(
+            ctx,
+            descriptor_from_device_context(
+                ctx,
+                host_id=resolve_host_id(),
+                alias=_device_alias(),
+                ios_config=ios,
+            ),
+        )
         return driver
 
     # 3. Mock mode check
@@ -164,11 +197,19 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
         getattr(ctx.device, "mobile_platform", None) == "mock"
         or os.environ.get("ARTEMIS_MOCK_DRIVER") == "1"
     ):
-        return MockDeviceDriver(
-            device_id=ctx.device.device_id if ctx.device else "mock-device",
-            width=ctx.device.device_width if ctx.device else 1080,
-            height=ctx.device.device_height if ctx.device else 2400,
+        device_id = ctx.device.device_id if ctx.device else "mock-device"
+        width = ctx.device.device_width if ctx.device else 1080
+        height = ctx.device.device_height if ctx.device else 2400
+        driver = MockDeviceDriver(device_id=device_id, width=width, height=height)
+        _attach_descriptor(
+            ctx,
+            build_mock_descriptor(
+                device_id=device_id,
+                screen_size=(width, height),
+                alias=_device_alias(),
+            ),
         )
+        return driver
 
     # 3. Default Android ADB driver
     if ctx.adb_client is None:
@@ -194,6 +235,16 @@ def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
         )
     )
     logger.info(f"Composition: {composition.kind} — {composition.reason}")
+    _attach_descriptor(
+        ctx,
+        descriptor_from_device_context(
+            ctx,
+            host_id=resolve_host_id(),
+            alias=_device_alias(),
+            adb_host=settings.ADB_HOST or "127.0.0.1",
+            adb_port=settings.ADB_PORT or 5037,
+        ),
+    )
     return driver
 
 

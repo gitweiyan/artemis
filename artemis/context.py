@@ -34,6 +34,7 @@ from artemis.utils.video import detect_video_tools_enabled
 
 
 from artemis.config import ExplorerConfig, LLMConfig, OutputterConfig
+from artemis.core.identity import DeviceDescriptor
 
 
 from third_party.mobile_use.context import (
@@ -117,6 +118,12 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
     )
 
     device: DeviceContext
+    device_descriptor: DeviceDescriptor | None = None
+    """Read-only identity of this run's target (ADR-003 / Phase 1 PR-1).
+
+    Built by ``drivers.factory`` after the context exists. It never participates in
+    driver selection or actions; locks/evidence/traces read it for stable IDs.
+    """
     llm_config: LLMConfig | None = None
     agent_config: Any = None
     adb_client: Any | None = None

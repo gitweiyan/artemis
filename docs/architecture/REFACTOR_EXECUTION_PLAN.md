@@ -306,12 +306,15 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 
 #### PR-1 — Device Identity & Descriptor
 
-- [ ] 定义 `DeviceDescriptor`：区分 Host、物理设备、逻辑 Target、连接 Endpoint、显示 Surface 和 Platform Profile。
-- [ ] 定义稳定的 `device_id`、`target_id`、`endpoint_id`、`resource_id`；同一个 iPhone 可以有 UVC 与 ESP32 两个 Endpoint，但不能因此被误认为两台 Target Device。
-- [ ] 将设备发现信息、用户配置和运行时连接句柄分开；Descriptor 不持有 ADB/USB/Serial 句柄。
-- [ ] 先为 Android/iOS/Mock 生成 Descriptor，不改变现有 Driver 选择与动作行为。
+- [x] 定义 `DeviceDescriptor`：区分 Host、物理设备、逻辑 Target、连接 Endpoint、显示 Surface 和 Platform Profile（`artemis/core/identity.py`）。
+- [x] 定义稳定的 `device_id`、`target_id`、`endpoint_id`、`resource_id`；同一个 iPhone 可以有 UVC 与 ESP32 两个 Endpoint，但不能因此被误认为两台 Target Device（`make_*_endpoint`、`resolve_device_id`、`ARTEMIS_DEVICE_ALIAS`、`tests/unit/devices/test_descriptors.py`）。
+- [x] 将设备发现信息、用户配置和运行时连接句柄分开；Descriptor 不持有 ADB/USB/Serial 句柄（DTO 只有数据；`ctx.device_descriptor` 只读）。
+- [x] 先为 Android/iOS/Mock 生成 Descriptor，不改变现有 Driver 选择与动作行为（`artemis/devices/descriptors.py`、`drivers/factory.py` 挂载；`tests/unit/drivers/test_factory_descriptor.py`）。
 
-**PR-1 验收：** 相同 Target 在不同 Observation/Actuation Adapter 组合下身份稳定；不同共享资源拥有独立 Resource ID；无平台 SDK 依赖的单测通过。
+**PR-1 验收（已满足，2026-11-09）：** 相同 Target 在不同 Observation/Actuation Adapter 组合下身份稳定；不同共享资源拥有独立 Resource ID；无平台 SDK 依赖的单测通过。
+证据：`tests/unit/core/test_identity.py`、`tests/unit/devices/test_descriptors.py`、`tests/unit/runtime/test_host_identity.py`、`tests/unit/drivers/test_factory_descriptor.py`、`tests/unit/test_context.py`；`pytest tests/unit -q` 为 14 个既有失败 + 3572 passed（新增 37 个测试，无新增失败）。
+
+> 兼容说明：`DeviceContext` 未迁移（Phase 9）；`DeviceSession` 暂不持有 descriptor（PR-3）；`ARTEMIS_DEVICE_ALIAS` 当前只影响 descriptor 的 `device_id`，运行时锁键对齐留到 Phase 3。
 
 #### PR-2 — Capability Catalog & Evidence
 
