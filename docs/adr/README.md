@@ -33,7 +33,7 @@
 | ADR-008 | [Data Engine / Telemetry / Runtime Trace 数据权威与 Capability Evidence Artifact 归属](ADR-008-data-engine-evidence-ownership.md) | Phase 1 PR-2；Phase 6 | **Accepted**（2026-11-09） |
 | ADR-009 | ESP32 Host-Firmware Protocol、版本协商、Capability Handshake、ACK 语义 | Phase 4.2 | Planned |
 | ADR-010 | Platform Extension、语义动作映射、Prompt Guidance、App Lifecycle、Locator 插件 | Phase 4.3 | Planned |
-| ADR-011 | [UVC/Serial 等共享 Host Resource Lease、并发与回收策略](ADR-011-host-resource-lease.md) | Phase 1 PR-3；Phase 2 | Proposed |
+| ADR-011 | [UVC/Serial 等共享 Host Resource Lease、并发与回收策略](ADR-011-host-resource-lease.md) | Phase 1 PR-3；Phase 2 | **Accepted**（2026-11-09） |
 
 ## 推荐决策顺序
 

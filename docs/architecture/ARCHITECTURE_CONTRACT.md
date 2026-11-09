@@ -371,7 +371,7 @@ MUST：
 - 输入类 Adapter 在 Session 关闭、取消或异常退出时必须释放按键、鼠标按钮、触点等持续状态。
 - 资源竞争、跨进程抢占、Owner 崩溃恢复、取消释放和重复 close 必须有测试。
 
-Lease Manager 的实现是否复用/抽取 `DeviceExecutionLock` 的底层原语，以及 FIFO/公平性策略，由 [ADR-003](../adr/ADR-003-device-identity-session-resource-ownership.md)（Accepted 2026-11-09）与 [ADR-011](../adr/ADR-011-host-resource-lease.md)（Proposed）决定。
+Lease Manager 的实现是否复用/抽取 `DeviceExecutionLock` 的底层原语，以及 FIFO/公平性策略，由 [ADR-003](../adr/ADR-003-device-identity-session-resource-ownership.md)（Accepted 2026-11-09）与 [ADR-011](../adr/ADR-011-host-resource-lease.md)（Accepted 2026-11-09）决定。
 
 ### 5.5 Observation / Frame / Grounding
 
@@ -535,6 +535,7 @@ Incident 表达可操作的事实，而不是猜测。下表是**跨层唯一命
 | `device_disconnected` | 新增（草稿曾用 `device_unavailable`，废弃） | 目标设备断连 |
 | `transport_error` | 新增 | USB/Serial/TCP/BLE 等传输层错误 |
 | `firmware_error` | 新增 | 固件返回 `ERR`、协议不兼容或固件崩溃 |
+| `resource_busy` | 新增（ADR-011） | Host 共享资源被另一个 ARTEMIS owner 占用（UVC/串口/helper 隧道）；必须带 `resource_id` 与 owner 摘要 |
 | `capture_timeout` | 已有 | 采集在预算内没有出帧 |
 | `uvc_no_signal` | 已有 | 采集卡无信号（HDMI/HDCP、息屏） |
 | `decode_error` | 新增 | 帧解码失败 |

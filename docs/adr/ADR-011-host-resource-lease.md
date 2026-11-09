@@ -1,13 +1,13 @@
 # ADR-011: Shared Host Resource Lease (UVC / Serial / Camera / Helper Forward)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 1 PR-3（Session Lifecycle & Resource Lease）；Phase 2（Composition Root 取 lease）
 - **Related:** 契约 §5.4.1（Lease）、§6.1（Adapter）、§7.2（Incident）；[ADR-003](ADR-003-device-identity-session-resource-ownership.md)（Accepted，语义与所有权）、[ADR-008](ADR-008-data-engine-evidence-ownership.md)（Accepted，证据存储）
 - **Audit evidence:** [`CURRENT_CALL_FLOWS.md`](../architecture/CURRENT_CALL_FLOWS.md) §4、§12（N4）、`artemis/runtime/device_lock.py`、`artemis/runtime/helper_manager.py`、`artemis/drivers/factory.py`
 
-> 状态说明：Proposed。ADR-003 已确定“有哪些 lease、谁拥有、释放顺序”；本 ADR 只决定 **Host Resource Lease 的机制**（模块、文件格式、API、公平性、回收、诊断），不得违反 ADR-003 的语义。
+> 状态说明：本 ADR 于 2026-11-09 经评审 **Accepted**；§4 是可执行契约。ADR-003 已确定“有哪些 lease、谁拥有、释放顺序”，本 ADR 只决定 **Host Resource Lease 的机制**（模块、文件格式、API、公平性、回收、诊断）。
 
 ---
 
@@ -80,7 +80,7 @@ PR-3 要落地 Session 生命周期与资源租约；如果不先定机制，会
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — 模块与 API
 
@@ -327,21 +327,25 @@ class LeaseSet:
 
 ---
 
-## 11. Resolved / open questions
+## 11. Resolved questions (2026-11-09)
 
-已定（建议，评审确认后生效）：
+已定：
 
-- 无 FIFO/无全局队列；轮询 + timeout（默认 10 s）+ cancel。
+- 无 FIFO/无全局队列；轮询 + timeout + cancel。
 - 文件用 `sha256(resource_id)` 命名，payload 带完整 ID 与 schema 版本。
 - `DeviceExecutionLock` 保持独立；只抽取底层原语。
 - Helper forward 键为 `helper:<adb-endpoint>/<serial>/forward`，端口入 metadata（细化 ADR-003 示例）。
 - 心跳只诊断不抢占；`cleanup_stale` 接入 doctor/daemon。
 
-待定（不阻塞 PR-3b 骨架）：
+Owner 确认的细节：
 
-1. 默认 timeout 10 s 是否合适（UVC 冷启动可能更久，建议调用方按场景覆盖）。
-2. 是否需要在 Phase 6 提供 `artemis resource-leases list/clean` 独立命令（目前走 `doctor`）。
-3. `metadata` 是否允许业务扩展字段（建议只允许诊断字段白名单）。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | 默认 timeout | **10 s**；调用方按场景覆盖（UVC 冷启动可更长） | PR-3b |
+| 2 | 清理/查看入口 | 先走 `artemis doctor` + `get_active_leases()`；Phase 6 再评估独立 `artemis resource-leases` 命令 | PR-3c / Phase 6 |
+| 3 | metadata 字段 | 只允许诊断字段白名单（如 `local_port`）；拒绝业务任意字段 | PR-3b |
+
+`resource_busy` 已作为规范 Incident 写入契约 §7.2。
 
 ---
 
@@ -350,3 +354,4 @@ class LeaseSet:
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-09 | Proposed | Initial proposal | ADR-003 只定语义；PR-3 需要具体机制。现状 UVC/串口无跨进程锁，reflex/smoke 可绕过设备锁 |
+| 2026-11-09 | Accepted | 评审通过；确认 10 s 默认 timeout、doctor 清理入口、metadata 白名单 | 3 项细节已由 Owner 确认；PR-3 可进入实现 |
