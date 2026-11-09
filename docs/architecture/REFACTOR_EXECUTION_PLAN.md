@@ -132,7 +132,7 @@ Reflex Runtime 的设计有意采用有限时循环、无逐帧 LLM、帧留内�
 | G2 | `DeviceSession` 带 `pointer: object` 专有状态 | `artemis/devices/session.py` | 通用 Session 被一种相对指针方案污染 | P0 |
 | G3 | `CapabilitySet` 是混合 Boolean 集合，Session 用 OR 汇总 | `artemis/devices/capabilities.py`；`devices/session.py` | 无法表达来源、权限、临时不可用、验证状态及能力前置条件 | P0 |
 | G4 | 组合选择器只覆盖少数组合，Factory 内直接构建平台硬件对象 | `artemis/orchestration/selector.py`；`artemis/drivers/factory.py` | 增加 macOS/TV 时 Factory 继续膨胀；配置/硬件打开/组合策略交织 | P1 |
-| G5 | 新旧设备抽象并存，MCP Observation/Action Executor 仍通过 UnifiedMobileController/Actuator 工作 | `artemis/mcp/observation.py`；`mcp/action_executor.py`；`controllers/unified_controller.py` | 新 Session 没有成为唯一稳定设备交互边界 | P0 |
+| G5 | 新旧设备抽象并存，MCP Observation/Action Executor 仍通过 UnifiedMobileController/Actuator 工作；`DeviceSession` 根本不在 Android 动作路径上 | `artemis/mcp/observation.py`；`mcp/action_executor.py`；`controllers/unified_controller.py`；`third_party/mobile_use/controllers/unified_controller.py:46-146`；`drivers/android/adb_driver.py:109-122` | 新 Session 没有成为唯一稳定设备交互边界；只改 `artemis/controllers/` 不会改变主链 | P0 |
 | G6 | `control/hid.py` 混入 iOS Back 手势、键盘滚动等平台策略，并依赖 Reflex 视觉逻辑 | `artemis/control/hid.py` | 通用 HID Adapter 和 iOS UI 导航语义混杂 | P1 |
 | G7 | 通用 `perception/` 含 iOS SpringBoard 图标偏移规则；UVC Locator 依赖 Reflex 模块 | `perception/ios_targets.py`；`perception/uvc.py` | 平台策略和检测实现难以独立复用 | P1 |
 | G8 | `reflex/` 的执行 Runtime 与设备 I/O 实现同目录 | `reflex/runtime.py`、`reflex/contract.py`、`reflex/capture.py`、`reflex/control.py`、`reflex/mouse.py`、`reflex/vision.py` | 机械搬迁会破坏高频 Skill；不迁移则硬件实现边界不清 | P1 |
@@ -275,23 +275,23 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 
 任务：
 
-- [ ] 记录分支、HEAD SHA、工作区状态；本计划基线为 `1281fc3`，实施时重新读取。
-- [ ] 重新运行 `uv run pytest tests/unit -q`、`uv run ruff check` 和项目现有 `scripts/quality_ratchet.py`（若仍为当前质量门禁）。
-- [ ] 记录当前已知失败与新增失败，不能把旧报告数字当成现在的实测结果。
-- [ ] 追踪 Android 与 iOS 从 CLI/MCP 进入直到 Driver/DeviceSession/Adapter 的真实调用链。
-- [ ] 追踪 Flash、Pro、Skill/Reflex 三条执行路径，不把它们误归为同一个 Agent 循环。
-- [ ] 输出 import graph，重点检查 `mcp`、`controllers`、`drivers`、`devices`、`control`、`perception`、`reflex`、`safety`、`data_engine`。
-- [ ] 搜索所有 `BaseDeviceDriver`、`UnifiedMobileController`、`DeviceSession.pointer`、`CapabilitySet`、`is_ios_device`、`reflex.capture/control/mouse/vision` 的生产调用方。
+- [x] 记录分支、HEAD SHA、工作区状态；本计划基线为 `1281fc3`，实施时重新读取（2026-11-09 审计：HEAD `a82d58e`，工作区仅 `config/artemis.jsonc` 有用户未提交改动）。
+- [x] 重新运行 `uv run pytest tests/unit -q`、`uv run ruff check` 和项目现有 `scripts/quality_ratchet.py`（结果见 `TEST_BASELINE.md`）。
+- [x] 记录当前已知失败与新增失败，不能把旧报告数字当成现在的实测结果（14 failed / 3535 passed / 9 skipped，其中 2 条为本地配置引起，12 条为分支既有回归）。
+- [x] 追踪 Android 与 iOS 从 CLI/MCP 进入直到 Driver/DeviceSession/Adapter 的真实调用链（`CURRENT_CALL_FLOWS.md` §3–§4）。
+- [x] 追踪 Flash、Pro、Skill/Reflex 三条执行路径，不把它们误归为同一个 Agent 循环（`CURRENT_CALL_FLOWS.md` §5–§7）。
+- [x] 输出 import graph，重点检查 `mcp`、`controllers`、`drivers`、`devices`、`control`、`perception`、`reflex`、`safety`、`data_engine`（`IMPORT_DEPENDENCY_MATRIX.md`）。
+- [x] 搜索所有 `BaseDeviceDriver`、`UnifiedMobileController`、`DeviceSession.pointer`、`CapabilitySet`、`is_ios_device`、`reflex.capture/control/mouse/vision` 的生产调用方（`BASELINE_2026-11-09.md` §4）。
 - [x] 事实源收敛（2026-11-08 完成）：`ARCHITECTURE_CONTRACT.md` 是唯一规范；`docs/artemis-target-architecture.md` 与 2026-11-06 B0–B6 计划已标记 Superseded，只作历史记录，不得回填新决策。后续只需确认 AGENTS 入口与 `docs/ios-rig-playbook.md` 未漂移。
 
 交付物：
 
-- `docs/architecture/BASELINE_2026-11-08.md`
+- `docs/architecture/BASELINE_2026-11-09.md`
 - `docs/architecture/CURRENT_CALL_FLOWS.md`
 - `docs/architecture/IMPORT_DEPENDENCY_MATRIX.md`
 - `docs/architecture/TEST_BASELINE.md`
 
-**Exit Criteria：** 当前测试基线、Android/iOS/Reflex 三条调用链、关键旧接口调用方都有可复现证据。Phase 0 不做大规模重构。
+**Exit Criteria（已满足）：** 当前测试基线、Android/iOS/Reflex 三条调用链、关键旧接口调用方都有可复现证据。Phase 0 不做大规模重构。
 
 ### Phase 1 — 稳定现有 Contracts（拆成四个独立 PR）
 
@@ -582,7 +582,7 @@ tests/
 
 ### 6.3 基线纪律
 
-`docs/superpowers/plans/2026-11-06-target-architecture-migration.md` 曾记录一次基线：`14 failed / 3535 passed / 9 skipped`，并指出已知失败主要在 Admin Console、Explorer 和 Video Analyzer。这是**文档中记录的历史基线，不是本次已重新运行的当前结果**。
+`docs/superpowers/plans/2026-11-06-target-architecture-migration.md` 曾记录一次基线：`14 failed / 3535 passed / 9 skipped`，并指出已知失败主要在 Admin Console、Explorer 和 Video Analyzer。这是**文档中记录的历史基线，不是本次已重新运行的当前结果**；2026-11-09 的实测见 [`TEST_BASELINE.md`](TEST_BASELINE.md)。
 
 每个 PR 必须：
 
