@@ -180,7 +180,7 @@ new/ready/... --close()--> closing --(released)--> closed
 5. **同 Owner 可重入**：同一 `(pid, token/session_id)` 重复获取同一资源视为幂等成功；不同 session 即使同进程也必须 `ResourceBusy`。
 6. **陈旧回收**：只有 owner 进程死亡、`process_created_at` 不匹配或显式释放才可回收；**禁止 TTL 抢占活进程**；心跳只用于诊断/监督（计划 §0.2 D2）。
 7. **锁内容最小化**：lease 文件只写 id/pid/时间/owner token，不写屏幕内容、凭据或用户数据；临时目录权限与文件名做归一化（复用 `DeviceExecutionLock._normalize_device_id` 的清洗思路）。
-8. **覆盖范围**：UVC capture、ESP32 serial、Camera、BLE adapter 为独占资源；`ScreenAwakeLease`（`artemis/runtime/awake_lease.py:47-...`）是 ref-counted 共享资源，继续由现有实现管理，不并入独占 lease。**Helper 端口转发也使用独立 Resource Lease**（键形如 `helper:<adb-endpoint>/<serial>/<local-port>`）：`HelperManager` 的 per-serial registry 只是进程内缓存，不能证明跨进程独占；Session 在 attach 前取 lease，关闭时先 `detach` 再释放 lease。
+8. **覆盖范围**：UVC capture、ESP32 serial、Camera、BLE adapter 为独占资源；`ScreenAwakeLease`（`artemis/runtime/awake_lease.py:47-...`）是 ref-counted 共享资源，继续由现有实现管理，不并入独占 lease。**Helper 端口转发也使用独立 Resource Lease**（键形如 `helper:<adb-endpoint>/<serial>/<local-port>`；端口在 attach 时才分配，ADR-011 以 `<adb-endpoint>/<serial>/forward` 为键并把端口写入 metadata）：`HelperManager` 的 per-serial registry 只是进程内缓存，不能证明跨进程独占；Session 在 attach 前取 lease，关闭时先 `detach` 再释放 lease。
 9. **无 Agent 路径必须补锁**：`artemis reflex`、`artemis ios-smoke`、`artemis ios-calibrate` 在打开 UVC/串口前必须获取同一套 Resource Lease；`DeviceExecutionLock` 仍只由 Agent 任务路径持有（`third_party/mobile_use/sdk/agent.py:490-516`），两者不互相替代。
 10. **非目标**：不保证对非 ARTEMIS 进程（相机 App、ffmpeg、OBS）的操作系统级独占；这一限制必须写进文档与错误信息。
 
@@ -298,7 +298,7 @@ new/ready/... --close()--> closing --(released)--> closed
 | 1 | `device_id` 别名配置键 | 使用 `ARTEMIS_DEVICE_ALIAS`；未设置时按平台默认（Android serial / `ios-uvc` / `cloud_device`） | PR-1 |
 | 2 | UVC 无硬件序列号时的 `resource_id` | `host_id` + USB port path（有硬件序列号时优先用序列号） | PR-3 + ADR-011 |
 | 3 | `surface_id` 是否进 PR-1 descriptor | 是；`DisplayInfo.surface_id` 必填，默认 `display:primary`，多屏枚举留到 Phase 7 | PR-1 |
-| 4 | Helper 端口转发是否独立 Resource Lease | 是；`helper:<adb-endpoint>/<serial>/<local-port>` 独立 lease，不依赖进程内 registry | PR-3 + ADR-011 |
+| 4 | Helper 端口转发是否独立 Resource Lease | 是；`helper:<adb-endpoint>/<serial>/forward` 独立 lease（端口入 metadata），不依赖进程内 registry | PR-3 + ADR-011 |
 | 5 | `DeviceContext` 迁出 third_party 的时机 | Phase 9；PR-1 只加适配器，不改 `DeviceContext` | Phase 9 |
 
 **Owner：** ARTEMIS architecture maintainers（评审维持不变）。
