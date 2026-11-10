@@ -247,6 +247,39 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         verdict = check_in_box(box, px, py, tolerance_px=tolerance_px)
         return PointerValidation(verdict.ok, verdict.incident, verdict.error_px, (px, py))
 
+    async def validate_pointer_by_diff(
+        self, target, *, tolerance_px: float = 8.0
+    ) -> PointerValidation:
+        """Locate a pointer the colour detector cannot see (grey AssistiveTouch ring).
+
+        The controller's tracker nudges the pointer and diffs two frames, so this works
+        without any appearance model. It moves the pointer as part of the measurement;
+        the smoke uses it only after the read-only precheck reported ``pointer_missing``.
+        """
+        sink = self._relative_sink()
+        controller = getattr(sink, "controller", None)
+        tracker = getattr(controller, "tracker", None)
+        if controller is None or tracker is None:
+            return PointerValidation(False, "pointer_missing", None, None)
+        frame = await self.snapshot_frame()
+        try:
+            later, pointer = await asyncio.to_thread(controller._observe_by_diff, frame)
+        except (OSError, RuntimeError, ValueError, AttributeError):
+            return PointerValidation(False, "pointer_missing", None, None)
+        if pointer is None:
+            return PointerValidation(False, "pointer_missing", None, None)
+        width = int(getattr(later, "width", frame.width) or frame.width)
+        height = int(getattr(later, "height", frame.height) or frame.height)
+        px, py = pointer.x * width, pointer.y * height
+        left, top, right, bottom = target.box
+        verdict = check_in_box(
+            (left * width, top * height, right * width, bottom * height),
+            px,
+            py,
+            tolerance_px=tolerance_px,
+        )
+        return PointerValidation(verdict.ok, verdict.incident, verdict.error_px, (px, py))
+
     async def tap_with_result(self, x, y) -> ActionResult:
         """Return the structured precheck/click result for Validator incidents.
 

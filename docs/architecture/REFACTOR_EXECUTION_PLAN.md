@@ -457,7 +457,7 @@ Application Service / Agent Tool
 
 #### 4.2 ESP32 HID / Serial
 
-> Phase 4.2a–4.2d（2026-11-10）：`FirmwareBridge`（Transport seam、126 字节行限、`OK`/`ERR`、ACK 超时、resync、`usb` 解析、`hello`/v1 fallback）+ `SerialTransport`（PTY 测试）+ `Esp32HidAdapter` + `Esp32BridgeControl`（保留旧 Control 手势 API，低层走 Bridge）。固件 v2 `hello` 已实现并通过 `build-ios` 编译；Factory 与 `ios-smoke` 已切到新 Control，`reflex_tool`/`ios_calibrate` 仍保留旧路径。当前没有 ESP32 串口，未烧录/未跑真机 smoke。
+> Phase 4.2a–4.2d（2026-11-10）：`FirmwareBridge`（Transport seam、126 字节行限、`OK`/`ERR`、ACK 超时、resync、`usb` 解析、`hello`/v1 fallback）+ `SerialTransport`（PTY 测试）+ `Esp32HidAdapter` + `Esp32BridgeControl`（保留旧 Control 手势 API，低层走 Bridge）。固件 v2 `hello` 已烧录到机台（`proto=2 fw=db32169 board=esp32s3 mode=ios`）；Factory 与 `ios-smoke` 已切到新 Control，`reflex_tool`/`ios-calibrate` 仍保留旧路径。真机 `ios-smoke --target 翻译` 四段全绿，7 项能力写入 evidence；灰色指针改用 controller 的 nudge/diff tracker 兜底。
 
 - [x] 将 `Esp32HidControl` 从 `artemis/reflex/control.py` 抽为 L4 `Esp32HidAdapter` + Serial Transport；保留旧 `Control` Protocol 适配器给 Reflex（`adapters/esp32_hid.py` + `adapters/serial.py`；旧 `Esp32HidControl` 继续服务现有路径，切换留 4.2d）。
 - [x] 将串口 115200 8N1、LF/CRLF 行结束、单命令等待 ACK、单行长度、长文本分片等协议事实集中到 Firmware Bridge，不散落在业务层（新 Adapter 只经 Bridge；旧 Control 的重复实现保留到 4.2d）。

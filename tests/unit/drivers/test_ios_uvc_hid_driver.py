@@ -426,3 +426,29 @@ def test_a_failed_pointer_prep_still_yields_the_frame():
 
     assert data.screenshot_bytes == b"png"
     assert session.pointer.connects == 1
+
+
+def test_validate_pointer_by_diff_uses_the_controller_tracker():
+    from artemis.perception.base import Target
+
+    session = Session()
+
+    class Controller:
+        tracker = object()
+
+        def _observe_by_diff(self, frame):
+            return (
+                SimpleNamespace(width=449, height=974),
+                SimpleNamespace(x=0.5, y=0.5),
+            )
+
+    session.control[0].controller = Controller()
+    driver = IOSUvcHidDriver(session)
+
+    result = asyncio.run(
+        driver.validate_pointer_by_diff(Target("target", (0.4, 0.4, 0.6, 0.6), 0.9, "ocr"))
+    )
+
+    assert result.ok is True
+    assert result.incident is None
+    assert result.pointer == (224.5, 487.0)

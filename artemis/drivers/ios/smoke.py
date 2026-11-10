@@ -240,13 +240,19 @@ async def run_smoke(
         validation = await driver.validate_pointer(located)
         nudged = False
         if not validation.ok and validation.incident == "pointer_missing":
-            # The AssistiveTouch ring fades out; a small relative move wakes it and is
-            # exactly what the pointer loop does before every tap. Never a click.
-            pointer = getattr(session, "pointer", None)
-            if pointer is not None:
-                await __import__("asyncio").to_thread(pointer.move, 60, 60)
+            # The AssistiveTouch ring fades out, and a grey ring defeats the colour
+            # detector. The controller's nudge/diff tracker needs no appearance model;
+            # it moves the pointer but never clicks.
+            tracked = getattr(driver, "validate_pointer_by_diff", None)
+            if tracked is not None:
+                validation = await tracked(located)
                 nudged = True
-                validation = await driver.validate_pointer(located)
+            if not validation.ok:
+                pointer = getattr(session, "pointer", None)
+                if pointer is not None and not nudged:
+                    await __import__("asyncio").to_thread(pointer.move, 60, 60)
+                    nudged = True
+                    validation = await driver.validate_pointer(located)
         elapsed = (time.monotonic() - started) * 1000
         # What the rig needs to prove here is that the pointer is *visible*: a visible
         # pointer away from the target is the normal starting state, and the tap stage
