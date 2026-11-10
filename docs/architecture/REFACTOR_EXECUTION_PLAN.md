@@ -469,6 +469,7 @@ Application Service / Agent Tool
 #### 4.3 Pointer Control 与 iOS 平台策略
 
 > Phase 4.3a（2026-11-10）：`artemis/core/platform_extension.py` 定义 `PlatformExtension`、`AppLifecyclePort`、`NavigationPolicy`、`TextInputPolicy`、`TargetAdjuster`、`TargetLocator`、`PromptGuidance`、`PermissionChecks` 及结构化 DTO；缺失端口返回稳定 `capability_unavailable` 原因。仅新增契约，未接线 Profile/驱动。
+> Phase 4.3b（2026-11-10）：`artemis/drivers/ios/extension.py` 提供 iOS 的 Spotlight AppLifecycle、左边缘 BACK Navigation、pinyin TextInput、SpringBoard 图标抬升 TargetAdjuster 和结构化 PromptGuidance；Factory 把它挂到 `ProfileBuild.adapters["platform_extension"]`。MCP 的 `is_ios_device`/LocateAnything 分支尚未迁移，行为未变。
 
 - [ ] 将 `PointerSession` 的位置估计、Gain Calibration、Move Planner 等放入相对指针 Adapter 的内部状态；不要放在通用 `DeviceSession`。
 - [ ] 将视觉检测器放进可复用 Perception/Pointer Detection；将 pointer-vs-target 前置校验留在 Safety。
