@@ -136,18 +136,40 @@ class BoxRef:
 ### D2 — 单一 CoordinateTransform
 
 ```python
+TRANSFORM_SCHEMA = "coordinate-transform/v1"
+
+
 @dataclass(frozen=True)
-class CoordinateTransform:
-    transform_id: str
-    frame_id: str
+class TransformParams:
     source: CoordinateSpace
     target: CoordinateSpace
-    rotation_degrees: int = 0
+    frame_size: tuple[int, int]
+    screen_size: tuple[int, int]
     content_rect: tuple[int, int, int, int] | None = None  # crop/letterbox in frame
+    rotation_degrees: int = 0
     scale: tuple[float, float] = (1.0, 1.0)  # frame->screen
     window_origin: tuple[float, float] = (0.0, 0.0)  # desktop only
     display_scale: float = 1.0  # Retina only
-    revision: str = "1"
+
+
+def transform_id(params: TransformParams, *, schema: str = TRANSFORM_SCHEMA) -> str:
+    """xform-<sha256(canonical params + schema)[:24]>; frame_id is NOT hashed."""
+    ...
+
+
+@dataclass(frozen=True)
+class TransformRecord:
+    transform_id: str
+    params: TransformParams
+    schema: str = TRANSFORM_SCHEMA
+    #: Human label only (e.g. "ios-rig-449x974/2026-11-09"); never identity.
+    revision: str | None = None
+
+
+@dataclass(frozen=True)
+class CoordinateTransform:
+    record: TransformRecord
+    frame_id: str
 
     def apply(self, point: PointRef) -> PointRef: ...
     def invert(self, point: PointRef) -> PointRef: ...
@@ -156,6 +178,16 @@ class CoordinateTransform:
     @classmethod
     def device_to_pointer_frame(cls, geometry): ...
 ```
+
+**`transform_id` 规则（内容 hash，不是 revision）：**
+
+1. 规范化 payload 固定包含：`schema`、`source`、`target`、`frame_size`、`screen_size`、`content_rect`、`rotation_degrees % 360`、`scale`、`window_origin`、`display_scale`。
+2. 整数保持整数；浮点统一 `round(v, 6)`；键排序、紧凑 JSON、ASCII；`sha256` 取前 24 位 hex，前缀 `xform-`。
+3. **`frame_id` 不参与 hash**：帧身份和数学变换身份是两件事；同一套 crop/rotation 在不同帧上得到同一个 `transform_id`，记录里分别引用两者。
+4. `revision` 只做人读标签，不参与 hash；日志/UI 可以展示它，但比较、存储、证据匹配只用 `transform_id`。
+5. 参数或 `schema` 任一变化 → 新 ID（crop 重测、旋转、屏幕/Retina 变化、算法/取整语义变化都会自动失效旧 ID）。
+6. **存参数，不只存 ID**：`TransformRecord`（ID + 规范化 params + schema）随 Step/Trace 持久化；读取时重算 hash 校验；不匹配 → `coordinate_space_mismatch`。只存 hash 无法在代码语义变化后还原当时的数学。
+
 
 - 变换顺序固定：`crop/letterbox → rotation → scale → window/display offset`（逆向反序）。
 - `ScreenGeometry` 成为兼容 Facade：现有方法（`frame_to_normalized`、`normalized_to_frame`、`normalized_to_screen`、`normalized_box_to_screen`、`screen_to_frame` 等）委托给 Transform，签名不变。
@@ -245,7 +277,8 @@ class CoordinateTransform:
   - device↔pointer-frame（iOS crop）与越界拒绝；
   - `PointRef`/`BoxRef` space 不匹配抛错；
   - transform 逆变换不可用时拒绝；
-  - window origin/display scale（桌面样例）。
+  - window origin/display scale（桌面样例）；
+  - `transform_id` 跨实例/跨进程稳定；crop/rotation/screen/scale/schema 任一变化即变化；`frame_id`/`revision` 变化不改变 ID；篡改 params 后重算校验失败。
 - `tests/unit/devices/test_geometry.py`（扩展）：旧 `ScreenGeometry` API 数值不变（回归）。
 - `tests/unit/mcp/test_*`：Agent Point 输入仍按 0–1000；记录带 space。
 - `tests/unit/agents/validator`：stale frame / mismatch 拒绝，不产生点击。
@@ -286,12 +319,12 @@ class CoordinateTransform:
 - 单一 Transform 图；`ScreenGeometry` 仅作兼容 Facade。
 - 无 frame/transform 引用时拒绝跨动作复用。
 - 旋转不明时拒绝，不假设 0。
+- **`transform_id` = 规范化参数 + schema 的内容 hash**；`frame_id` 不参与；`revision` 仅人类标签；`TransformRecord` 随记录持久化并可在读取时重算校验。
 
 待定（不阻塞 PR-4a）：
 
 1. Android rotation 的权威来源（`dumpsys` vs `window_size` vs scrcpy）由 Phase 3 Adapter 决定。
-2. `transform_id` 的生成/持久化（内容 hash vs revision 号）。
-3. 是否在 Phase 9 统一到 0–1（需新 ADR）。
+2. 是否在 Phase 9 统一到 0–1（需新 ADR）。
 
 ---
 
@@ -300,3 +333,4 @@ class CoordinateTransform:
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-09 | Proposed | Initial proposal | 六种空间、四套换算、无 frame/transform 关联；PR-4/ADR-004 需要坐标引用 |
+| 2026-11-09 | Proposed | `transform_id` 定为参数内容 hash；`frame_id` 排除、`revision` 仅标签、`TransformRecord` 持久化 | 跨进程无中心权威；参数变化自动失效；证据/回放可重算校验 |

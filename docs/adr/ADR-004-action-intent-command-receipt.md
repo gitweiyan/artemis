@@ -136,7 +136,7 @@ class ActionCommand:
     parameters: Mapping[str, Any]  # device-pixel/pointer-frame payload
     target_ref: PointRef | BoxRef | None
     frame_id: str | None
-    transform_id: str | None
+    transform_id: str | None  # ADR-002 TransformRecord identity (content hash)
 
 
 @dataclass(frozen=True)
