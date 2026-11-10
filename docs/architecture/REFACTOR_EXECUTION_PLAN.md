@@ -381,12 +381,14 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 - [x] 将 `select_composition()` 逐步移至 L4 Device Runtime 或 Adapter Composer；保留原路径的 re-export 兼容（`artemis/devices/composition.py`，`orchestration/selector.py` 只 re-export）。
 - [x] 建立静态 `AdapterRegistry` / `ProfileBuilder`：按配置和 capability 选择已注册 Builder；第一版不做动态插件市场（`artemis/devices/registry.py`；Android/iOS builder 注册留 2c）。
 - [x] Profile 只负责组合 Observation Adapter、Actuation Adapter、Transport Adapter、可选 Platform Extension 和配置，不在 Profile 内实现 Agent 逻辑（Mock Profile 已实现）。
-- [ ] 将 `drivers.factory.create_driver()` 拆成轻量路由 + 平台 Builder；允许在 L4 Composition Root 根据 profile/平台注册表分支。禁止把这种分支复制到 Agent、Graph、Perception Policy 中。**Phase 2c 待做。**
-- [ ] 把设备配置（UVC device/crop、串口 port、screen geometry、capture mode）与通用 `DeviceDescriptor` 分开；敏感或本机配置仍通过安全配置来源加载。**Descriptor 已分离；Factory 仍读配置，Phase 2c/4 迁移。**
+- [x] 将 `drivers.factory.create_driver()` 拆成轻量路由 + 平台 Builder；允许在 L4 Composition Root 根据 profile/平台注册表分支。禁止把这种分支复制到 Agent、Graph/Perception Policy 中（Factory 现在只构造 Request、选 Profile、调用 Builder；平台代码在 `build_android/ios/mock_profile`）。
+- [x] 把设备配置（UVC device/crop、串口 port、screen geometry、capture mode）与通用 `DeviceDescriptor` 分开；敏感或本机配置仍通过安全配置来源加载（配置读取在 Profile Builder；Descriptor 不含句柄/配置；iOS I/O 的物理迁移留 Phase 4）。
 - [x] Profile 构建失败必须报告缺失 Adapter、能力或配置原因，不允许静默退回错误设备（`ProfileSelectionError`/`ProfileBuildError`；选择测试）。
 - [x] 提供 Mock Profile 和 Profile Contract Test，测试源/汇聚/关闭顺序（`mock.screen` + `tests/unit/devices/test_registry.py`）。
 
-> Phase 2a/2b 完成（2026-11-10）：Registry/ProfileSelection/Composition 迁移 + Mock Profile。剩余 2c/2d：Factory 改为 Router、Android/iOS builder 注册、诊断/reflex 走 Builder；Phase 2 Exit Criteria 尚未满足。
+> Phase 2a–2c 完成（2026-11-10）：Composition 迁移、Registry/ProfileSelection、Mock Profile、Factory Router + Android/iOS/Mock Builder；Factory 接口/缓存/CLI 行为不变，`pytest tests/unit` 为 14 个既有失败 + 3688 passed。
+>
+> 剩余 2d（非阻塞 Exit Criteria）：`ios-smoke`/`ios-calibrate`/`reflex` 仍直接构造 UVC/串口，未走 Registry Builder；Phase 4 随 iOS I/O 下沉一起迁移。
 
 建议先支持：
 
@@ -394,7 +396,7 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 - `ios.uvc_hid`: UvcSource + ESP32 HID Control + iOS Extension。
 - `mock.screen`: Recorded/Mock Observation + Mock Control。
 
-**Exit Criteria：** 添加一个 Mock Profile 或替换 UVC/Control Adapter，不需要修改 Operator/Planner/Checker；Android 与 iOS 当前行为仍能复现。
+**Exit Criteria（2a–2c 已满足）：** Mock Profile 不需要修改 Operator/Planner/Checker 即可构建；Android/iOS Factory 回归测试保持（`tests/unit/drivers`、`test_factory_descriptor`）。2d 的 CLI/reflex 统一留 Phase 4。
 
 ### Phase 3 — 让 DeviceSession / Ports 成为 Agent 执行链的标准设备边界
 

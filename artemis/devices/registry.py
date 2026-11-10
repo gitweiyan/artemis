@@ -240,14 +240,18 @@ def select_device_profile(
     return ProfileSelection(profile.profile_id, "capability match", profile)
 
 
-def builtin_registry() -> AdapterRegistry:
+def builtin_registry(runtime: Any | None = None) -> AdapterRegistry:
     """Register the built-in adapters/profiles; safe to call per composition root."""
 
     from artemis.devices.capability_adapters import (
         android_adapters,
-        build_mock_profile,
         ios_adapters,
         mock_adapters,
+    )
+    from artemis.drivers.factory import (
+        build_android_profile,
+        build_ios_profile,
+        build_mock_profile,
     )
 
     registry = AdapterRegistry()
@@ -260,6 +264,7 @@ def builtin_registry() -> AdapterRegistry:
             platform_family="android",
             required_capabilities=(CapabilityId.UI_TREE_READ, CapabilityId.TOUCH_ABSOLUTE),
             adapter_ids=("android.app",),
+            build=lambda request, registry: build_android_profile(runtime, request, registry),
         )
     )
     registry.register_profile(
@@ -268,6 +273,7 @@ def builtin_registry() -> AdapterRegistry:
             platform_family="ios",
             required_capabilities=(CapabilityId.FRAME_CAPTURE, CapabilityId.POINTER_RELATIVE),
             adapter_ids=("uvc.capture", "esp32_hid", "serial.command"),
+            build=lambda request, registry: build_ios_profile(runtime, request, registry),
         )
     )
     registry.register_profile(
@@ -276,7 +282,7 @@ def builtin_registry() -> AdapterRegistry:
             platform_family="mock",
             required_capabilities=(CapabilityId.FRAME_CAPTURE,),
             adapter_ids=("mock.screen",),
-            build=build_mock_profile,
+            build=lambda request, registry: build_mock_profile(runtime, request, registry),
         )
     )
     return registry
