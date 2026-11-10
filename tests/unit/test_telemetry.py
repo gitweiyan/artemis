@@ -73,3 +73,33 @@ async def test_spans_can_link_to_data_engine_step_and_action_ids(tmp_path):
 
     assert tracer.spans[0].step_id == "step-1"
     assert tracer.spans[0].frame_id == "frame-1"
+
+
+def test_validator_action_emits_a_device_span_with_data_ids(tmp_path):
+    from types import SimpleNamespace
+
+    from artemis.agents.validator.execution_loop import _ActionOutcome, _record_action_telemetry
+
+    tracer = TelemetryTracer(trace_id="session-1", traces_dir=tmp_path)
+    ctx = SimpleNamespace(
+        data_engine=SimpleNamespace(current_session_id="session-1", base_dir=tmp_path),
+        device=SimpleNamespace(device_id="ios-uvc"),
+        get_telemetry_tracer=lambda: tracer,
+    )
+    outcome = _ActionOutcome(
+        action_item={
+            "action_id": "action-1",
+            "frame_id": "frame-1",
+            "action_state": "adapter_acknowledged",
+        }
+    )
+
+    _record_action_telemetry(ctx, "step-1", "click", outcome, "data-trace-1", 10.0)
+
+    span = tracer.spans[0]
+    assert span.type.value == "device_action"
+    assert span.session_id == "session-1"
+    assert span.step_id == "step-1"
+    assert span.action_id == "action-1"
+    assert span.frame_id == "frame-1"
+    assert span.payload["data_trace_id"] == "data-trace-1"

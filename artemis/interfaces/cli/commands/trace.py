@@ -159,3 +159,86 @@ def view_trace(
     typer.secho(f"Session files in {session_dir}:", fg=typer.colors.CYAN)
     for f in session_dir.iterdir():
         typer.echo(f"  - {f.name}")
+
+
+@trace_app.command("actions")
+def query_actions(
+    session: Annotated[
+        str, typer.Option("--session", "-s", help="Session id/prefix or latest.")
+    ] = "latest",
+    action_id: Annotated[
+        str | None, typer.Option("--action-id", help="Filter by action id.")
+    ] = None,
+    device_id: Annotated[str | None, typer.Option("--device", help="Filter by device id.")] = None,
+    artifact_id: Annotated[
+        str | None, typer.Option("--artifact", help="Filter by artifact hash.")
+    ] = None,
+    traces_path: Annotated[Path | None, typer.Option("--path", "-p")] = None,
+    limit: Annotated[int, typer.Option("--limit", "-l")] = 50,
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+) -> None:
+    """Show correlated action evidence (what was observed, dispatched and verified)."""
+
+    import sqlite3
+
+    from artemis.data_engine.replay import query_action_evidence
+    from artemis.data_engine.storage import StorageManager
+
+    base_dir = Path(traces_path) if traces_path else Path(settings.TRACES_PATH)
+    db_path = base_dir / "data_engine.db"
+    if not db_path.is_file():
+        typer.secho(f"No trace database at {db_path}", fg=typer.colors.YELLOW)
+        raise typer.Exit(1)
+    if session == "latest":
+        try:
+            with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+                row = conn.execute(
+                    "SELECT session_id FROM sessions ORDER BY start_time DESC LIMIT 1"
+                ).fetchone()
+        except sqlite3.Error as exc:
+            typer.secho(f"Could not read sessions: {exc}", fg=typer.colors.RED)
+            raise typer.Exit(1)
+        if row is None:
+            typer.secho("No sessions in the trace database.", fg=typer.colors.YELLOW)
+            raise typer.Exit(1)
+        resolved = str(row[0])
+    else:
+        resolved = session
+
+    storage = StorageManager(db_path, base_dir, read_only=True)
+    traces = storage.get_traces_for_session(
+        resolved, trace_type="action", limit=max(limit * 10, 100)
+    )
+    evidence = query_action_evidence(
+        traces,
+        action_id=action_id,
+        session_id=resolved,
+        device_id=device_id,
+        artifact_id=artifact_id,
+        limit=limit,
+    )
+    if as_json:
+        typer.echo(json.dumps(evidence, ensure_ascii=False, indent=2))
+        return
+    if not evidence:
+        typer.secho(f"No action evidence for session {resolved}.", fg=typer.colors.YELLOW)
+        return
+    table = Table(title=f"Action evidence · {resolved} · {len(evidence)} action(s)")
+    table.add_column("Action", style="cyan")
+    table.add_column("Device")
+    table.add_column("Adapter")
+    table.add_column("ACK")
+    table.add_column("Incident")
+    table.add_column("Post verification", overflow="fold")
+    for item in evidence:
+        ids = item.get("ids") or {}
+        post = item.get("post_verification") or {}
+        table.add_row(
+            str(ids.get("action_id") or "-"),
+            str(ids.get("device_id") or "-"),
+            str(item.get("adapter_id") or "-"),
+            str(item.get("device_ack") or "-"),
+            str(item.get("incident") or "none"),
+            str(post.get("incident") or post.get("allowed", "n/a")),
+        )
+    Console().print(table)

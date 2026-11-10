@@ -387,6 +387,56 @@ def _action_evidence(
     return evidence.as_dict()
 
 
+def _record_action_telemetry(
+    ctx,
+    step_id,
+    action_name,
+    outcome: _ActionOutcome,
+    action_trace_id,
+    start_time: float,
+) -> None:
+    """Emit one telemetry span for this action; Data Engine remains the fact owner."""
+
+    getter = getattr(ctx, "get_telemetry_tracer", None)
+    if not callable(getter):
+        return
+    try:
+        tracer = getter()
+    except (OSError, RuntimeError, ValueError):
+        return
+    from artemis.telemetry.models import SpanType, TelemetrySpan
+    from artemis.telemetry.tracer import TelemetryTracer
+
+    if not isinstance(tracer, TelemetryTracer):
+        return
+    engine = getattr(ctx, "data_engine", None)
+    item = outcome.action_item
+    span = TelemetrySpan(
+        trace_id=str(getattr(engine, "current_session_id", "") or tracer.trace_id),
+        session_id=str(getattr(engine, "current_session_id", "") or "") or None,
+        device_id=str(getattr(getattr(ctx, "device", None), "device_id", "") or "") or None,
+        step_id=str(step_id) if step_id else None,
+        action_id=str(item.get("action_id") or "") or None,
+        frame_id=str(item.get("frame_id") or "") or None,
+        name=action_name,
+        type=SpanType.DEVICE_ACTION,
+        start_time=start_time,
+        payload={
+            "data_trace_id": str(action_trace_id),
+            "action_state": item.get("action_state"),
+            "incident": item.get("incident"),
+        },
+    )
+    span.finish(
+        status="success" if outcome.success else "failed",
+        error=outcome.error_msg or None,
+    )
+    try:
+        tracer.record_span(span)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return
+
+
 def _record_action_end(
     ctx,
     step_id,
@@ -429,6 +479,7 @@ def _record_action_end(
             step_id=step_id,
             trace_id=action_trace_id,
         )
+    _record_action_telemetry(ctx, step_id, action_name, outcome, action_trace_id, start_time)
 
 
 def _normalize_point(ctx, point) -> list[int] | None:

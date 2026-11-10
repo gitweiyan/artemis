@@ -141,6 +141,8 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
     execution_setup: ExecutionSetup | None = None
 
     data_engine: DataEngine | None = None
+    telemetry_tracer: Any | None = None
+    """Per-session TelemetryTracer; created lazily from the Data Engine session."""
     planner_task: asyncio.Task[Any] | None = None
     background_tasks: list[asyncio.Task[Any]] = Field(default_factory=list)
     background_task_grace_period_seconds: float = 2.0
@@ -209,6 +211,21 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
     """Session :class:`~artemis.memory.transcript.TranscriptLedger` for the Pro
     operator's transcript prompt path (``agent.memory.transcript.enabled``).
     Lives beside ``step_memory``; the State never carries message payloads."""
+
+    def get_telemetry_tracer(self):
+        """Lazily create the session telemetry tracer beside the Data Engine."""
+
+        if self.telemetry_tracer is not None:
+            return self.telemetry_tracer
+        if self.data_engine is None or not getattr(self.data_engine, "current_session_id", None):
+            return None
+        from artemis.telemetry.tracer import TelemetryTracer
+
+        self.telemetry_tracer = TelemetryTracer(
+            trace_id=str(self.data_engine.current_session_id),
+            traces_dir=self.data_engine.base_dir,
+        )
+        return self.telemetry_tracer
 
     async def __aenter__(self) -> ArtemisContext:
         return self
