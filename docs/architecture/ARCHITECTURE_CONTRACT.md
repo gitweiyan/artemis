@@ -277,7 +277,7 @@ requirements:
 - Profile 可以标记平台身份，用于日志、配置、诊断和适配器选择。
 - L2/L3 不得根据平台字符串自行推断能力；必须读取 Capability View。
 - 一个设备可以同时使用多个 Observation Source 和 Actuation Sink。
-- Profile 必须声明必需能力、可选能力和 fallback 规则；静态注册/构建机制见 [ADR-005](../adr/ADR-005-adapter-registry-profile-builder.md)（Proposed）。
+- Profile 必须声明必需能力、可选能力和 fallback 规则；静态注册/构建机制见 [ADR-005](../adr/ADR-005-adapter-registry-profile-builder.md)（Accepted 2026-11-10）。
 - 不允许在发生非幂等动作失败后，未确认状态就切换另一个 Adapter 重放动作。
 
 ### 5.3 Capability Model
@@ -446,7 +446,7 @@ proposed
 - 保留稳定的基本交互方法；新增能力通过可选子 Port/Typed Action 与 Capability 声明，不把所有设备操作塞入一个巨型接口。
 - 触控、相对指针、绝对指针、键盘、文字输入、遥控器、窗口管理、App Lifecycle 和 Shell 是不同能力，不可静默互相降级。
 - `tap_abs` 传入设备屏幕坐标不意味着底层真的支持绝对 Touch；相对 Mouse 可以通过定位算法实现“目标位置点击”，但它必须声明 `relative_pointer` 与 Pointer Precheck。
-- `ControlSink` 不直接导入具体 USB/Serial/ADB 库；实现硬件协议的类属于 L4 Adapter。Driver/Controller 兼容期与退役条件见 [ADR-006](../adr/ADR-006-driver-controller-retirement.md)（Proposed）。
+- `ControlSink` 不直接导入具体 USB/Serial/ADB 库；实现硬件协议的类属于 L4 Adapter。Driver/Controller 兼容期与退役条件见 [ADR-006](../adr/ADR-006-driver-controller-retirement.md)（Accepted 2026-11-10）。
 
 ---
 

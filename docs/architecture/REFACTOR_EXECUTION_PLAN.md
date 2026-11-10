@@ -537,7 +537,7 @@ Application Service / Agent Tool
 
 ### Phase 9 — 清理兼容层与目录收敛
 
-**前置：** P9-A 的安全清理只要求 Android/iOS 已通过统一 Ports 的兼容测试且调用方已清零；P9-B 退役广义 Mobile Driver 契约前，仍要求至少一个真实非 Android/iOS Profile 通过 Adapter Contract Test。macOS/TV 目前是 design-only，不得假装已满足 P9-B。
+**前置：** P9-A 的安全清理只要求 Android/iOS 已通过统一 Ports 的兼容测试且调用方已清零；P9-B 退役广义 Mobile Driver 契约前，仍要求至少一个真实非 Android/iOS Profile 通过 Adapter Contract Test；**首个目标是 macOS（Phase 7），TV 随后**。两者目前是 design-only，不得假装已满足 P9-B。
 
 任务：
 
@@ -545,7 +545,7 @@ Application Service / Agent Tool
 - [ ] 根据真实依赖/变化原因决定是否把 `control/`、`perception/` 实现下沉到 Adapter；不做纯美观式重命名。
 - [x] 旧规范已标记 Superseded（2026-11-08）；本阶段只保留历史记录，不回填新决策（历史 B0–B6 计划与 v1 spec 均不再更新）。
 - [ ] 更新 root AGENTS 和子目录 AGENTS，确保架构规则可被 Coding Agent 直接加载。
-- [ ] **P9-B 条件性退役：** 第一个真实非 Android/iOS Profile 通过 Contract/Integration Test 后，再评估退役 `BaseDeviceDriver` 中剩余 Mobile 专属 API；未满足条件时保留兼容 Facade。
+- [ ] **P9-B 条件性退役：** **macOS（Phase 7）** 作为第一个真实非 Android/iOS Profile 通过 Contract/Integration Test 后，再评估退役 `BaseDeviceDriver` 中剩余 Mobile 专属 API；TV 随后；未满足条件时保留兼容 Facade。
 
 **Exit Criteria：** 旧兼容入口不存在隐式业务依赖；新增平台可按 Adapter/Profile 模式扩展；Architecture Test 阻止新违规依赖。
 
@@ -649,8 +649,8 @@ ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs
 | ADR-002 | [Coordinate Space、Transform 与迁移兼容](../adr/ADR-002-coordinate-spaces-transform.md) | Phase 1 PR-4；Phase 3 所有坐标链路；Phase 7 | **Accepted**（2026-11-10） |
 | ADR-003 | [Device/Target/Endpoint Identity、Session 生命周期与资源所有权](../adr/ADR-003-device-identity-session-resource-ownership.md) | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | **Accepted**（2026-11-09） |
 | ADR-004 | [Action Intent/Command/Receipt/Verification 状态语义](../adr/ADR-004-action-intent-command-receipt.md) | Phase 1 PR-4；Phase 3；Phase 5 | **Accepted**（2026-11-10） |
-| ADR-005 | [AdapterRegistry、Profile Builder 与静态注册契约](../adr/ADR-005-adapter-registry-profile-builder.md) | Phase 2 | **Proposed** |
-| ADR-006 | [BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件](../adr/ADR-006-driver-controller-retirement.md) | Phase 3；Phase 9-B | **Proposed** |
+| ADR-005 | [AdapterRegistry、Profile Builder 与静态注册契约](../adr/ADR-005-adapter-registry-profile-builder.md) | Phase 2 | **Accepted**（2026-11-10） |
+| ADR-006 | [BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件](../adr/ADR-006-driver-controller-retirement.md) | Phase 3；Phase 9-B | **Accepted**（2026-11-10） |
 | ADR-007 | Reflex Runtime、SafetyNet 与高频闭环安全预算 | Phase 3；Phase 5 | Planned |
 | ADR-008 | [Data Engine / Telemetry / Runtime Trace 数据权威；Capability Evidence Artifact 归属](../adr/ADR-008-data-engine-evidence-ownership.md) | Phase 1 PR-2；Phase 6 | **Accepted**（2026-11-09） |
 | ADR-009 | ESP32 Host-Firmware Protocol Versioning、Capability Handshake 与 ACK 语义 | Phase 4.2 | Planned |

@@ -27,8 +27,8 @@
 | ADR-002 | [Coordinate Space、Transform 与坐标兼容迁移](ADR-002-coordinate-spaces-transform.md) | Phase 1 PR-4；Phase 3 坐标链路；Phase 7 | **Accepted**（2026-11-10） |
 | ADR-003 | [Device/Target/Endpoint Identity、Session 生命周期与资源所有权](ADR-003-device-identity-session-resource-ownership.md) | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | **Accepted**（2026-11-09） |
 | ADR-004 | [Action Intent/Command/Receipt/Verification 状态语义](ADR-004-action-intent-command-receipt.md) | Phase 1 PR-4；Phase 3；Phase 5 | **Accepted**（2026-11-10） |
-| ADR-005 | [Adapter Registry、Profile Builder、静态注册机制](ADR-005-adapter-registry-profile-builder.md) | Phase 2 | Proposed |
-| ADR-006 | [BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件](ADR-006-driver-controller-retirement.md) | Phase 3；Phase 9-B | Proposed |
+| ADR-005 | [Adapter Registry、Profile Builder、静态注册机制](ADR-005-adapter-registry-profile-builder.md) | Phase 2 | **Accepted**（2026-11-10） |
+| ADR-006 | [BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件](ADR-006-driver-controller-retirement.md) | Phase 3；Phase 9-B | **Accepted**（2026-11-10） |
 | ADR-007 | Reflex Runtime、SafetyNet 与高频闭环安全预算 | Phase 3；Phase 5 | Planned |
 | ADR-008 | [Data Engine / Telemetry / Runtime Trace 数据权威与 Capability Evidence Artifact 归属](ADR-008-data-engine-evidence-ownership.md) | Phase 1 PR-2；Phase 6 | **Accepted**（2026-11-09） |
 | ADR-009 | ESP32 Host-Firmware Protocol、版本协商、Capability Handshake、ACK 语义 | Phase 4.2 | Planned |

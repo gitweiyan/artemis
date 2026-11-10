@@ -1,13 +1,13 @@
 # ADR-005: Static Adapter Registry and Profile Builder
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-10
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 2（Device Runtime / Adapter Registry / Profile Composer）；Phase 3/4 的 Composition Root
 - **Related:** 契约 §5.2（Profile）、§6.1–§6.2（Adapter/Profile）、§10（依赖方向）、§11（目录归属）；[ADR-001](ADR-001-capability-model-evidence-fingerprint.md)（Accepted）、[ADR-003](ADR-003-device-identity-session-resource-ownership.md)（Accepted）
 - **Audit evidence:** [`CURRENT_CALL_FLOWS.md`](../architecture/CURRENT_CALL_FLOWS.md) §3–§8、`artemis/orchestration/selector.py`、`artemis/drivers/factory.py`、`artemis/devices/app_session.py`、`artemis/devices/ios_uvc.py`
 
-> 状态说明：Proposed。批准前只允许盘点、原型和测试设计；不得合入改变设备选择行为的实现。
+> 状态说明：本 ADR 于 2026-11-10 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7。
 
 ---
 
@@ -89,7 +89,7 @@ Phase 2 要把 `create_driver` 拆成 Router + Builder；Phase 3 的 Session 边
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — 命名与归属
 
@@ -311,11 +311,13 @@ def select_device_profile(
 - 执行档位改名 `ExecutionProfile`，设备组合沿用 `DeviceProfile`（旧 `selector.DeviceProfile` re-export）。
 - 失败必须结构化，不回退。
 
-待定（不阻塞 Phase 2a）：
+2026-11-10 Owner 确认：
 
-1. Registry 是模块级单例还是每次 Composition Root 新建（建议新建 + `builtin_registry()`）。
-2. Adapter 物理目录：`devices/adapters/` vs 现有 `perception/control/reflex`（建议先注册现有实现，Phase 4 再迁移 I/O）。
-3. Profile Definition 的能力清单是否由代码生成（建议显式字面量 + CapabilityManifest 校验）。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | Registry 生命周期 | 每次 Composition Root 用 `builtin_registry()` 新建，不做模块级可变单例 | Phase 2a |
+| 2 | Adapter 物理目录 | Phase 2 先注册现有 `perception/control/reflex` 实现；I/O 迁移留 Phase 4 | Phase 2/4 |
+| 3 | Profile 能力清单 | 显式字面量，并用 `CapabilityManifest` 校验；不代码生成 | Phase 2a |
 
 ---
 
@@ -324,3 +326,4 @@ def select_device_profile(
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-10 | Proposed | Initial proposal | Factory 混合选择/配置/硬件；两个 Profile 同名；无 Registry/结构化失败；Phase 2 需要单一构建入口 |
+| 2026-11-10 | Accepted | 评审通过；确认每次新建 Registry、Phase 2 复用现有 Adapter、能力清单显式+Manifest 校验 | 三项细节由 Owner 确认；Phase 2 可开工 |

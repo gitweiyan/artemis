@@ -1,13 +1,13 @@
 # ADR-006: BaseDeviceDriver / UnifiedMobileController Compatibility and Retirement
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-10
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 3（DeviceSession/Ports 成为标准边界）；Phase 9-A（安全清理）；Phase 9-B（条件性退役）
 - **Related:** 契约 §5.4（Session）、§5.8（Control Port）、§6.1（Adapter）、§10（依赖方向）、§11（目录）；[ADR-003](ADR-003-device-identity-session-resource-ownership.md)（Accepted）、[ADR-005](ADR-005-adapter-registry-profile-builder.md)
 - **Audit evidence:** [`CURRENT_CALL_FLOWS.md`](../architecture/CURRENT_CALL_FLOWS.md) §2–§8、`artemis/drivers/base.py`、`artemis/controllers/unified_controller.py`、`third_party/mobile_use/controllers/unified_controller.py`、`artemis/mcp/observation.py`、`artemis/tools/base.py`
 
-> 状态说明：Proposed。批准前只允许盘点、原型和测试设计；不得删除或改变旧 Driver/Controller 的公开行为。
+> 状态说明：本 ADR 于 2026-11-10 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7/Phase 3。
 
 ---
 
@@ -97,7 +97,7 @@ Phase 3 要把动作边界切到 Session/Ports，但不能一次性删除这些�
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — 兼容期的硬规则
 
@@ -172,7 +172,7 @@ Phase 3 要把动作边界切到 Session/Ports，但不能一次性删除这些�
 
 **P9-B（条件性退役 Mobile 专属 API）额外条件：**
 
-6. 至少一个真实非 Android/iOS Profile（macOS 或 TV）通过 Adapter Contract/Integration Test（Mock/design-only 不算）。
+6. **macOS（Phase 7）作为第一个真实非 Android/iOS Profile** 通过 Adapter Contract/Integration Test（Mock/design-only 不算）；TV 随后。
 7. 新 Profile 证明 Observation/Actuation/Transport/Recording 可由 Ports 组合，且不需要 `BaseDeviceDriver`。
 8. 剩余 Mobile 专属 API 有替代 Port 或明确保留理由（例如 App Lifecycle 仍由 Platform Extension 提供）。
 
@@ -277,12 +277,14 @@ Phase 3 要把动作边界切到 Session/Ports，但不能一次性删除这些�
 - Controller 录像/日志保留到 Recording Port 落地。
 - 第三方位界保留。
 
-待定（不阻塞 Phase 3a）：
+2026-11-10 Owner 确认：
 
-1. `RecordingPort` 的归属与接口（Controller 迁出时机）。
-2. `AppLifecyclePort` 是否作为 Platform Extension 而不是通用 Port。
-3. P9-B 选择 macOS 还是 TV 作为第一个非移动 Profile（Phase 7/8 决策）。
-4. `ctx._active_driver` 删除前是否需要公开 deprecation 周期。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | RecordingPort 归属 | Phase 5 落地；在此之前 Controller 继续承担录像/日志 | Phase 5 |
+| 2 | AppLifecyclePort | 允许由 Platform Extension 提供（Profile 声明），不强制通用 Port | Phase 4/5 |
+| 3 | 第一个非移动 Profile | **macOS（Phase 7）**；TV 随后 | Phase 7/8 |
+| 4 | Context 旧属性 | 保留一个 deprecation 周期；P9-A 前置条件满足后才删除 | Phase 3/9-A |
 
 ---
 
@@ -291,3 +293,4 @@ Phase 3 要把动作边界切到 Session/Ports，但不能一次性删除这些�
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-10 | Proposed | Initial proposal | Driver 224 行宽接口、Controller 动作在 third_party、Session 仅 iOS 主链；Phase 3/9 需要可验证的兼容与退役规则 |
+| 2026-11-10 | Accepted | 评审通过；确认 RecordingPort 到 Phase 5、AppLifecycle 可由 Extension 提供、P9-B 首站 macOS、Context 旧属性保留一个 deprecation 周期 | 四项细节由 Owner 确认；Phase 3 可开工 |
