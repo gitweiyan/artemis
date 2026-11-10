@@ -425,9 +425,9 @@ Application Service / Agent Tool
 
 任务：
 
-- [ ] 将 `BaseDeviceDriver` 明确标记为 legacy compatibility façade；新 Driver 不得继续扩大其通用抽象面。
-- [ ] 将 Driver 中通用能力拆成可选协议/Port：Observation、Actuation、App Lifecycle、Window/Focus、Shell/Diagnostics、Recording；不要求所有设备实现全部协议。
-- [ ] Android/iOS Driver 先适配到这些 Port；不在同一 PR 中改变业务行为。
+- [x] 将 `BaseDeviceDriver` 明确标记为 legacy compatibility façade；新 Driver 不得继续扩大其通用抽象面（`legacy_facade=True` + docstring；新增 `DriverSessionAdapter`）。
+- [x] 将 Driver 中通用能力拆成可选协议/Port：Observation、Actuation、App Lifecycle、Window/Focus、Shell/Diagnostics、Recording；不要求所有设备实现全部协议。**Observation/Actuation 复用 `PerceptionSource`/`ControlSink`；AppLifecycle/Recording 的独立 Port 留 3c/Phase 5。**
+- [ ] Android/iOS Driver 先适配到这些 Port；不在同一 PR 中改变业务行为。**3a 提供 `DriverSessionAdapter`；Driver 动作尚未切到 Session，3b 待做。**
 - [ ] `UnifiedMobileController` 保留录像、日志、旧 API 等尚未迁移的能力，但其设备动作调用逐渐代理到 `DeviceSession`。
 - [ ] 将 `mcp/observation.py` 从强依赖 `UnifiedMobileController.get_screen_data()` 改为依赖统一 Observation/Application Service，同时保留旧输出 DTO。
 - [ ] 将 `mcp/action_executor.py` 的参数解析、目标解析、动作策略与底层 Actuator 拆开；Agent Tool DSL 保持兼容，底层 dispatch 通过 Control/Action Port。
@@ -435,7 +435,9 @@ Application Service / Agent Tool
 - [ ] 将 `ArtemisContext` 中 Device Client、Controller、Driver、Trace、Task State 的职责逐渐拆到专门对象；暂不一次性重写 Context。
 - [ ] 所有旧公开 import/CLI/MCP/SDK 参数保留 Facade；调用方清零后另开 PR 删除。
 
-**Exit Criteria：** Flash/Pro 的主要观察与动作路径通过标准 Ports 运行；MCP 工具 Schema 和现有外部调用没有非预期破坏；旧 Controller 仍可服务于未迁移的录像/诊断功能。
+**Exit Criteria（未满足，3a 完成）：** Flash/Pro 的主要观察与动作路径通过标准 Ports 运行；MCP 工具 Schema 和现有外部调用没有非预期破坏；旧 Controller 仍可服务于未迁移的录像/诊断功能。
+
+> Phase 3a（2026-11-10）：`BaseDeviceDriver.legacy_facade` 标记 + `DriverSessionAdapter`（复用既有 session 或 app 组合）；`tests/unit/devices/test_driver_ports.py`。剩余 3b–3e：Android Driver 动作委托 Session、Controller 代理、MCP Observation/Executor 改 Ports、Actuator 选择下沉 L4。全量单测 14 个既有失败 + 3692 passed。
 
 ### Phase 4 — 抽离通用 Adapter，并把 iOS 变成一个清晰的 Platform Profile
 

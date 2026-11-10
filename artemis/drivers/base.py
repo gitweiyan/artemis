@@ -69,6 +69,16 @@ class ScreenData(BaseModel):
 
 
 class BaseDeviceDriver(ABC):
+    """Legacy compatibility façade (ADR-006).
+
+    Do not add new generic methods here; new capabilities belong in optional
+    Ports (Observation/Actuation/AppLifecycle/...). New platforms must not
+    implement this wide interface.
+    """
+
+    #: Marker for architecture/diagnostics: this class is a compatibility façade.
+    legacy_facade = True
+
     """Abstract Base Class for mobile device and emulator drivers."""
 
     capabilities = CapabilitySet()
