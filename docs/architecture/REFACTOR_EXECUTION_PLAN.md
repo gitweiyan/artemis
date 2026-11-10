@@ -694,6 +694,7 @@ ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs
 | ADR-009 | [ESP32 Host-Firmware Protocol Versioning、Capability Handshake 与 ACK 语义](../adr/ADR-009-firmware-protocol-handshake.md) | Phase 4.2 | **Accepted**（2026-11-10） |
 | ADR-010 | [Platform Extension、语义动作映射、Prompt Guidance/App Lifecycle/Locator 插件](../adr/ADR-010-platform-extensions-semantic-actions.md) | Phase 4.3（含 MCP iOS 分支清理） | **Accepted**（2026-11-10） |
 | ADR-011 | [UVC/Serial 等共享 Host Resource Lease、并发和回收语义](../adr/ADR-011-host-resource-lease.md) | Phase 1 PR-3；Phase 2 | **Accepted**（2026-11-09） |
+| ADR-012 | [macOS Desktop Vertical Slice and P9-B Activation](../adr/ADR-012-macos-desktop-vertical-slice.md) | Phase 7 实现；P9-B | **Proposed**（2026-11-10） |
 
 建议顺序：ADR-003 → ADR-001/008 → ADR-002/004 → ADR-005/006 → ADR-007 → ADR-011 → ADR-009/010。实际开始某一 Phase 前，只要求其阻塞 ADR 已 Accepted；不要求提前批准所有未来平台决策。
 
