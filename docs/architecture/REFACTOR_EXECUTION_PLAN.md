@@ -495,6 +495,7 @@ Application Service / Agent Tool
 > Phase 5a–5d（2026-11-10，ADR-007 Accepted）：Reflex 新增 `ReflexBudget`、`ReflexResult.budget/incident/incidents`、canonical stop mapping、`Control.release_inputs` finally、`CaptureError.incident`；CLI/`play_reflex` 显式构造并展示预算。任务式 `ActionGate`/Validator Incident 统一仍待实现；真机 Reflex 取消/断连证据待补。
 >> Phase 5e（2026-11-10）：新增 `safety/gate.py`（`ActionGate`/`SafetyPolicy`）、`safety/incidents.py`（canonical 映射）、Validator 分类补齐 canonical 值；Pixel SafetyNet 缺失 `confidence` 时不再伪造成高/低置信失败（走 `pixel_bypassed`）。
 > Phase 5f（2026-11-10）：`ValidatorActionGate` 接入 `execution_loop._run_precondition_gate`；XML-first/pixel-fallback 行为不变，Port 返回 `GateDecision`。任务式 post-action verification 与 evidence 要求仍未接入。
+> Phase 5g（2026-11-10）：`ValidatorActionGate.verify()` 用 `safety/pixel.verify_effect` 检查 before/after 证据；`execution_loop` 支持显式 `verify_after` 的动作，缺失证据为 `target_unverified`、屏幕未变为 `no_effect`。默认高价值动作分类与 evidence 要求仍待接线。
 
 当前已有：`safety/xml.py`、`safety/pixel.py`、`safety/pointer.py`，以及 `agents/validator` 中的 Precondition/Execution/Incident 逻辑；`reflex/mouse.py` 也调用 Pixel/Pointer 原语。
 
@@ -505,7 +506,7 @@ Application Service / Agent Tool
 - [ ] 明确不同动作所需证据：绝对触控不要求 Pointer Precheck；相对指针点击必须先证明指针位置与目标一致；Remote Key 不需要像素 Pointer 校验。
 - [x] `confidence=None` 必须表示“来源未提供置信度”，不能自动映射为 `low_confidence`；没有证据不能虚构失败原因（Pixel SafetyNet 缺失/非法 confidence 走 `pixel_bypassed`）。
 - [x] 区分 `target_disappeared`、`target_shifted`、`pointer_missing`、`stale_frame`、`no_effect`、`capability_unavailable`、`command_unsupported`、`transport_error`、`device_disconnected` 等 Incident；取值以契约 §7.2 唯一命名表为准，不得另起别名（`ValidationErrorCategory`/`safety/incidents.py`；新增取值需先改契约）。
-- [ ] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification。
+- [ ] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification（`verify_after` 显式动作已支持；默认高价值分类待接线）。
 - [x] Reflex 高频 Loop 使用自己的安全预算：最大运行时长、FPS Cap、blind frame 上限、control failure 上限、急停/取消和释放输入状态。不要默认每帧执行重量级 SafetyNet/Trace 写盘（`ReflexBudget` + `ReflexRuntime` + CLI；见 ADR-007）。
 - [x] 所有执行器在取消、断连、异常退出时释放按下的键、鼠标按钮、触点和持续动作状态（Reflex `Control.release_inputs` + `Esp32HidControl`/`PointerControl` 接线；其他执行器后续统一）。
 

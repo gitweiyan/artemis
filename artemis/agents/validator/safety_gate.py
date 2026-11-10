@@ -7,11 +7,14 @@ Validator's existing patchable seams. ``execution_loop`` only sees a
 
 from __future__ import annotations
 
+import base64
+import binascii
 from typing import Any
 
 from artemis.agents.validator.categories import ValidationErrorCategory
 from artemis.safety.gate import GateDecision, SafetyRequest
 from artemis.safety.incidents import canonical_incident
+from artemis.safety.pixel import verify_effect
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -90,10 +93,53 @@ class ValidatorActionGate:
         )
 
     async def verify(self, request: SafetyRequest, result: Any) -> GateDecision:
-        """Task-level post-action verification is still owned by the Checker."""
+        """Task-level post-action pixel probe for an explicitly gated action.
 
+        The caller supplies the before/after screenshots and the target point in
+        screen pixels via ``request.metadata``. Missing or undecodable evidence is
+        ``target_unverified``/``decode_error`` — never a silent success.
+        """
+
+        meta = request.metadata
+        before_b64 = meta.get("before_image_b64")
+        after_b64 = meta.get("after_image_b64")
+        point = meta.get("point_px")
+        if not before_b64 or not after_b64 or not point:
+            return GateDecision(
+                False,
+                "target_unverified",
+                "post-action verification needs before/after screenshots and a target point",
+                requires_post_verification=False,
+            )
+        try:
+            before = base64.b64decode(before_b64)
+            after = base64.b64decode(after_b64)
+            x, y = int(point[0]), int(point[1])
+            verdict = verify_effect(before, after, (x, y))
+        except (ValueError, TypeError, OSError, binascii.Error):
+            return GateDecision(
+                False,
+                "decode_error",
+                "post-action verification could not decode its evidence",
+                requires_post_verification=False,
+            )
+        evidence = {
+            "crop_change": verdict.crop_change,
+            "frame_change": verdict.frame_change,
+            "result_ok": bool(getattr(result, "ok", result)),
+        }
+        if verdict.ok:
+            return GateDecision(
+                True,
+                None,
+                "post-action screen evidence changed",
+                evidence=evidence,
+                requires_post_verification=False,
+            )
         return GateDecision(
-            allowed=True,
-            reason="post-action verification is delegated to the task Checker",
+            False,
+            verdict.incident or "no_effect",
+            "post-action screen evidence did not change",
+            evidence=evidence,
             requires_post_verification=False,
         )

@@ -110,3 +110,112 @@ def test_execution_loop_delegates_to_the_node_action_gate():
     assert category is ValidationErrorCategory.TARGET_DISAPPEARED
     assert reason == "target moved"
     assert gate.request.action == "tap"
+
+
+def _png(color: tuple[int, int, int]) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (100, 100), color).save(out, "PNG")
+    return out.getvalue()
+
+
+def test_post_action_verify_uses_pixel_evidence_and_refuses_unknown_evidence():
+    from base64 import b64encode
+    from types import SimpleNamespace
+
+    from artemis.agents.validator.safety_gate import ValidatorActionGate
+
+    gate = ValidatorActionGate(SimpleNamespace())
+    request = SafetyRequest(
+        "tap",
+        metadata={
+            "before_image_b64": b64encode(_png((0, 0, 0))).decode(),
+            "after_image_b64": b64encode(_png((0, 0, 0))).decode(),
+            "point_px": (50, 50),
+        },
+    )
+
+    import asyncio
+
+    unchanged = asyncio.run(gate.verify(request, SimpleNamespace(ok=True)))
+    assert unchanged.allowed is False
+    assert unchanged.incident == "no_effect"
+
+    request = SafetyRequest("tap", metadata={})
+    missing = asyncio.run(gate.verify(request, SimpleNamespace(ok=True)))
+    assert missing.allowed is False
+    assert missing.incident == "target_unverified"
+
+
+def test_post_action_verify_passes_when_the_screen_changed():
+    from base64 import b64encode
+    from types import SimpleNamespace
+    import asyncio
+
+    from artemis.agents.validator.safety_gate import ValidatorActionGate
+
+    gate = ValidatorActionGate(SimpleNamespace())
+    request = SafetyRequest(
+        "tap",
+        metadata={
+            "before_image_b64": b64encode(_png((0, 0, 0))).decode(),
+            "after_image_b64": b64encode(_png((255, 255, 255))).decode(),
+            "point_px": (50, 50),
+        },
+    )
+
+    decision = asyncio.run(gate.verify(request, SimpleNamespace(ok=True)))
+
+    assert decision.allowed is True
+    assert decision.incident is None
+    assert decision.evidence["frame_change"] > 0
+
+
+def test_opt_in_post_verification_records_the_gate_decision():
+    import asyncio
+    from types import SimpleNamespace
+
+    from artemis.agents.validator.execution_loop import _ActionOutcome, _verify_after
+
+    class Gate:
+        def __init__(self):
+            self.request = None
+
+        async def check(self, request):
+            return GateDecision(True)
+
+        async def verify(self, request, result):
+            self.request = request
+            return GateDecision(False, "no_effect", "nothing changed", {})
+
+    class Session:
+        async def screenshot_b64(self):
+            from base64 import b64encode
+
+            return b64encode(_png((0, 0, 0))).decode()
+
+    gate = Gate()
+    node = SimpleNamespace(
+        ctx=SimpleNamespace(device=SimpleNamespace(device_width=1000, device_height=1000)),
+        safety_gate=gate,
+    )
+    outcome = _ActionOutcome(action_item={"action": "tap"})
+    action = {"action": "tap", "coordinates": [500, 500], "verify_after": True}
+
+    asyncio.run(
+        _verify_after(
+            node,
+            Session(),
+            outcome,
+            __import__("base64").b64encode(_png((0, 0, 0))).decode(),
+            action,
+        )
+    )
+
+    assert outcome.success is False
+    assert outcome.error_category.value == "no_effect"
+    assert action["post_verification"]["incident"] == "no_effect"
+    assert gate.request.metadata["point_px"] == (500, 500)

@@ -153,6 +153,68 @@ async def _capture_live_screenshot(session, context_desc: str) -> str | None:
         return None
 
 
+async def _verify_after(
+    node,
+    session,
+    outcome: _ActionOutcome,
+    pre_screenshot_b64: str,
+    action_item: dict,
+) -> None:
+    """Optional post-action probe for explicitly high-value actions.
+
+    This is opt-in via ``verify_after`` so existing turns keep their latency. The
+    gate receives the turn-initial and post-action screenshots; a missing/empty
+    probe is an incident, not a silent dispatch-only success.
+    """
+
+    if not action_item.get("verify_after"):
+        return
+    try:
+        after_b64 = await session.screenshot_b64()
+    except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+        outcome.success = False
+        outcome.error_msg = f"Post-action verification could not capture the screen: {exc}"
+        outcome.error_category = ValidationErrorCategory.CAPTURE_TIMEOUT
+        return
+    outcome.post_screenshot_b64 = after_b64
+    ctx = getattr(node, "ctx", None)
+    width = getattr(getattr(ctx, "device", None), "device_width", 1080) or 1080
+    height = getattr(getattr(ctx, "device", None), "device_height", 2400) or 2400
+    coords = action_item.get("coordinates") or []
+    if len(coords) == 2:
+        try:
+            nx, ny = int(coords[0]), int(coords[1])
+            point = (
+                max(0, min(width - 1, round(nx * width / 1000))),
+                max(0, min(height - 1, round(ny * height / 1000))),
+            )
+        except (TypeError, ValueError):
+            point = (width // 2, height // 2)
+    else:
+        point = (width // 2, height // 2)
+    from artemis.safety.gate import SafetyRequest
+
+    gate = getattr(node, "safety_gate", None)
+    if gate is None:
+        return
+    decision = await gate.verify(
+        SafetyRequest(
+            action=str(action_item.get("action") or "action"),
+            metadata={
+                "before_image_b64": pre_screenshot_b64,
+                "after_image_b64": after_b64,
+                "point_px": point,
+            },
+        ),
+        None,
+    )
+    action_item["post_verification"] = decision.as_dict()
+    if not decision.allowed:
+        outcome.success = False
+        outcome.error_msg = f"Post-action verification failed: {decision.reason}"
+        outcome.error_category = incident_category(decision.incident)
+
+
 async def _process_action(
     node,
     state: State,
@@ -206,6 +268,8 @@ async def _process_action(
         )
         if not outcome.success and action_item.get("incident"):
             outcome.error_category = incident_category(action_item["incident"])
+        if outcome.success:
+            await _verify_after(node, session, outcome, pre_screenshot_b64, action_item)
 
     if not outcome.success:
         logger.info("Action failed, capturing failure screenshot...")
