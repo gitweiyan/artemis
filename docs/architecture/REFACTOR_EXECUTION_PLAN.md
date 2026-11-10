@@ -662,8 +662,8 @@ ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs
 | ADR-006 | [BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件](../adr/ADR-006-driver-controller-retirement.md) | Phase 3；Phase 9-B | **Accepted**（2026-11-10） |
 | ADR-007 | Reflex Runtime、SafetyNet 与高频闭环安全预算 | Phase 3；Phase 5 | Planned |
 | ADR-008 | [Data Engine / Telemetry / Runtime Trace 数据权威；Capability Evidence Artifact 归属](../adr/ADR-008-data-engine-evidence-ownership.md) | Phase 1 PR-2；Phase 6 | **Accepted**（2026-11-09） |
-| ADR-009 | ESP32 Host-Firmware Protocol Versioning、Capability Handshake 与 ACK 语义 | Phase 4.2 | Planned |
-| ADR-010 | Platform Extension、语义动作映射、Prompt Guidance/App Lifecycle/Locator 插件 | Phase 4.3（含 MCP iOS 分支清理） | Planned |
+| ADR-009 | [ESP32 Host-Firmware Protocol Versioning、Capability Handshake 与 ACK 语义](../adr/ADR-009-firmware-protocol-handshake.md) | Phase 4.2 | **Proposed** |
+| ADR-010 | [Platform Extension、语义动作映射、Prompt Guidance/App Lifecycle/Locator 插件](../adr/ADR-010-platform-extensions-semantic-actions.md) | Phase 4.3（含 MCP iOS 分支清理） | **Proposed** |
 | ADR-011 | [UVC/Serial 等共享 Host Resource Lease、并发和回收语义](../adr/ADR-011-host-resource-lease.md) | Phase 1 PR-3；Phase 2 | **Accepted**（2026-11-09） |
 
 建议顺序：ADR-003 → ADR-001/008 → ADR-002/004 → ADR-005/006 → ADR-007 → ADR-011 → ADR-009/010。实际开始某一 Phase 前，只要求其阻塞 ADR 已 Accepted；不要求提前批准所有未来平台决策。
