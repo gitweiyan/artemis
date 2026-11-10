@@ -791,9 +791,7 @@ class FlashRunner:
                 evidence = ActionEvidence(
                     ids=DataIds(
                         session_id=str(self.ctx.data_engine.current_session_id),
-                        task_id=str(
-                            getattr(self.ctx.data_engine, "current_task_id", "") or ""
-                        )
+                        task_id=str(getattr(self.ctx.data_engine, "current_task_id", "") or "")
                         or None,
                         device_id=str(
                             getattr(getattr(self.ctx, "device", None), "device_id", "") or ""
