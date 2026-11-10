@@ -351,14 +351,17 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 
 #### PR-4 — Observation / Geometry / Action Contract
 
-- [ ] 为 Frame 建立稳定 frame_id/时间域/source/health/artifact reference；Target 必须引用产生它的 Observation/Frame。
-- [ ] Point/Box 必须携带 CoordinateSpace；显式区分 Agent Point（现有 0–1000）、Target Box（现有 0–1）、Frame Pixel、Device Pixel、Window/Display Coordinate。
-- [ ] 给 ScreenGeometry 增加可组合 Transform，覆盖 Crop、Letterbox、Rotation、Display Scale、Window Offset；迁移期保留旧格式 Compatibility Adapter。
-- [ ] 统一 Action Intent、Action Command、Action Receipt、Verification Result 的字段和状态边界；现有 `ActionResult.ok` 仅表示所选 Adapter 接受/派发，不表示 OS/UI/业务目标成功。
-- [ ] 过期 Frame、坐标空间不匹配、Transform 无效时拒绝执行；不允许裸坐标跨层传递。
-- [ ] Contract Tests 覆盖缺能力、unknown 能力、坐标错配、Frame 过期、关闭后调用、重复释放、Adapter ACK 与后续效果分离。
+- [x] 为 Frame 建立稳定 `frame_id`/source/health（UVC/App/Camera 快照生成 id），Target 可引用产生它的 Frame（`Target.frame_id`）。**artifact reference 仍由 Data Engine 侧关联，未写入 Frame。**
+- [x] Point/Box 必须携带 CoordinateSpace；显式区分 Agent Point、Target Box、Frame Pixel、Device Pixel、Pointer Frame Pixel、Window/Display（`artemis/core/coordinates.py`）。
+- [x] 给 ScreenGeometry 增加可组合 Transform，覆盖 Crop、Letterbox、Rotation、Scale、Window/Display；旧方法保持兼容（`ScreenGeometry.transform()/pointer_transform()`）。
+- [x] 统一 Action Intent、Action Command、Action Receipt、Verification Result 的字段和状态边界（`artemis/core/actions.py`）；`ActionResult.ok` 注释固定为 Adapter 接受/派发；Executor/Validator 写入 `action_id`/`action_attempt`/`action_state` 元数据；MCP `ActionResult` 模型不变。
+- [ ] 过期 Frame、坐标空间不匹配、Transform 无效时拒绝执行；不允许裸坐标跨层传递。**DTO/Transform 与测试已备；执行边界（ADB/HID/Validator 前置校验）尚未接线。**
+- [ ] Contract Tests 覆盖缺能力、unknown 能力、坐标错配、Frame 过期、关闭后调用、重复释放、Adapter ACK 与后续效果分离。**已有坐标/动作/能力/生命周期单测；stale-frame 与 coordinate mismatch 的端到端契约测试待执行边界接线后补。**
 
-**PR-4 验收：** 旧 Agent Action 格式仍能通过兼容层工作；新 Port/DTO 显式表达坐标与动作阶段；不改变现有 Android/iOS 点击策略，除非另有行为变更 PR。
+**PR-4 验收（部分满足，2026-11-10）：** 旧 Agent Action 格式仍能通过兼容层工作；新 DTO 显式表达坐标与动作阶段；现有 Android/iOS 点击策略未改。
+证据：`tests/unit/core/test_coordinates.py`、`tests/unit/core/test_actions.py`；全量 `pytest tests/unit -q` 为 14 个既有失败 + 3677 passed（新增 20 个测试）。
+
+> 剩余（PR-4c/4d）：ADB/HID/Validator 边界改用 `CoordinateTransform` 与 frame/transform 前置校验；Checker/Validator 写 `VerificationResult`；补 stale-frame/coordinate-mismatch/ACK-vs-effect 契约测试。
 
 **Phase 1 Exit Criteria：** 四个 PR 合并；Core Contract 不导入 ADB、UVC、pyserial、TinyUSB、Android/iOS SDK；Android/iOS 兼容测试保持；能力缺失可明确报告 `capability_unavailable` / `unknown`，不会退化为 AttributeError；设备与共享硬件资源生命周期可测试、可恢复。
 

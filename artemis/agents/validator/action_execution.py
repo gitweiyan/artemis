@@ -22,6 +22,7 @@ import asyncio
 import base64
 import json
 from pathlib import Path
+import uuid
 
 from artemis.agents.validator.categories import ValidationErrorCategory
 from artemis.context import ArtemisContext
@@ -96,6 +97,8 @@ async def exec_action(
     the structured ``ActionResult.ok`` -- no string parsing.
     """
     action_name = action_item.get("action")
+    action_id = action_item.setdefault("action_id", uuid.uuid4().hex)
+    attempt = int(action_item.get("action_attempt", 1) or 1)
 
     if action_name == "wait_for_delay":
         time_in_ms = action_item.get("time_in_ms", 0)
@@ -120,6 +123,9 @@ async def exec_action(
     # structured incident. Record it on the action item so the execution loop can open
     # the matching incident and the trace keeps the evidence. Platforms that report
     # nothing leave the action item byte-identical to before.
+    action_item["action_state"] = "adapter_acknowledged" if res.ok else "unknown"
+    action_item["action_id"] = action_id
+    action_item["action_attempt"] = attempt
     metrics = getattr(res, "metrics", None)
     if metrics:
         action_item["action_metrics"] = dict(metrics)

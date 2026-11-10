@@ -16,6 +16,8 @@ class Frame:
     height: int
     source: str
     health: str = "ok"
+    frame_id: str | None = None
+    geometry_revision: str | None = None
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,8 @@ class Target:
     box: tuple[float, float, float, float]
     confidence: float
     source: str
+    frame_id: str | None = None
+    transform_id: str | None = None
 
 
 @dataclass(frozen=True)

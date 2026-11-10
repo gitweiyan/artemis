@@ -17,6 +17,10 @@ class ActionResult:
     #: Structured evidence for telemetry/replay (pointer position, error, frame age,
     #: latency). Free text in ``detail`` is for humans; this is what a graph can read.
     metrics: dict[str, float | str] | None = None
+    #: ADR-004 compatibility: ``ok`` only proves the adapter accepted/dispatched.
+    action_id: str | None = None
+    attempt: int | None = None
+    state: str | None = None
 
 
 @runtime_checkable

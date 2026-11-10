@@ -136,6 +136,7 @@ async def _attempt_local_execution(
     success = False
     error_msg = ""
     for attempt in range(max_local_retries):
+        action_item["action_attempt"] = attempt + 1
         try:
             exec_success, exec_error = await node._exec_action(session, action_item)
         except Exception as e:

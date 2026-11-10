@@ -35,6 +35,7 @@ import asyncio
 import hashlib
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -167,8 +168,10 @@ class McpActionExecutor:
         *,
         index_elements: list[dict[str, Any]] | None = None,
     ) -> ToolExecutionResult:
+        action_id = uuid.uuid4().hex
+        attempt = 1
         span = TraceSpan(name=raw_name, trace_type="action", ctx=self.ctx)
-        span.payload = {"args": args}
+        span.payload = {"args": args, "action_id": action_id, "attempt": attempt}
 
         message = ""
         res: ActionResult | None = None
@@ -241,6 +244,7 @@ class McpActionExecutor:
                     " the next step."
                 )
 
+            action_state = "adapter_acknowledged" if res.ok else "unknown"
             status = "success" if res.ok else "error"
             post_image_name = None
             if shot_path:
@@ -275,6 +279,9 @@ class McpActionExecutor:
                 # and why it refused: recorded by both profiles, not just the Validator.
                 "incident": getattr(res, "incident", None),
                 "action_metrics": getattr(res, "metrics", None),
+                "action_id": action_id,
+                "action_attempt": attempt,
+                "action_state": action_state,
             },
         )
 

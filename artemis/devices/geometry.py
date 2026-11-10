@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from artemis.core.coordinates import CoordinateSpace, CoordinateTransform
+
 
 def _positive_pair(value: tuple[int, int], name: str) -> tuple[int, int]:
     width, height = (int(part) for part in value)
@@ -82,6 +84,41 @@ class ScreenGeometry:
         nx = round(int(x) * 1000 / width)
         ny = round(int(y) * 1000 / height)
         return max(0, min(1000, nx)), max(0, min(1000, ny))
+
+    def transform(
+        self,
+        *,
+        frame_id: str = "",
+        rotation_degrees: int = 0,
+        revision: str | None = None,
+    ) -> CoordinateTransform:
+        """The typed frame→device transform for this geometry (ADR-002)."""
+
+        return CoordinateTransform.frame_to_device(
+            frame_size=self.frame_size,
+            screen_size=self.screen_size,
+            content_rect=self.content_rect,
+            rotation_degrees=rotation_degrees,
+            frame_id=frame_id,
+            revision=revision,
+        )
+
+    def pointer_transform(
+        self,
+        *,
+        frame_id: str = "",
+        rotation_degrees: int = 0,
+    ) -> CoordinateTransform:
+        """Device pixels → the cropped pointer-detector frame (iOS crop)."""
+
+        return CoordinateTransform.device_to_frame(
+            frame_size=self.frame_size,
+            screen_size=self.screen_size,
+            content_rect=(0, 0, self.frame_size[0], self.frame_size[1]),
+            rotation_degrees=rotation_degrees,
+            target=CoordinateSpace.POINTER_FRAME_PIXEL,
+            frame_id=frame_id,
+        )
 
     def screen_to_frame(self, x: int, y: int) -> tuple[int, int]:
         """Convert device pixels into captured-frame pixels.

@@ -14,6 +14,7 @@ that needs OCR.
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 from artemis.devices.capabilities import CapabilitySet
 from artemis.perception.base import Frame, UIElement
@@ -39,6 +40,7 @@ class AppAutomationSource:
             height=int(getattr(data, "height", 0) or 0),
             source=self.name,
             health="ok" if image else "black",
+            frame_id=uuid.uuid4().hex,
         )
 
     async def ui_tree(self) -> list[UIElement] | None:

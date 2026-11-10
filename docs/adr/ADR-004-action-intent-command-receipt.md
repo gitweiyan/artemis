@@ -209,7 +209,7 @@ class VerificationResult:
 
 - `control.base.ActionResult.ok` 语义固定为 **“所选 Adapter 接受/派发”**（契约 §5.7 已如此规定），不得解释为 UI/业务成功。
 - `control.base.ActionResult` additive 字段：`action_id`, `attempt`, `state`（可选）；旧调用继续只读 `ok`/`incident`/`metrics`。
-- `mcp.action_types.ActionResult` 增加可选 `action_id`/`attempt`/`state`；`ToolExecutionResult.metadata` 写入 `action_id`、`state`、`receipt` 摘要；MCP tool schema 不变。
+- `mcp.action_types.ActionResult` **模型不改**（MCP tool/structured-output schema 不变）；`action_id`/`attempt`/`state` 通过 `ToolExecutionResult.metadata` 与 Trace payload 传递，等外部 schema 版本策略确定后再进模型。
 - `status="success"` 在 Flash/执行器层只表示“命令被接受”，UI/验收仍由 Observation/Checker 给出；`no_effect`/`target_unverified` 继续作为 receipt 的 incident/evidence。
 - 兼容期允许不产生完整 Receipt；但 Phase 3 起执行路径必须写 `action_id` 与 `state`。
 

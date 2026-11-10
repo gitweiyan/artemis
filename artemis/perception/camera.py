@@ -13,6 +13,7 @@ The grabber is a seam: production uses macOS screen/ffmpeg capture through
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 from artemis.devices.capabilities import CapabilitySet
 from artemis.perception.base import Frame
@@ -55,6 +56,7 @@ class CameraSource:
                 height=0,
                 source=self.name,
                 health="black",
+                frame_id=uuid.uuid4().hex,
             )
         from artemis.perception.uvc import _classify
 

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from io import BytesIO
 import time
+import uuid
 
 from PIL import Image
 
@@ -73,6 +75,7 @@ class UvcSource:
             height=raw.height,
             source=self.name,
             health=_classify(raw.image),
+            frame_id=uuid.uuid4().hex,
         )
 
     @property
@@ -149,11 +152,14 @@ class UvcSource:
                     min(1.0, x + half),
                     min(1.0, y + half),
                 )
-                return Target(
-                    label=target.label,
-                    box=box,
-                    confidence=0.9,
-                    source="locate-anything",
+                return replace(
+                    Target(
+                        label=target.label,
+                        box=box,
+                        confidence=0.9,
+                        source="locate-anything",
+                    ),
+                    frame_id=frame.frame_id,
                 )
         boxes = await self.ocr(frame)
         if boxes is None:
@@ -161,16 +167,18 @@ class UvcSource:
         from artemis.perception.text_locator import locate_text
 
         found = locate_text(boxes, target.label)
-        if found is None or self.target_adjuster is None:
+        if found is None:
+            return None
+        found = replace(found, frame_id=frame.frame_id)
+        if self.target_adjuster is None:
             return found
         adjusted = await asyncio.to_thread(self.target_adjuster, frame.image, found.box)
         if adjusted is None:
             return found
         # Keep the matched text and its confidence: the geometry changed, the evidence
         # did not.
-        return Target(
-            label=found.label,
+        return replace(
+            found,
             box=adjusted.box,
-            confidence=found.confidence,
             source=adjusted.source,
         )
