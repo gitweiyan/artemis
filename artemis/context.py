@@ -187,8 +187,10 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
     _video_blackboard: Any | None = PrivateAttr(default=None)
     _video_circuit_breaker: Any | None = PrivateAttr(default=None)
     _mobile_controller: Any | None = PrivateAttr(default=None)
+    """DEPRECATED (ADR-006): use ``device_session``/Ports in new code."""
     _active_driver: Any | None = PrivateAttr(default=None)
-    """Cached device driver singleton (artemis.drivers.factory.get_driver)."""
+    """DEPRECATED (ADR-006): cached legacy driver (``get_driver``); new code uses
+    ``device_session`` and its Observation/Actuation Ports."""
     mcp_client_ctx: Any | None = None
     mcp_session: Any | None = None
     action_session: Any | None = None

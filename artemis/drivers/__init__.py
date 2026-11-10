@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Universal Device Driver framework for ARTEMIS."""
+"""Legacy Device Driver framework (ADR-006 façade; new platforms use Ports/Profiles)."""
 
 from artemis.drivers.base import (
     BaseDeviceDriver,

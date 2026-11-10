@@ -12,6 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Legacy controller façade (ADR-006): recording, logging and the old API only.
+
+Device actions are expected to reach the DeviceSession through the driver façade;
+new code should consume DeviceSession/Ports instead of this controller.
+"""
+
 import asyncio
 import os
 from pathlib import Path

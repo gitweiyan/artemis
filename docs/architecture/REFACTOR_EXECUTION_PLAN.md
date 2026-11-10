@@ -432,13 +432,14 @@ Application Service / Agent Tool
 - [x] 将 `mcp/observation.py` 从强依赖 `UnifiedMobileController.get_screen_data()` 改为依赖统一 Observation/Application Service，同时保留旧输出 DTO（`ObservationPort`/`ControllerObservationPort`；模块不再 import 具体 controller 类；Session-backed Port 留 Phase 4）。
 - [x] 将 `mcp/action_executor.py` 的参数解析、目标解析、动作策略与底层 Actuator 拆开；Agent Tool DSL 保持兼容，底层 dispatch 通过 Control/Action Port（Actuator 选择集中到 `mcp/actuators/factory.py`；具体 ADB 实现文件迁移留 Phase 4/9）。
 - [x] 审核 `mcp/actuators/adb.py`：ADB 实现属于 L4，不应由通用 Action Executor 直接选择或构造（Executor 只调用 factory；ADB 文件仍在 mcp 包内，迁移属 Phase 4/9）。
-- [ ] 将 `ArtemisContext` 中 Device Client、Controller、Driver、Trace、Task State 的职责逐渐拆到专门对象；暂不一次性重写 Context。
-- [ ] 所有旧公开 import/CLI/MCP/SDK 参数保留 Facade；调用方清零后另开 PR 删除。
+- [ ] 将 `ArtemisContext` 中 Device Client、Controller、Driver、Trace、Task State 的职责逐渐拆到专门对象；暂不一次性重写 Context。**3e 仅完成 deprecation 标记（`_active_driver`/`_mobile_controller`/Controller/Tool driver 注入）；对象拆分留 Phase 4/9。**
+- [x] 所有旧公开 import/CLI/MCP/SDK 参数保留 Facade；调用方清零后另开 PR 删除（当前所有 Facade 保留，删除动作留 Phase 9-A）。
 
-**Exit Criteria（未满足，3a–3d 完成）：** Flash/Pro 的主要观察与动作路径通过标准 Ports 运行；MCP 工具 Schema 和现有外部调用没有非预期破坏；旧 Controller 仍可服务于未迁移的录像/诊断功能。
+**Exit Criteria（未满足，3a–3d 完成、3e 仅 deprecation）：** Flash/Pro 的主要观察与动作路径通过标准 Ports 运行；MCP 工具 Schema 和现有外部调用没有非预期破坏；旧 Controller 仍可服务于未迁移的录像/诊断功能。
 
 > Phase 3a–3d（2026-11-10）：`BaseDeviceDriver.legacy_facade` + `DriverSessionAdapter`；Android `tap/swipe/input_text/press_key` 经 Session Sink（dispatch depth 防递归，long press/multi-tap 保持 legacy 参数）；Controller 动作经 Driver facade 到达 Session；`ObservationPort`/`ControllerObservationPort` + `ActuatorFactory`。
-> 剩余 3e：Context/工具新入口、`_active_driver`/`_mobile_controller` deprecation；Phase 4 再做 Session-backed Observation Port 与 ADB 文件迁移。全量单测 14 个既有失败 + 3700 passed。
+> 3e（2026-11-10）：`_active_driver`/`_mobile_controller`、Controller 模块、Tool driver 注入标记为 DEPRECATED；未拆分 Context 对象、未删除 Facade。
+> 剩余：Phase 4 的 Session-backed Observation Port、ADB 文件迁移、Context 职责拆分与 Phase 9-A 删除 shim。全量单测 14 个既有失败 + 3700 passed。
 > 剩余 3d–3e：MCP Observation/Executor 改 Ports、Actuator 选择下沉 L4、Context 旧属性 deprecation。全量单测 14 个既有失败 + 3695 passed。
 
 ### Phase 4 — 抽离通用 Adapter，并把 iOS 变成一个清晰的 Platform Profile

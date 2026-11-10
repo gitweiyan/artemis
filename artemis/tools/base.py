@@ -91,6 +91,8 @@ class ArtemisTool:
         """Exports this tool to a LangChain StructuredTool."""
 
         def _get_context_driver() -> BaseDeviceDriver | None:
+            # DEPRECATED (ADR-006): new tools should consume DeviceSession/Ports or an
+            # Application Service; this driver injection remains for legacy tools.
             if (
                 ctx is not None
                 and hasattr(ctx, "device")
