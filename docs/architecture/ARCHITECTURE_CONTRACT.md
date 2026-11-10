@@ -402,7 +402,7 @@ Lease Manager 的实现是否复用/抽取 `DeviceExecutionLock` 的底层原语
 2. 转换必须经过 `ScreenGeometry`/`CoordinateTransform`，禁止在 Agent/Driver 中散落 `x * width / 1000`。
 3. Crop、Letterbox、Rotation、Display Scale、Window Offset 都必须参与 transform。
 4. Frame 和 Transform 必须能关联到同一版本；不能用过期 Frame 的位置去操作新页面。
-5. 对模型输入/输出的历史坐标格式使用 Compatibility Adapter；是否最终统一为 `[0,1]` 或 `[0,1000]` 必须由 [ADR-002](../adr/ADR-002-coordinate-spaces-transform.md)（Proposed）决策。迁移期间不允许静默混用。
+5. 对模型输入/输出的历史坐标格式使用 Compatibility Adapter；是否最终统一为 `[0,1]` 或 `[0,1000]` 由 [ADR-002](../adr/ADR-002-coordinate-spaces-transform.md)（Accepted 2026-11-10）决定：Phase 9 前保留两套尺度。迁移期间不允许静默混用。
 6. 坐标换算失败或无法确认屏幕变换时拒绝动作，不盲点。
 
 ### 5.7 Action Intent / Command / Result
@@ -433,7 +433,7 @@ proposed
 - `verified_failure`：有证据表明目标未达成或操作失败。
 - `unknown`：证据不足，不得伪装成功。
 
-现有 `ActionResult.ok` 在兼容期只表示 Adapter 控制调用成功/接受；不能解释成 UI/业务完成。完整 Intent/Command/Receipt/Verification 语义见 [ADR-004](../adr/ADR-004-action-intent-command-receipt.md)（Proposed）。
+现有 `ActionResult.ok` 在兼容期只表示 Adapter 控制调用成功/接受；不能解释成 UI/业务完成。完整 Intent/Command/Receipt/Verification 语义见 [ADR-004](../adr/ADR-004-action-intent-command-receipt.md)（Accepted 2026-11-10）。
 
 非幂等操作（点击提交、购买、开关电源、确认支付、切换输入源等）默认禁止盲目重试。需要 Action ID、幂等策略或动作后观察确认。
 
@@ -540,6 +540,7 @@ Incident 表达可操作的事实，而不是猜测。下表是**跨层唯一命
 | `uvc_no_signal` | 已有 | 采集卡无信号（HDMI/HDCP、息屏） |
 | `decode_error` | 新增 | 帧解码失败 |
 | `stale_frame` | 已有 | 验证帧超过新鲜度预算 |
+| `coordinate_space_mismatch` | 新增（ADR-002） | 坐标空间/Transform/frame 引用不一致或不可逆；必须拒绝动作，不得 clamp 或猜测 |
 | `target_disappeared` | 已有 | 目标从画面/树中消失 |
 | `target_shifted` | 已有 | 目标移动，原坐标失效 |
 | `target_occupied` | 已有 | 目标被弹层/键盘/其他元素遮挡 |

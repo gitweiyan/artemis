@@ -1,13 +1,13 @@
 # ADR-004: Action Intent / Command / Receipt / Verification Semantics
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 1 PR-4（Observation / Geometry / Action Contract）；Phase 3（执行边界）；Phase 5（Safety/Verification 收敛）
 - **Related:** 契约 §5.7（Action Intent/Command/Result）、§7（Safety/Verification）；[ADR-002](ADR-002-coordinate-spaces-transform.md)（坐标引用）、[ADR-008](ADR-008-data-engine-evidence-ownership.md)（证据存储）
 - **Audit evidence:** [`CURRENT_CALL_FLOWS.md`](../architecture/CURRENT_CALL_FLOWS.md) §5–§10、`artemis/control/base.py`、`artemis/mcp/action_types.py`、`artemis/mcp/action_executor.py`、`artemis/agents/validator/execution_loop.py`
 
-> 状态说明：Proposed。批准前只允许盘点、原型和测试设计；不得合入改变公共 Action 契约的实现。
+> 状态说明：本 ADR 于 2026-11-10 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7。
 
 ---
 
@@ -92,7 +92,7 @@ PR-4 要动 ActionResult/Geometry；ADR-002 定义 `PointRef/BoxRef` 后，Comma
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — Action DTO（`artemis/core/actions.py`，标准库）
 
@@ -326,12 +326,14 @@ class VerificationResult:
 - 未声明幂等的动作默认 `UNSAFE`。
 - Verification 只能由 Checker/Validator 写，success 必须有 evidence。
 
-待定（不阻塞 PR-4a）：
+2026-11-10 Owner 确认：
 
-1. ActionSpec 的幂等分类由谁维护（manifest 或每个 tool 声明）。
-2. `action_id` 由 Executor 还是 ActionSession 生成（建议 Executor，Session 只透传）。
-3. 本地 Validator 重试上限是否保持 2 次（Phase 5 再定）。
-4. 是否将 Receipt 全量落 Data Engine Step（建议引用 + 摘要，完整 receipt 进 trace payload/artifact）。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | 幂等分类由谁维护 | ActionSpec/Manifest 声明；未声明默认 `UNSAFE` | PR-4c |
+| 2 | `action_id` 生成方 | Executor 生成并在首次派发前写入；ActionSession 只透传 | PR-4b |
+| 3 | Validator 本地重试上限 | 保持 2 次；Phase 5 再评估 | Phase 5 |
+| 4 | Receipt 落库粒度 | Step 存引用 + 摘要；完整 receipt 进 Trace payload/Artifact | PR-4d |
 
 ---
 
@@ -340,3 +342,4 @@ class VerificationResult:
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-09 | Proposed | Initial proposal | `ok` 混淆派发/成功；无 action_id/幂等/统一 Verification；PR-4 与 ADR-002 需要 Action 边界 |
+| 2026-11-10 | Accepted | 评审通过；确认 ActionSpec 声明幂等、Executor 生成 action_id、重试上限 2、Receipt 摘要+Artifact | 四项剩余细节由 Owner 确认；PR-4 可进入实现 |

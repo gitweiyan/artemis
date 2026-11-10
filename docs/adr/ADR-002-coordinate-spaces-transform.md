@@ -1,13 +1,13 @@
 # ADR-002: Coordinate Spaces, Transforms and Compatible Migration
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 1 PR-4（Observation / Geometry / Action Contract）；Phase 3 坐标链路；Phase 7（macOS 多屏/窗口）
 - **Related:** 契约 §5.5（Frame/Target）、§5.6（Coordinate Space/Geometry）、§5.7（Action）；[ADR-001](ADR-001-capability-model-evidence-fingerprint.md)（Accepted）、[ADR-004](ADR-004-action-intent-command-receipt.md)
 - **Audit evidence:** [`CURRENT_CALL_FLOWS.md`](../architecture/CURRENT_CALL_FLOWS.md) §3–§8、`artemis/devices/geometry.py`、`artemis/utils/coordinates.py`、`artemis/mcp/actuators/adb.py`、`artemis/control/hid.py`
 
-> 状态说明：Proposed。批准前只允许盘点、原型和测试设计；不得合入改变公共坐标契约的实现。
+> 状态说明：本 ADR 于 2026-11-10 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7。
 
 ---
 
@@ -89,7 +89,7 @@ PR-4 要修改 Frame/Target/Geometry 和 Action 边界；ADR-004 定义 Action C
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — 规范 CoordinateSpace
 
@@ -321,10 +321,12 @@ class CoordinateTransform:
 - 旋转不明时拒绝，不假设 0。
 - **`transform_id` = 规范化参数 + schema 的内容 hash**；`frame_id` 不参与；`revision` 仅人类标签；`TransformRecord` 随记录持久化并可在读取时重算校验。
 
-待定（不阻塞 PR-4a）：
+2026-11-10 Owner 确认：
 
-1. Android rotation 的权威来源（`dumpsys` vs `window_size` vs scrcpy）由 Phase 3 Adapter 决定。
-2. 是否在 Phase 9 统一到 0–1（需新 ADR）。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | Android rotation 权威来源 | 由 Phase 3 Adapter 决定（`dumpsys`/`window_size`/scrcpy 对比后选一）；在此之前 rotation 未知时拒绝跨空间动作 | Phase 3 |
+| 2 | 是否统一到 0–1 | Phase 9 前不统一；如未来统一，另提 ADR | 未来 ADR |
 
 ---
 
@@ -334,3 +336,4 @@ class CoordinateTransform:
 |---|---|---|---|
 | 2026-11-09 | Proposed | Initial proposal | 六种空间、四套换算、无 frame/transform 关联；PR-4/ADR-004 需要坐标引用 |
 | 2026-11-09 | Proposed | `transform_id` 定为参数内容 hash；`frame_id` 排除、`revision` 仅标签、`TransformRecord` 持久化 | 跨进程无中心权威；参数变化自动失效；证据/回放可重算校验 |
+| 2026-11-10 | Accepted | 评审通过；rotation 来源由 Phase 3 Adapter 定（未知则拒绝），Phase 9 前不统一 0–1 | 两项剩余细节由 Owner 确认；PR-4 可进入实现 |
