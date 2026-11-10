@@ -575,12 +575,14 @@ Application Service / Agent Tool
 
 **前置：** P9-A 的安全清理只要求 Android/iOS 已通过统一 Ports 的兼容测试且调用方已清零；P9-B 退役广义 Mobile Driver 契约前，仍要求至少一个真实非 Android/iOS Profile 通过 Adapter Contract Test；**首个目标是 macOS（Phase 7），TV 随后**。两者目前是 design-only，不得假装已满足 P9-B。
 
+> Phase 9a（2026-11-10）：P9-A 引用盘点 + `PHASE9_CLEANUP_AUDIT.md`；旧入口均有生产调用方，未删除；新增窄架构 import 门禁、`artemis/AGENTS.md`、`tests/AGENTS.md`。P9-B 仍被真实 macOS Profile 阻塞。
+
 任务：
 
-- [ ] **P9-A 安全清理：** 搜索旧 `BaseDeviceDriver`、`UnifiedMobileController`、`artemis/mcp`、`reflex.capture/control/mouse/vision` 的生产引用；只删除调用方为零且迁移说明完成的兼容 shim。
-- [ ] 根据真实依赖/变化原因决定是否把 `control/`、`perception/` 实现下沉到 Adapter；不做纯美观式重命名。
+- [x] **P9-A 安全清理：** 搜索旧 `BaseDeviceDriver`、`UnifiedMobileController`、`artemis/mcp`、`reflex.capture/control/mouse/vision` 的生产引用；只删除调用方为零且迁移说明完成的兼容 shim（本轮审计：无零调用方可安全删除项；见 `PHASE9_CLEANUP_AUDIT.md`）。
+- [x] 根据真实依赖/变化原因决定是否把 `control/`、`perception/` 实现下沉到 Adapter；不做纯美观式重命名（决定：保留现有 L3/L4 兼容边界；无第二真实平台消费前不整体搬迁）。
 - [x] 旧规范已标记 Superseded（2026-11-08）；本阶段只保留历史记录，不回填新决策（历史 B0–B6 计划与 v1 spec 均不再更新）。
-- [ ] 更新 root AGENTS 和子目录 AGENTS，确保架构规则可被 Coding Agent 直接加载。
+- [x] 更新 root AGENTS 和子目录 AGENTS，确保架构规则可被 Coding Agent 直接加载（root §11 + `artemis/AGENTS.md` + `tests/AGENTS.md`；窄架构测试）。
 - [ ] **P9-B 条件性退役：** **macOS（Phase 7）** 作为第一个真实非 Android/iOS Profile 通过 Contract/Integration Test 后，再评估退役 `BaseDeviceDriver` 中剩余 Mobile 专属 API；TV 随后；未满足条件时保留兼容 Facade。
 
 **Exit Criteria：** 旧兼容入口不存在隐式业务依赖；新增平台可按 Adapter/Profile 模式扩展；Architecture Test 阻止新违规依赖。

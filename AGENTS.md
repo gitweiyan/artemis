@@ -132,3 +132,11 @@ ADR 至少包含：背景、当前实现证据、决策、备选方案、依赖�
 - 测试计划和真实硬件验证条件。
 
 完成后提供可复现命令、测试结果、未验证能力和回滚步骤。禁止只汇报“重构完成”而没有证据。
+
+
+## 11. Phase 9 兼容清理状态
+
+- P9-A 的引用盘点与架构门禁见 [`docs/architecture/PHASE9_CLEANUP_AUDIT.md`](docs/architecture/PHASE9_CLEANUP_AUDIT.md)。
+- 目前没有“调用方为零且迁移说明完成”的旧入口可安全删除；`BaseDeviceDriver`、`UnifiedMobileController`、`artemis/mcp`、`reflex.*` 仍是活跃兼容路径，不得凭目录名删除。
+- P9-B 仍被真实 macOS Profile 阻塞；Phase 7 是 design-only，Mock fixture 不能当作 P9-B 证据。
+- 新增跨层 import 时运行 `tests/unit/architecture/test_import_boundaries.py`；README/ADR/执行计划的状态必须同步更新。
