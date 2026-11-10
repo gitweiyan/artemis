@@ -46,12 +46,32 @@ _INCIDENT_CATEGORIES: dict[str, ValidationErrorCategory] = {
     "uvc_decode_error": ValidationErrorCategory.UVC_NO_SIGNAL,
     "capture_timeout": ValidationErrorCategory.CAPTURE_TIMEOUT,
     "stale_frame": ValidationErrorCategory.STALE_FRAME,
+    "capability_unavailable": ValidationErrorCategory.CAPABILITY_UNAVAILABLE,
+    "command_unsupported": ValidationErrorCategory.COMMAND_UNSUPPORTED,
+    "device_disconnected": ValidationErrorCategory.DEVICE_DISCONNECTED,
+    "transport_error": ValidationErrorCategory.TRANSPORT_ERROR,
+    "firmware_error": ValidationErrorCategory.FIRMWARE_ERROR,
+    "resource_busy": ValidationErrorCategory.RESOURCE_BUSY,
+    "decode_error": ValidationErrorCategory.DECODE_ERROR,
+    "coordinate_space_mismatch": ValidationErrorCategory.COORDINATE_SPACE_MISMATCH,
+    "target_unverified": ValidationErrorCategory.TARGET_UNVERIFIED,
+    "action_rejected": ValidationErrorCategory.ACTION_REJECTED,
+    "verification_failed": ValidationErrorCategory.VERIFICATION_FAILED,
+    "cancelled": ValidationErrorCategory.CANCELLED,
+    "deadline_exceeded": ValidationErrorCategory.DEADLINE_EXCEEDED,
+    "safety_interlock": ValidationErrorCategory.SAFETY_INTERLOCK,
 }
 
 
 def incident_category(incident: str | None) -> ValidationErrorCategory:
     """The Validator category for a driver incident code (``GENERAL`` if unknown)."""
-    return _INCIDENT_CATEGORIES.get(str(incident or ""), ValidationErrorCategory.GENERAL)
+    value = str(incident or "")
+    if value in _INCIDENT_CATEGORIES:
+        return _INCIDENT_CATEGORIES[value]
+    try:
+        return ValidationErrorCategory(value)
+    except ValueError:
+        return ValidationErrorCategory.GENERAL
 
 
 def parse_decisions(structured_decisions: str) -> tuple[list[dict] | None, str | None]:

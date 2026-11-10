@@ -26,6 +26,7 @@ is injected by the facade so that tests patching
 
 import asyncio
 import base64
+import math
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -212,11 +213,20 @@ async def _run_attempt(
         )
     reasoning = res_json.get("reasoning", "")
     is_present = res_json.get("is_present", True)
-    confidence = res_json.get("confidence", 1.0)
+    raw_confidence = res_json.get("confidence")
+    confidence = (
+        float(raw_confidence)
+        if isinstance(raw_confidence, (int, float))
+        and not isinstance(raw_confidence, bool)
+        and math.isfinite(float(raw_confidence))
+        and 0.0 <= float(raw_confidence) <= 1.0
+        else None
+    )
+    confidence_text = f"{confidence:.2f}" if confidence is not None else "unknown"
 
     logger.info(
         f"Pixel validation attempt {attempt}/{_MAX_ATTEMPTS} result:"
-        f" is_present={is_present}, confidence={confidence:.2f}, reasoning={reasoning}"
+        f" is_present={is_present}, confidence={confidence_text}, reasoning={reasoning}"
     )
 
     # E. Branching based on outcome
@@ -224,8 +234,10 @@ async def _run_attempt(
         logger.info(f"Pixel validation SUCCESS on attempt {attempt}/{_MAX_ATTEMPTS}.")
         return True, ValidationErrorCategory.NONE, ""
 
-    # Target not present: fail or bypass based on confidence without retry!
-    if confidence >= 0.7:
+    # Target not present: only a provided, numeric confidence may justify a
+    # high-confidence failure. Missing confidence is unknown evidence, not a
+    # fabricated "low_confidence" verdict.
+    if confidence is not None and confidence >= 0.7:
         reason_msg = (
             f"Pixel-level validation failed: {reasoning}"
             if reasoning
@@ -241,9 +253,16 @@ async def _run_attempt(
             reason_msg,
         )
 
-    logger.warning(
-        f"Pixel validation failed but confidence ({confidence:.2f}) is below 0.7. Bypassing check."
-    )
+    if confidence is None:
+        logger.warning(
+            "Pixel validation reported absence without confidence;"
+            " treating the result as unverified and bypassing the block."
+        )
+    else:
+        logger.warning(
+            f"Pixel validation failed but confidence ({confidence:.2f}) is below 0.7."
+            " Bypassing check."
+        )
     return True, ValidationErrorCategory.PIXEL_BYPASSED, ""
 
 

@@ -493,16 +493,17 @@ Application Service / Agent Tool
 **目的：** 有统一的安全语义，但不把慢速任务 Agent 的策略强加给高频 Reflex Loop。
 
 > Phase 5a–5d（2026-11-10，ADR-007 Accepted）：Reflex 新增 `ReflexBudget`、`ReflexResult.budget/incident/incidents`、canonical stop mapping、`Control.release_inputs` finally、`CaptureError.incident`；CLI/`play_reflex` 显式构造并展示预算。任务式 `ActionGate`/Validator Incident 统一仍待实现；真机 Reflex 取消/断连证据待补。
+>> Phase 5e（2026-11-10）：新增 `safety/gate.py`（`ActionGate`/`SafetyPolicy`）、`safety/incidents.py`（canonical 映射）、Validator 分类补齐 canonical 值；Pixel SafetyNet 缺失 `confidence` 时不再伪造成高/低置信失败（走 `pixel_bypassed`）。任务式 post-action verification 与 evidence 要求仍未接入。
 
 当前已有：`safety/xml.py`、`safety/pixel.py`、`safety/pointer.py`，以及 `agents/validator` 中的 Precondition/Execution/Incident 逻辑；`reflex/mouse.py` 也调用 Pixel/Pointer 原语。
 
 任务：
 
-- [ ] 定义统一 `ActionGate` / `SafetyPolicy` Port，集中动作前校验、执行约束和结果后检的统一术语。
-- [ ] Validator 的 XML/Pixel Precondition、Pointer Gate 使用同一 Incident Taxonomy；避免重复实现阈值和状态名。
+- [x] 定义统一 `ActionGate` / `SafetyPolicy` Port，集中动作前校验、执行约束和结果后检的统一术语（`safety/gate.py`；Validator 接线仍待下一步）。
+- [x] Validator 的 XML/Pixel Precondition、Pointer Gate 使用同一 Incident Taxonomy；避免重复实现阈值和状态名（`safety/incidents.py` + Validator 分类补齐；运行时统一映射待接线）。
 - [ ] 明确不同动作所需证据：绝对触控不要求 Pointer Precheck；相对指针点击必须先证明指针位置与目标一致；Remote Key 不需要像素 Pointer 校验。
-- [ ] `confidence=None` 必须表示“来源未提供置信度”，不能自动映射为 `low_confidence`；没有证据不能虚构失败原因。
-- [ ] 区分 `target_disappeared`、`target_shifted`、`pointer_missing`、`stale_frame`、`no_effect`、`capability_unavailable`、`command_unsupported`、`transport_error`、`device_disconnected` 等 Incident；取值以契约 §7.2 唯一命名表为准，不得另起别名。
+- [x] `confidence=None` 必须表示“来源未提供置信度”，不能自动映射为 `low_confidence`；没有证据不能虚构失败原因（Pixel SafetyNet 缺失/非法 confidence 走 `pixel_bypassed`）。
+- [x] 区分 `target_disappeared`、`target_shifted`、`pointer_missing`、`stale_frame`、`no_effect`、`capability_unavailable`、`command_unsupported`、`transport_error`、`device_disconnected` 等 Incident；取值以契约 §7.2 唯一命名表为准，不得另起别名（`ValidationErrorCategory`/`safety/incidents.py`；新增取值需先改契约）。
 - [ ] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification。
 - [x] Reflex 高频 Loop 使用自己的安全预算：最大运行时长、FPS Cap、blind frame 上限、control failure 上限、急停/取消和释放输入状态。不要默认每帧执行重量级 SafetyNet/Trace 写盘（`ReflexBudget` + `ReflexRuntime` + CLI；见 ADR-007）。
 - [x] 所有执行器在取消、断连、异常退出时释放按下的键、鼠标按钮、触点和持续动作状态（Reflex `Control.release_inputs` + `Esp32HidControl`/`PointerControl` 接线；其他执行器后续统一）。
