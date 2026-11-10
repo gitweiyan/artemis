@@ -523,6 +523,7 @@ Application Service / Agent Tool
 > Phase 6b（2026-11-10）：`data_engine/replay.py::query_action_evidence` + `DataEngine.query_action_evidence` 支持按 action/device/artifact/session 查询；测试覆盖缺失 evidence 忽略与 limit。按 task_id 的关联和敏感内容脱敏策略仍待补。
 > Phase 6c（2026-11-10）：`ArtemisContext.get_telemetry_tracer()` 懒创建 session tracer；Validator action 结束时发 `DEVICE_ACTION` span（session/step/action/frame/data trace）。`artemis trace actions` 支持按 session/action/device/artifact 查询 action evidence（JSON/表格）。
 > Phase 6d（2026-11-10）：Flash 的每个 device action 也写 `action_evidence` 到 Step extra_metadata，并发射 `DEVICE_ACTION` span；`trace actions` 同时读取 action trace 与 step metadata，真机 Flash `打开设置` 已验证 action evidence + telemetry_spans.jsonl。
+> Phase 6e（2026-11-10）：Data Engine 在 `start_session` 确定 `current_task_id`（默认 session_id，`ARTEMIS_TASK_ID` 可覆盖 batch task）；ActionEvidence/TelemetrySpan/查询/CLI 均带 task_id。
 
 现状职责判断：
 
@@ -532,7 +533,7 @@ Application Service / Agent Tool
 
 任务：
 
-- [x] 定义 `task_id`、`session_id`、`device_id`、`step_id`、`action_id`、`frame_id`、`trace_id` 的关系和创建方（`data_engine/ids.py::DataIds`；Data Engine 拥有 Task/Step/Action 事实，Telemetry 只引用；Runtime Trace Store 仍只管后台任务状态）。
+- [x] 定义 `task_id`、`session_id`、`device_id`、`step_id`、`action_id`、`frame_id`、`trace_id` 的关系和创建方（`DataEngine.current_task_id` 在 session start 创建，默认 session_id / `ARTEMIS_TASK_ID`；`DataIds`/ActionEvidence/TelemetrySpan 统一携带；Runtime Trace Store 仍只管后台任务状态）。
 - [x] 每个 Action 记录所用 Profile、source/adapter、target evidence、coordinate space、capability decision、dispatch result、device ACK、pre/post verification、latency 和 incident（`ActionEvidence` 写入 Validator action trace）。
 - [x] 大图像/视频只存 Artifact Reference/hash/metadata，不复制进多份 JSON Trace（`ArtifactRef`；action evidence 引用 post screenshot hash）。
 - [x] Telemetry Span 可关联 Data Engine Step，但 Span 不承担完整 Step 历史；Runtime Trace Store 只管后台任务状态（Span 新增 session/device/step/action/frame 字段）。

@@ -54,3 +54,27 @@ def test_action_evidence_serializes_replay_facts_without_image_bytes():
     assert payload["latency_ms"] == 12.5
     assert payload["artifacts"][0]["artifact_id"] == "b" * 64
     assert "image" not in payload
+
+
+def test_data_engine_owns_a_task_id_defaulting_to_the_session(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from artemis.data_engine.engine import DataEngine
+
+    monkeypatch.delenv("ARTEMIS_TASK_ID", raising=False)
+    ctx = SimpleNamespace(execution_setup=SimpleNamespace(traces_path=tmp_path))
+    engine = DataEngine(ctx)
+    try:
+        session_id = engine.start_session("test", session_id="session-1")
+        assert engine.current_task_id == str(session_id)
+    finally:
+        engine.end_session("completed")
+
+    monkeypatch.setenv("ARTEMIS_TASK_ID", "batch-7")
+    ctx2 = SimpleNamespace(execution_setup=SimpleNamespace(traces_path=tmp_path / "b"))
+    engine2 = DataEngine(ctx2)
+    try:
+        engine2.start_session("test", session_id="session-2")
+        assert engine2.current_task_id == "batch-7"
+    finally:
+        engine2.end_session("completed")

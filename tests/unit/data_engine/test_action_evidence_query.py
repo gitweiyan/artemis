@@ -11,7 +11,12 @@ def _trace(action_id, *, device="ios-uvc", artifact="a1"):
     return SimpleNamespace(
         payload={
             "action_evidence": {
-                "ids": {"action_id": action_id, "session_id": "s1", "device_id": device},
+                "ids": {
+                    "action_id": action_id,
+                    "session_id": "s1",
+                    "task_id": "task-1",
+                    "device_id": device,
+                },
                 "artifacts": [{"artifact_id": artifact}],
             }
         }
@@ -26,7 +31,7 @@ def test_query_by_action_device_and_artifact():
     ]
     assert query_action_evidence(traces, device_id="ios-uvc")[0]["ids"]["action_id"] == "a1"
     assert query_action_evidence(traces, artifact_id="a2")[0]["ids"]["action_id"] == "a2"
-    assert query_action_evidence(traces, session_id="s1", limit=1) == [
+    assert query_action_evidence(traces, task_id="task-1", limit=1) == [
         traces[0].payload["action_evidence"]
     ]
 

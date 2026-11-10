@@ -358,6 +358,7 @@ def _action_evidence(
     ids = DataIds(
         session_id=str(session_id),
         device_id=str(getattr(getattr(ctx, "device", None), "device_id", "") or "") or None,
+        task_id=str(getattr(engine, "current_task_id", "") or "") or None,
         step_id=str(step_id) if step_id else None,
         action_id=str(item.get("action_id") or "") or None,
         frame_id=str(item.get("frame_id") or "") or None,
@@ -414,6 +415,7 @@ def _record_action_telemetry(
     span = TelemetrySpan(
         trace_id=str(getattr(engine, "current_session_id", "") or tracer.trace_id),
         session_id=str(getattr(engine, "current_session_id", "") or "") or None,
+        task_id=str(getattr(engine, "current_task_id", "") or "") or None,
         device_id=str(getattr(getattr(ctx, "device", None), "device_id", "") or "") or None,
         step_id=str(step_id) if step_id else None,
         action_id=str(item.get("action_id") or "") or None,

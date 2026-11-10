@@ -64,6 +64,7 @@ class TelemetryTracer:
         payload: dict[str, Any] | None = None,
         *,
         session_id: str | None = None,
+        task_id: str | None = None,
         device_id: str | None = None,
         step_id: str | None = None,
         action_id: str | None = None,
@@ -74,6 +75,7 @@ class TelemetryTracer:
         span = TelemetrySpan(
             trace_id=self.trace_id,
             session_id=session_id,
+            task_id=task_id,
             device_id=device_id,
             step_id=step_id,
             action_id=action_id,

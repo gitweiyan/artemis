@@ -407,6 +407,7 @@ class DataEngine:
         self.storage = StorageManager(self.db_path, self.global_base_dir)
 
         self.current_session_id: UUID | None = None
+        self.current_task_id: str | None = None
         self.session_start_time: float | None = None
         self.current_step_id: UUID | None = None
         self.last_recorded_step_id: UUID | None = None
@@ -591,6 +592,9 @@ class DataEngine:
             else:
                 session_id = uuid4()
         self.current_session_id = session_id
+        # A task groups one or more sessions; without an explicit grouping the
+        # session is the task. The env var lets batch/benchmark runs share one id.
+        self.current_task_id = (os.getenv("ARTEMIS_TASK_ID") or "").strip() or str(session_id)
         self.session_start_time = time.time()
 
         # Clear old pause file if it exists
@@ -1302,6 +1306,7 @@ class DataEngine:
         self,
         *,
         action_id: str | None = None,
+        task_id: str | None = None,
         device_id: str | None = None,
         artifact_id: str | None = None,
         limit: int = 100,
@@ -1321,6 +1326,7 @@ class DataEngine:
         return query_action_evidence(
             traces,
             action_id=action_id,
+            task_id=task_id,
             session_id=str(self.current_session_id),
             device_id=device_id,
             artifact_id=artifact_id,

@@ -44,6 +44,7 @@ class TelemetrySpan(BaseModel):
     span_id: str = Field(default_factory=lambda: str(uuid4()))
     trace_id: str = Field(..., description="Root trace/session identifier")
     session_id: str | None = Field(default=None, description="Data Engine session id")
+    task_id: str | None = Field(default=None, description="Logical task id")
     device_id: str | None = Field(default=None, description="Target device id")
     step_id: str | None = Field(default=None, description="Data Engine step id")
     action_id: str | None = Field(default=None, description="Action id")

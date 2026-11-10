@@ -791,6 +791,10 @@ class FlashRunner:
                 evidence = ActionEvidence(
                     ids=DataIds(
                         session_id=str(self.ctx.data_engine.current_session_id),
+                        task_id=str(
+                            getattr(self.ctx.data_engine, "current_task_id", "") or ""
+                        )
+                        or None,
                         device_id=str(
                             getattr(getattr(self.ctx, "device", None), "device_id", "") or ""
                         )
@@ -860,6 +864,7 @@ class FlashRunner:
         span = TelemetrySpan(
             trace_id=str(getattr(engine, "current_session_id", "") or tracer.trace_id),
             session_id=str(getattr(engine, "current_session_id", "") or "") or None,
+            task_id=str(getattr(engine, "current_task_id", "") or "") or None,
             device_id=str(getattr(getattr(self.ctx, "device", None), "device_id", "") or "")
             or None,
             step_id=str(step_id) if step_id else None,

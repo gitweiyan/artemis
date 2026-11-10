@@ -169,6 +169,7 @@ def query_actions(
     action_id: Annotated[
         str | None, typer.Option("--action-id", help="Filter by action id.")
     ] = None,
+    task_id: Annotated[str | None, typer.Option("--task-id", help="Filter by task id.")] = None,
     device_id: Annotated[str | None, typer.Option("--device", help="Filter by device id.")] = None,
     artifact_id: Annotated[
         str | None, typer.Option("--artifact", help="Filter by artifact hash.")
@@ -213,6 +214,7 @@ def query_actions(
     evidence = query_action_evidence(
         [*traces, *steps],
         action_id=action_id,
+        task_id=task_id,
         session_id=resolved,
         device_id=device_id,
         artifact_id=artifact_id,

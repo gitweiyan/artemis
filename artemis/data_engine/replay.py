@@ -29,6 +29,7 @@ def query_action_evidence(
     traces: Iterable[Any],
     *,
     action_id: str | None = None,
+    task_id: str | None = None,
     session_id: str | None = None,
     device_id: str | None = None,
     artifact_id: str | None = None,
@@ -43,6 +44,8 @@ def query_action_evidence(
             continue
         ids = evidence.get("ids") or {}
         if action_id is not None and str(ids.get("action_id")) != str(action_id):
+            continue
+        if task_id is not None and str(ids.get("task_id")) != str(task_id):
             continue
         if session_id is not None and str(ids.get("session_id")) != str(session_id):
             continue
