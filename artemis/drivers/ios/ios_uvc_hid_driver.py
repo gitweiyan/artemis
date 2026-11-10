@@ -18,7 +18,7 @@ from artemis.perception.incidents import (
     incident_for_health,
 )
 from artemis.reflex.ios_apps import IOSAppLauncher, AppLaunchResult
-from artemis.reflex.vision import CompositePointerDetector
+from artemis.perception.pointer_detection import CompositePointerDetector
 from artemis.safety.pointer import check_in_box
 from third_party.mobile_use.utils.logger import get_logger
 

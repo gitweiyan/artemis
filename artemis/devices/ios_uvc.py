@@ -17,7 +17,11 @@ from artemis.reflex.locate_anything import (
     DEFAULT_LOCATE_URL,
     LocateAnythingDetector,
 )
-from artemis.reflex.vision import BluePointerDetector, CompositePointerDetector, PointerTracker
+from artemis.perception.pointer_detection import (
+    BluePointerDetector,
+    CompositePointerDetector,
+    PointerTracker,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from artemis.core.identity import DeviceDescriptor

@@ -16,7 +16,7 @@ import threading
 import time
 import urllib.request
 
-from artemis.reflex.vision import Pointer
+from artemis.perception.pointer_detection import Pointer
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)

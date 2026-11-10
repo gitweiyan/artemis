@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 
 from artemis.reflex.motion import MotionCalibration, MotionConfig, Phase, choose_phase
-from artemis.reflex.vision import (
+from artemis.perception.pointer_detection import (
     Pointer,
     changed,
     corridor_roi,

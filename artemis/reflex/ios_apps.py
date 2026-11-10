@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from artemis.reflex.vision import changed
+from artemis.perception.pointer_detection import changed
 
 __all__ = ["IOSAppLauncher", "AppLaunchResult"]
 

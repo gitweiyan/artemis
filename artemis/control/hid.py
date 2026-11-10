@@ -14,7 +14,7 @@ from artemis.core.capabilities import (
 )
 from artemis.core.capability_registry import ProbeResult
 from artemis.devices.capabilities import CapabilitySet
-from artemis.reflex.vision import changed
+from artemis.perception.pointer_detection import changed
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
