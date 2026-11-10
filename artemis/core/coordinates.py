@@ -345,6 +345,25 @@ class CoordinateTransform:
         )
 
     @classmethod
+    def agent_to_device(
+        cls,
+        *,
+        screen_size: tuple[int, int],
+        frame_id: str = "",
+    ) -> CoordinateTransform:
+        """Agent 0..1000 points → device pixels (screen-normalized)."""
+
+        screen_w, screen_h = _positive_pair(screen_size, "screen_size")
+        params = TransformParams(
+            source=CoordinateSpace.AGENT_POINT,
+            target=CoordinateSpace.DEVICE_PIXEL,
+            frame_size=(screen_w, screen_h),
+            screen_size=(screen_w, screen_h),
+            content_rect=(0, 0, screen_w, screen_h),
+        )
+        return cls(TransformRecord(transform_id(params), params), frame_id=frame_id)
+
+    @classmethod
     def frame_to_device(
         cls,
         *,

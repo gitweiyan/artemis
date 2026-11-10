@@ -6,6 +6,7 @@ import asyncio
 import time
 
 from artemis.control.base import ActionResult
+from artemis.core.coordinates import CoordinateSpace, PointRef
 from artemis.core.capabilities import (
     CapabilityDeclaration,
     CapabilityId,
@@ -71,8 +72,10 @@ class HidControlSink:
         """Device pixels -> capture-frame pixels (identity when no geometry is known)."""
         if self.geometry is None:
             return int(x), int(y)
-        fx, fy = self.geometry.screen_to_frame(int(x), int(y))
-        return int(fx), int(fy)
+        point = self.geometry.pointer_transform().apply(
+            PointRef(CoordinateSpace.DEVICE_PIXEL, int(x), int(y))
+        )
+        return int(round(point.x)), int(round(point.y))
 
     @staticmethod
     def _metrics(result, *, target: tuple[int, int], frame_target: tuple[int, int]) -> dict:

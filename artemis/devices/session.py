@@ -60,6 +60,7 @@ class DeviceSession:
     #: Adapter-private state (e.g. the relative-pointer belief). Kept in one bag so the
     #: generic session does not grow platform-specific fields (ADR-003 §5.4).
     adapter_state: dict[str, Any] = field(default_factory=dict)
+    last_frame_id: str | None = None
     _state: SessionState = field(default=SessionState.NEW, init=False, repr=False)
     _close_errors: list[str] = field(default_factory=list, init=False, repr=False)
 
@@ -205,10 +206,21 @@ class DeviceSession:
                 errors.append(f"{type(source).__name__}: {exc}")
                 continue
             if frame.health == "ok":
+                self.last_frame_id = getattr(frame, "frame_id", None) or self.last_frame_id
                 return frame
             errors.append(f"{type(source).__name__}: frame health={frame.health!r}")
         detail = "; ".join(errors) or "no perception sources configured"
         raise DeviceSessionError(f"no healthy perception frame: {detail}")
+
+    def validate_target(self, target: Any) -> Any:
+        """Reject a target computed on a different frame (ADR-002 D4)."""
+
+        target_frame = getattr(target, "frame_id", None)
+        if target_frame and self.last_frame_id and target_frame != self.last_frame_id:
+            raise DeviceSessionError(
+                f"stale_frame: target frame {target_frame!r} != current {self.last_frame_id!r}"
+            )
+        return target
 
     def control_for(self, *, absolute: bool) -> ControlSink:
         self._ensure_usable()

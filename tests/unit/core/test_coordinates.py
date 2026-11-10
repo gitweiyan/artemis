@@ -166,3 +166,11 @@ def test_screen_geometry_exposes_the_same_transform_numbers():
         expected = geometry.screen_to_frame(x, y)
         assert abs(round(point.x) - expected[0]) <= 1
         assert abs(round(point.y) - expected[1]) <= 1
+
+
+def test_agent_to_device_is_screen_normalized():
+    transform = CoordinateTransform.agent_to_device(screen_size=SCREEN)
+    point = transform.apply(PointRef(CoordinateSpace.AGENT_POINT, 500, 250))
+
+    assert point.space is CoordinateSpace.DEVICE_PIXEL
+    assert (point.x, point.y) == (SCREEN[0] / 2, SCREEN[1] / 4)

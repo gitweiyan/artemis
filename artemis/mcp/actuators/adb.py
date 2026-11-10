@@ -33,6 +33,7 @@ from typing import Any
 
 from artemis.agents.ios_shortcuts import is_ios_device
 from artemis.context import ArtemisContext
+from artemis.core.coordinates import CoordinateSpace, CoordinateTransform, PointRef
 from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.mcp.action_manifest import DEVICE_ACTIONS, ExtensionTool
 from artemis.reflex.pinyin import to_ascii_input
@@ -128,8 +129,10 @@ class AdbActuator:
 
     def _to_px(self, nx: int, ny: int) -> tuple[int, int]:
         width, height = self._dims()
-        x = int(max(0, min(width - 1, int(nx) * width / 1000)))
-        y = int(max(0, min(height - 1, int(ny) * height / 1000)))
+        transform = CoordinateTransform.agent_to_device(screen_size=(width, height))
+        point = transform.apply(PointRef(CoordinateSpace.AGENT_POINT, nx, ny))
+        x = int(max(0, min(width - 1, point.x)))
+        y = int(max(0, min(height - 1, point.y)))
         return x, y
 
     # --- Required action -------------------------------------------------------------

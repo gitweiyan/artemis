@@ -468,3 +468,18 @@ async def test_press_key_back_failure_on_android_is_a_device_error():
     assert res.ok is False
     assert res.code is ActionCode.DEVICE_ERROR
     assert res.incident is None
+
+
+def test_adb_actuator_uses_the_agent_to_device_transform():
+    from unittest.mock import Mock
+
+    from artemis.mcp.actuators.adb import AdbActuator
+
+    ctx = Mock()
+    ctx.device.device_width = 1080
+    ctx.device.device_height = 2400
+    actuator = AdbActuator(ctx, controller=Mock())
+
+    assert actuator._to_px(0, 0) == (0, 0)
+    assert actuator._to_px(500, 500) == (540, 1200)
+    assert actuator._to_px(1000, 1000) == (1079, 2399)

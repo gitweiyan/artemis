@@ -228,3 +228,17 @@ def test_session_capability_view_can_use_evidence_and_probes():
     record = session.capability_view[CapabilityId.POINTER_RELATIVE]
     assert record.state == "verified"
     assert record.evidence_ref == "ev-pointer"
+
+
+def test_a_target_from_another_frame_is_rejected_as_stale():
+    from artemis.perception.base import Target
+
+    session = DeviceSession([], [], geometry())
+    session.last_frame_id = "frame-new"
+
+    fresh = Target("设置", (0.1, 0.1, 0.2, 0.2), 1.0, "ocr", frame_id="frame-new")
+    stale = Target("设置", (0.1, 0.1, 0.2, 0.2), 1.0, "ocr", frame_id="frame-old")
+
+    assert session.validate_target(fresh) is fresh
+    with pytest.raises(DeviceSessionError, match="stale_frame"):
+        session.validate_target(stale)

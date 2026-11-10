@@ -355,13 +355,15 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 - [x] Point/Box 必须携带 CoordinateSpace；显式区分 Agent Point、Target Box、Frame Pixel、Device Pixel、Pointer Frame Pixel、Window/Display（`artemis/core/coordinates.py`）。
 - [x] 给 ScreenGeometry 增加可组合 Transform，覆盖 Crop、Letterbox、Rotation、Scale、Window/Display；旧方法保持兼容（`ScreenGeometry.transform()/pointer_transform()`）。
 - [x] 统一 Action Intent、Action Command、Action Receipt、Verification Result 的字段和状态边界（`artemis/core/actions.py`）；`ActionResult.ok` 注释固定为 Adapter 接受/派发；Executor/Validator 写入 `action_id`/`action_attempt`/`action_state` 元数据；MCP `ActionResult` 模型不变。
-- [ ] 过期 Frame、坐标空间不匹配、Transform 无效时拒绝执行；不允许裸坐标跨层传递。**DTO/Transform 与测试已备；执行边界（ADB/HID/Validator 前置校验）尚未接线。**
-- [ ] Contract Tests 覆盖缺能力、unknown 能力、坐标错配、Frame 过期、关闭后调用、重复释放、Adapter ACK 与后续效果分离。**已有坐标/动作/能力/生命周期单测；stale-frame 与 coordinate mismatch 的端到端契约测试待执行边界接线后补。**
+- [x] 过期 Frame、坐标空间不匹配、Transform 无效时拒绝执行；不允许裸坐标跨层传递（`CoordinateTransform` 拒绝空间错配；ADB `_to_px`、HID `_frame_point` 已改用 Transform；`DeviceSession.validate_target` / `tap_target` 拒绝 `stale_frame`；Agent 0–1000 仅作为兼容边界保留）。
+- [x] Contract Tests 覆盖缺能力、unknown 能力、坐标错配、Frame 过期、关闭后调用、重复释放、Adapter ACK 与后续效果分离（`test_coordinates`、`test_actions`、`test_capability_registry`、`test_session`、`test_resource_lease`）。
 
-**PR-4 验收（部分满足，2026-11-10）：** 旧 Agent Action 格式仍能通过兼容层工作；新 DTO 显式表达坐标与动作阶段；现有 Android/iOS 点击策略未改。
-证据：`tests/unit/core/test_coordinates.py`、`tests/unit/core/test_actions.py`；全量 `pytest tests/unit -q` 为 14 个既有失败 + 3677 passed（新增 20 个测试）。
+**PR-4 验收（代码与测试满足，2026-11-10）：** 旧 Agent Action 格式仍能通过兼容层工作；新 DTO 显式表达坐标与动作阶段；现有 Android/iOS 点击策略未改。
+证据：`tests/unit/core/test_coordinates.py`、`tests/unit/core/test_actions.py`、`tests/unit/devices/test_session.py`、`tests/unit/mcp/test_actuators.py`；全量 `pytest tests/unit -q` 为 14 个既有失败 + 3680 passed（新增 23 个测试）。
 
-> 剩余（PR-4c/4d）：ADB/HID/Validator 边界改用 `CoordinateTransform` 与 frame/transform 前置校验；Checker/Validator 写 `VerificationResult`；补 stale-frame/coordinate-mismatch/ACK-vs-effect 契约测试。
+> 行为变更（严格幂等重试策略、Checker 写 `VerificationResult`、执行器按帧/Transform 拒绝旧 Agent 坐标）按 ADR-004 迁移表留到 **Phase 5**（Safety/Verification 收敛），避免在契约 PR 中改变点击成功率。
+>
+> 真机复测：边界改动提交时 ESP32 串口已断开（`/dev/cu.usbmodem5B140947461` 不存在），未重跑；2026-11-09 的 7 项 smoke evidence 仍保留，机台恢复后需重跑 `ios-smoke` 确认 `HidControlSink._frame_point` 的 Transform 切换。
 
 **Phase 1 Exit Criteria：** 四个 PR 合并；Core Contract 不导入 ADB、UVC、pyserial、TinyUSB、Android/iOS SDK；Android/iOS 兼容测试保持；能力缺失可明确报告 `capability_unavailable` / `unknown`，不会退化为 AttributeError；设备与共享硬件资源生命周期可测试、可恢复。
 
