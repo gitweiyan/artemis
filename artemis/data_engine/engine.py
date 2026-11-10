@@ -1298,6 +1298,35 @@ class DataEngine:
                 )
         return None
 
+    def query_action_evidence(
+        self,
+        *,
+        action_id: str | None = None,
+        device_id: str | None = None,
+        artifact_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Read-only action evidence query for the current session (Phase 6)."""
+
+        if not self.current_session_id or self.storage is None:
+            return []
+        from artemis.data_engine.replay import query_action_evidence
+
+        try:
+            traces = self.storage.get_traces_for_session(
+                self.current_session_id, trace_type="action", limit=max(1, int(limit)) * 10
+            )
+        except (OSError, ValueError, RuntimeError):
+            return []
+        return query_action_evidence(
+            traces,
+            action_id=action_id,
+            session_id=str(self.current_session_id),
+            device_id=device_id,
+            artifact_id=artifact_id,
+            limit=limit,
+        )
+
     def get_step_record(self, step_number: int):
         """Read-only lookup of a step record by its 1-based step number."""
         if not self.current_session_id:

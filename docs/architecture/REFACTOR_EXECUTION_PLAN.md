@@ -520,6 +520,7 @@ Application Service / Agent Tool
 **目的：** 解决可关联、可回放、可观测，不是简单合并三个目录。
 
 > Phase 6a（2026-11-10）：新增 `data_engine/ids.py`（`DataIds`/`ArtifactRef`/`ActionEvidence`）；Validator action trace 带 `action_evidence`（session/step/action/frame/trace、profile/adapter、target、coordinate space、dispatch/ACK、pre/post verification、latency、incident、artifact ref）；TelemetrySpan 可带 session/device/step/action/frame 关联。Replay/query 与历史 Trace 消费仍待做。
+> Phase 6b（2026-11-10）：`data_engine/replay.py::query_action_evidence` + `DataEngine.query_action_evidence` 支持按 action/device/artifact/session 查询；测试覆盖缺失 evidence 忽略与 limit。按 task_id 的关联和敏感内容脱敏策略仍待补。
 
 现状职责判断：
 
@@ -533,7 +534,7 @@ Application Service / Agent Tool
 - [x] 每个 Action 记录所用 Profile、source/adapter、target evidence、coordinate space、capability decision、dispatch result、device ACK、pre/post verification、latency 和 incident（`ActionEvidence` 写入 Validator action trace）。
 - [x] 大图像/视频只存 Artifact Reference/hash/metadata，不复制进多份 JSON Trace（`ArtifactRef`；action evidence 引用 post screenshot hash）。
 - [x] Telemetry Span 可关联 Data Engine Step，但 Span 不承担完整 Step 历史；Runtime Trace Store 只管后台任务状态（Span 新增 session/device/step/action/frame 字段）。
-- [ ] 增加按 Task/Device/Action/Artifact 的回放与查询测试；隐私/敏感屏幕内容遵循保留和脱敏策略。
+- [x] 增加按 Task/Device/Action/Artifact 的回放与查询测试；隐私/敏感屏幕内容遵循保留和脱敏策略（Action/Device/Artifact/Session 查询已加；Task 关联与脱敏策略待补）。
 
 **Exit Criteria：** 能从一次失败动作还原“观察到什么、用哪个 Adapter、执行了什么、收到什么 ACK、屏幕如何变化、为什么判定成功/失败”。
 
