@@ -37,6 +37,7 @@ from artemis.reflex.contract import (
     Action,
     CaptureError,
     Frame,
+    ReflexBudget,
     Gesture,
     SkillHandle,
     StopReason,
@@ -78,12 +79,16 @@ class FakeControl:
         self.fail = fail
         self.latency_ms = latency_ms
         self.dispatched: list[Gesture] = []
+        self.released = 0
 
     def dispatch(self, gesture: Gesture) -> float:
         if self.fail:
             raise RuntimeError("gesture rejected")
         self.dispatched.append(gesture)
         return self.latency_ms
+
+    def release_inputs(self) -> None:
+        self.released += 1
 
 
 def _skill(
@@ -527,3 +532,98 @@ def test_the_helper_capture_falls_back_when_no_snapshot_is_available():
 
     assert calls == ["snapshot", "adb"]
     assert frame.image.startswith(b"\xff\xd8\xff")
+
+
+def test_budget_defaults_preserve_the_pre_adr_behavior_and_reject_invalid_values():
+    budget = ReflexBudget()
+
+    assert budget.max_seconds == 60.0
+    assert budget.fps_cap == 10.0
+    assert budget.max_blind_frames == 15
+    assert budget.max_control_failures == 2
+    assert budget.operation_timeout_s == 10.0
+
+    with pytest.raises(ValueError):
+        ReflexBudget(max_seconds=0)
+    with pytest.raises(ValueError):
+        ReflexBudget(fps_cap=0)
+    with pytest.raises(ValueError):
+        ReflexBudget(max_blind_frames=0)
+
+
+def test_stop_reasons_map_to_canonical_incidents():
+    time_result = runtime.ReflexRuntime(capture=FakeCapture(), control=FakeControl()).run(
+        _skill(), seconds=0.01
+    )
+    cancel_result = runtime.ReflexRuntime(capture=FakeCapture(), control=FakeControl()).run(
+        _skill(), should_stop=lambda: True
+    )
+    lost_result = runtime.ReflexRuntime(
+        capture=FakeCapture(frames=5), control=FakeControl(), max_blind_frames=2
+    ).run(_skill(parse=lambda frame: None), seconds=5)
+    control_result = runtime.ReflexRuntime(
+        capture=FakeCapture(), control=FakeControl(fail=True), max_control_failures=1
+    ).run(_skill(decide=lambda state, cal: Action(gestures=(Gesture.tap(1, 1),))), seconds=5)
+    skill_result = runtime.ReflexRuntime(capture=FakeCapture(), control=FakeControl()).run(
+        _skill(decide=lambda state, cal: (_ for _ in ()).throw(ValueError("boom"))), seconds=5
+    )
+
+    assert time_result.incident == "deadline_exceeded"
+    assert cancel_result.incident == "cancelled"
+    assert lost_result.incident == "target_unverified"
+    assert control_result.incident == "transport_error"
+    assert skill_result.incident is None
+
+
+def test_a_capture_error_carries_its_canonical_incident():
+    class DeadCapture:
+        def grab(self):
+            raise CaptureError("no signal", incident="uvc_no_signal")
+
+        def close(self):
+            pass
+
+    result = runtime.ReflexRuntime(
+        capture=DeadCapture(), control=FakeControl(), max_blind_frames=1
+    ).run(_skill(), seconds=5)
+
+    assert result.stop_reason is StopReason.LOST
+    assert result.incident == "uvc_no_signal"
+    assert result.incidents == ("uvc_no_signal",)
+
+
+def test_release_inputs_runs_on_normal_and_exceptional_exit():
+    normal = FakeControl()
+    runtime.ReflexRuntime(capture=FakeCapture(), control=normal).run(
+        _skill(decide=lambda state, cal: Action(done=True)), seconds=1
+    )
+    failed = FakeControl(fail=True)
+    runtime.ReflexRuntime(capture=FakeCapture(), control=failed, max_control_failures=1).run(
+        _skill(decide=lambda state, cal: Action(gestures=(Gesture.tap(1, 1),))), seconds=1
+    )
+
+    assert normal.released == 1
+    assert failed.released == 1
+
+
+def test_an_old_control_without_release_inputs_still_runs():
+    class OldControl:
+        def dispatch(self, gesture):
+            return 1.0
+
+    result = runtime.ReflexRuntime(capture=FakeCapture(), control=OldControl()).run(
+        _skill(), seconds=0.05
+    )
+
+    assert result.stop_reason is StopReason.TIME_BUDGET
+
+
+def test_a_budget_supplies_the_default_run_length():
+    budget = ReflexBudget(max_seconds=0.01)
+    result = runtime.ReflexRuntime(capture=FakeCapture(), control=FakeControl(), budget=budget).run(
+        _skill()
+    )
+
+    assert result.budget is budget
+    assert result.stop_reason is StopReason.TIME_BUDGET
+    assert result.as_dict()["budget"]["max_seconds"] == 0.01

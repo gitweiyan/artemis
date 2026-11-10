@@ -624,6 +624,10 @@ class Esp32HidControl(Control):
         self._pressed_keys.discard(int(usage))
         return elapsed
 
+    def release_inputs(self) -> None:
+        """Runtime contract alias for close/cancel/error release (ADR-007 D4)."""
+        self.release_all()
+
     def release_all(self) -> None:
         """Best-effort key/button release for close, cancel and error paths."""
 

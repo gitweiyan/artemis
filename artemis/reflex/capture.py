@@ -77,7 +77,8 @@ class HelperCapture(Capture):
             raise CaptureError(
                 f"the accessibility helper is not usable ({exc}). Enable it on the device"
                 " (Settings > Accessibility > Installed apps > Artemis Accessibility Helper),"
-                " or run with capture='screencap'."
+                " or run with capture='screencap'.",
+                incident="capability_unavailable",
             ) from exc
         started = time.monotonic()
         # The helper's own atomic snapshot is the point of this path: one loopback
@@ -102,13 +103,17 @@ class HelperCapture(Capture):
             try:
                 payload = client.get_screenshot_base64()
             except _ATTACH_ERRORS as exc:
-                raise CaptureError(f"helper screenshot failed: {exc}") from exc
+                raise CaptureError(
+                    f"helper screenshot failed: {exc}", incident="transport_error"
+                ) from exc
         if not payload:
-            raise CaptureError("helper returned no screenshot")
+            raise CaptureError("helper returned no screenshot", incident="capture_timeout")
         try:
             image = base64.b64decode(payload)
         except (ValueError, TypeError) as exc:
-            raise CaptureError(f"helper screenshot is not base64: {exc}") from exc
+            raise CaptureError(
+                f"helper screenshot is not base64: {exc}", incident="decode_error"
+            ) from exc
         if width is None or height is None:
             info = getattr(client, "screen_size", None)
             if isinstance(info, tuple) and len(info) == 2:
@@ -145,9 +150,12 @@ class ScreencapCapture(Capture):
                 timeout=self.timeout_s,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            raise CaptureError(f"screencap failed: {exc}") from exc
+            raise CaptureError(f"screencap failed: {exc}", incident="transport_error") from exc
         if result.returncode != 0 or not result.stdout:
-            raise CaptureError(f"screencap returned {result.returncode}: {result.stderr[:200]!r}")
+            raise CaptureError(
+                f"screencap returned {result.returncode}: {result.stderr[:200]!r}",
+                incident="transport_error",
+            )
         return Frame(
             image=result.stdout,
             captured_at=time.monotonic(),
@@ -216,14 +224,16 @@ class AirPlayCapture(Capture):
         try:
             image = grabber(self.region)
         except (OSError, RuntimeError, ValueError) as exc:
-            raise CaptureError(f"airplay capture failed: {exc}") from exc
+            raise CaptureError(f"airplay capture failed: {exc}", incident="uvc_no_signal") from exc
         if image is None:
-            raise CaptureError("airplay capture returned no image")
+            raise CaptureError("airplay capture returned no image", incident="uvc_no_signal")
         out = BytesIO()
         try:
             image.save(out, "PNG")
         except (OSError, ValueError) as exc:
-            raise CaptureError(f"airplay capture could not encode the frame: {exc}") from exc
+            raise CaptureError(
+                f"airplay capture could not encode the frame: {exc}", incident="decode_error"
+            ) from exc
         return Frame(
             image=out.getvalue(),
             captured_at=time.monotonic(),

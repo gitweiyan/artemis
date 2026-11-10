@@ -492,6 +492,8 @@ Application Service / Agent Tool
 
 **目的：** 有统一的安全语义，但不把慢速任务 Agent 的策略强加给高频 Reflex Loop。
 
+> Phase 5a–5d（2026-11-10，ADR-007 Accepted）：Reflex 新增 `ReflexBudget`、`ReflexResult.budget/incident/incidents`、canonical stop mapping、`Control.release_inputs` finally、`CaptureError.incident`；CLI/`play_reflex` 显式构造并展示预算。任务式 `ActionGate`/Validator Incident 统一仍待实现；真机 Reflex 取消/断连证据待补。
+
 当前已有：`safety/xml.py`、`safety/pixel.py`、`safety/pointer.py`，以及 `agents/validator` 中的 Precondition/Execution/Incident 逻辑；`reflex/mouse.py` 也调用 Pixel/Pointer 原语。
 
 任务：
@@ -502,8 +504,8 @@ Application Service / Agent Tool
 - [ ] `confidence=None` 必须表示“来源未提供置信度”，不能自动映射为 `low_confidence`；没有证据不能虚构失败原因。
 - [ ] 区分 `target_disappeared`、`target_shifted`、`pointer_missing`、`stale_frame`、`no_effect`、`capability_unavailable`、`command_unsupported`、`transport_error`、`device_disconnected` 等 Incident；取值以契约 §7.2 唯一命名表为准，不得另起别名。
 - [ ] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification。
-- [ ] Reflex 高频 Loop 使用自己的安全预算：最大运行时长、FPS Cap、blind frame 上限、control failure 上限、急停/取消和释放输入状态。不要默认每帧执行重量级 SafetyNet/Trace 写盘。
-- [ ] 所有执行器在取消、断连、异常退出时释放按下的键、鼠标按钮、触点和持续动作状态。
+- [x] Reflex 高频 Loop 使用自己的安全预算：最大运行时长、FPS Cap、blind frame 上限、control failure 上限、急停/取消和释放输入状态。不要默认每帧执行重量级 SafetyNet/Trace 写盘（`ReflexBudget` + `ReflexRuntime` + CLI；见 ADR-007）。
+- [x] 所有执行器在取消、断连、异常退出时释放按下的键、鼠标按钮、触点和持续动作状态（Reflex `Control.release_inputs` + `Esp32HidControl`/`PointerControl` 接线；其他执行器后续统一）。
 
 **Exit Criteria：** 同一个安全事实只有一个权威实现；每个执行模式有明确且经测试的安全边界；不存在“ADB/HID 命令成功即任务成功”的路径。
 

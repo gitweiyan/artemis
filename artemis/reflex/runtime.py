@@ -30,6 +30,7 @@ from artemis.reflex.contract import (
     CaptureError,
     Control,
     Frame,
+    ReflexBudget,
     ReflexResult,
     SkillHandle,
     StopReason,
@@ -39,12 +40,11 @@ from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-#: Frames the skill may fail to parse before the loop hands control back.
-DEFAULT_MAX_BLIND_FRAMES = 15
-#: Consecutive gesture-dispatch failures that mean the device stopped listening.
-DEFAULT_MAX_CONTROL_FAILURES = 2
-#: Safety cap on loop rate; a skill may ask for less, never for more.
-DEFAULT_FPS_CAP = 10.0
+#: Default budget (ADR-007); kept as module constants for old callers.
+DEFAULT_BUDGET = ReflexBudget()
+DEFAULT_MAX_BLIND_FRAMES = DEFAULT_BUDGET.max_blind_frames
+DEFAULT_MAX_CONTROL_FAILURES = DEFAULT_BUDGET.max_control_failures
+DEFAULT_FPS_CAP = DEFAULT_BUDGET.fps_cap
 
 #: What a *skill* may plausibly raise (CV, JSON, shape and index mistakes). Narrow
 #: on purpose: a skill is our own plugin code, so an unexpected exception type is a
@@ -76,25 +76,35 @@ class ReflexRuntime:
         fps_cap: float = DEFAULT_FPS_CAP,
         max_blind_frames: int = DEFAULT_MAX_BLIND_FRAMES,
         max_control_failures: int = DEFAULT_MAX_CONTROL_FAILURES,
+        budget: ReflexBudget | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self.capture = capture
         self.control = control
-        self.fps_cap = max(0.5, float(fps_cap))
-        self.max_blind_frames = max(1, int(max_blind_frames))
-        self.max_control_failures = max(1, int(max_control_failures))
+        self.budget = budget or ReflexBudget(
+            fps_cap=fps_cap,
+            max_blind_frames=max_blind_frames,
+            max_control_failures=max_control_failures,
+        )
+        self.fps_cap = max(0.5, float(self.budget.fps_cap))
+        self.max_blind_frames = max(1, int(self.budget.max_blind_frames))
+        self.max_control_failures = max(1, int(self.budget.max_control_failures))
+        apply_budget = getattr(control, "apply_budget", None)
+        if callable(apply_budget):
+            apply_budget(self.budget)
         self._sleep = sleep
 
     def run(
         self,
         skill: SkillHandle,
         *,
-        seconds: float = 60.0,
+        seconds: float | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> ReflexResult:
         """Drive ``skill`` for at most ``seconds`` (or until it reports done)."""
         started = now()
-        deadline = started + max(0.0, float(seconds))
+        run_seconds = self.budget.max_seconds if seconds is None else float(seconds)
+        deadline = started + max(0.0, run_seconds)
         min_interval = 1.0 / self.fps_cap
 
         capture_ms: list[float] = []
@@ -108,6 +118,14 @@ class ReflexRuntime:
         error: str | None = None
         final_state: Any = None
         counters: dict[str, Any] = {}
+        incident: str | None = None
+        incidents: list[str] = []
+
+        def note_incident(value: str | None) -> None:
+            if value is None:
+                return
+            if value not in incidents:
+                incidents.append(value)
 
         skill.started()
         try:
@@ -124,13 +142,21 @@ class ReflexRuntime:
                     frame = self.capture.grab()
                 except CaptureError as exc:
                     blind += 1
+                    capture_incident = getattr(exc, "incident", None) or "capture_timeout"
+                    note_incident(capture_incident)
                     logger.debug(f"reflex[{skill.name}]: capture failed: {exc}")
                     if blind >= self.max_blind_frames:
+                        incident = capture_incident
                         stop = StopReason.LOST
                         break
                     self._sleep(min_interval)
                     continue
 
+                # A blocking capture can return after the deadline; do not act on
+                # that frame. The adapter's own timeout bounds the overshoot.
+                if now() >= deadline:
+                    stop = StopReason.TIME_BUDGET
+                    break
                 frames += 1
                 capture_ms.append(frame.capture_ms)
 
@@ -144,6 +170,8 @@ class ReflexRuntime:
                 if not state:
                     blind += 1
                     if blind >= self.max_blind_frames:
+                        incident = "target_unverified"
+                        note_incident(incident)
                         stop = StopReason.LOST
                         break
                     self._sleep_remaining(loop_started, min_interval)
@@ -182,8 +210,11 @@ class ReflexRuntime:
                     except _CONTROL_ERRORS as exc:
                         control_failures += 1
                         consecutive_control_failures += 1
+                        control_incident = getattr(exc, "incident", None) or "transport_error"
+                        note_incident(control_incident)
                         logger.warning(f"reflex[{skill.name}]: gesture failed: {exc}")
                         if consecutive_control_failures >= self.max_control_failures:
+                            incident = control_incident
                             stop = StopReason.CONTROL_LOST
                             break
                 if stop is StopReason.CONTROL_LOST:
@@ -196,12 +227,20 @@ class ReflexRuntime:
                 self._sleep_remaining(loop_started, min_interval)
         finally:
             skill.stopped()
+            self._release_inputs(skill.name)
             try:
                 self.capture.close()
             except (OSError, RuntimeError, ValueError) as exc:
                 logger.debug(f"reflex[{skill.name}]: capture close failed: {exc}")
 
         elapsed = max(1e-6, now() - started)
+        if incident is None:
+            incident = {
+                StopReason.TIME_BUDGET: "deadline_exceeded",
+                StopReason.CANCELLED: "cancelled",
+                StopReason.LOST: "target_unverified",
+                StopReason.CONTROL_LOST: "transport_error",
+            }.get(stop)
         return ReflexResult(
             skill=skill.name,
             stop_reason=stop,
@@ -218,7 +257,21 @@ class ReflexRuntime:
             skill_error=error,
             final_state=final_state,
             counters=counters,
+            budget=self.budget,
+            incident=incident,
+            incidents=tuple(incidents),
         )
+
+    def _release_inputs(self, skill_name: str) -> None:
+        """Best-effort release of keys/buttons after any exit path (ADR-007 D4)."""
+
+        release = getattr(self.control, "release_inputs", None)
+        if not callable(release):
+            return
+        try:
+            release()
+        except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+            logger.warning(f"reflex[{skill_name}]: release_inputs failed: {exc}")
 
     def _sleep_remaining(self, loop_started: float, min_interval: float) -> None:
         remaining = min_interval - (now() - loop_started)
@@ -244,19 +297,27 @@ def run_reflex(
     *,
     capture: Capture,
     control: Control,
-    seconds: float = 60.0,
+    seconds: float | None = None,
     fps_cap: float = DEFAULT_FPS_CAP,
+    budget: ReflexBudget | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> ReflexResult:
     """Convenience wrapper: one skill, one bounded session."""
-    runtime = ReflexRuntime(capture=capture, control=control, fps_cap=fps_cap)
+    runtime = ReflexRuntime(
+        capture=capture,
+        control=control,
+        fps_cap=fps_cap,
+        budget=budget,
+    )
     return runtime.run(skill, seconds=seconds, should_stop=should_stop)
 
 
 __all__ = [
     "DEFAULT_FPS_CAP",
     "DEFAULT_MAX_BLIND_FRAMES",
+    "DEFAULT_BUDGET",
     "DEFAULT_MAX_CONTROL_FAILURES",
     "ReflexRuntime",
+    "ReflexBudget",
     "run_reflex",
 ]

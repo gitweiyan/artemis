@@ -104,12 +104,15 @@ class UvcCapture(Capture):
         started = time.monotonic()
         try:
             result = self._run(self._command())
+        except subprocess.TimeoutExpired as exc:
+            raise CaptureError(f"uvc capture timed out: {exc}", incident="capture_timeout") from exc
         except (OSError, subprocess.SubprocessError) as exc:
-            raise CaptureError(f"uvc capture failed: {exc}") from exc
+            raise CaptureError(f"uvc capture failed: {exc}", incident="transport_error") from exc
         png = result.stdout
         if result.returncode != 0 or not png:
             raise CaptureError(
-                f"uvc capture returned {result.returncode}: {bytes(result.stderr)[:200]!r}"
+                f"uvc capture returned {result.returncode}: {bytes(result.stderr)[:200]!r}",
+                incident="uvc_no_signal",
             )
         if self.crop is not None:
             png, size = _crop_png(png, self.crop)
@@ -274,15 +277,24 @@ class UvcStream(Capture):
             if jpeg is not None:
                 return self._make_frame(jpeg, started)
             if time.monotonic() >= deadline:
-                raise CaptureError(f"uvc stream produced no frame within {timeout:.2f}s")
+                raise CaptureError(
+                    f"uvc stream produced no frame within {timeout:.2f}s",
+                    incident="capture_timeout",
+                )
             chunk = self._read_chunk()
             if chunk:
                 self._buffer += chunk
                 if len(self._buffer) > self._MAX_BUFFER:
                     self._buffer = b""
-                    raise CaptureError("uvc stream buffer exceeded its cap without a frame")
+                    raise CaptureError(
+                        "uvc stream buffer exceeded its cap without a frame",
+                        incident="decode_error",
+                    )
             elif chunk == b"":
-                raise CaptureError("uvc stream ended before a frame arrived")
+                raise CaptureError(
+                    "uvc stream ended before a frame arrived",
+                    incident="device_disconnected",
+                )
 
     def grab_latest(self, timeout_s: float | None = None) -> Frame:
         """Return the newest frame currently available (drain older queued frames).
@@ -311,7 +323,10 @@ class UvcStream(Capture):
                     newest = jpeg
                 if len(self._buffer) > self._MAX_BUFFER and newest is None:
                     self._buffer = b""
-                    raise CaptureError("uvc stream buffer exceeded its cap without a frame")
+                    raise CaptureError(
+                        "uvc stream buffer exceeded its cap without a frame",
+                        incident="decode_error",
+                    )
                 if newest is not None and time.monotonic() >= drain_deadline:
                     # A live camera keeps producing; return the newest frame seen so
                     # far instead of chasing the stream forever. The backlog (if any)
@@ -328,12 +343,18 @@ class UvcStream(Capture):
             if newest is not None:
                 return self._make_frame(newest, started)
             if time.monotonic() >= deadline:
-                raise CaptureError(f"uvc stream produced no frame within {timeout:.2f}s")
+                raise CaptureError(
+                    f"uvc stream produced no frame within {timeout:.2f}s",
+                    incident="capture_timeout",
+                )
             chunk = self._read_chunk()
             if chunk:
                 self._buffer += chunk
             elif chunk == b"":
-                raise CaptureError("uvc stream ended before a frame arrived")
+                raise CaptureError(
+                    "uvc stream ended before a frame arrived",
+                    incident="device_disconnected",
+                )
 
     def close(self) -> None:
         process = self._process

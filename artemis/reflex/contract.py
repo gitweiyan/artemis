@@ -7,6 +7,7 @@ sequences) without a device, a session or a database.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -31,6 +32,67 @@ class StopReason(str, Enum):
     CONTROL_LOST = "control_lost"
     #: The skill raised. The loop reports it instead of dying with it.
     SKILL_ERROR = "skill_error"
+
+
+@dataclass(frozen=True)
+class ReflexBudget:
+    """The bounded safety budget of one high-frequency Reflex session.
+
+    Task-mode Flash/Pro use the slower ActionGate/Checker instead. These values are
+    deliberately explicit so a run can be replayed from its summary; the defaults
+    preserve the pre-ADR-007 behavior.
+    """
+
+    max_seconds: float = 60.0
+    fps_cap: float = 10.0
+    max_blind_frames: int = 15
+    max_control_failures: int = 2
+    max_frame_age_s: float = 3.0
+    max_action_attempts: int = 3
+    max_move_steps: int = 6
+    operation_timeout_s: float = 10.0
+
+    def __post_init__(self) -> None:
+        seconds = float(self.max_seconds)
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("max_seconds must be finite and positive")
+        if float(self.fps_cap) <= 0:
+            raise ValueError("fps_cap must be positive")
+        for name in (
+            "max_blind_frames",
+            "max_control_failures",
+            "max_action_attempts",
+            "max_move_steps",
+        ):
+            if int(getattr(self, name)) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if float(self.max_frame_age_s) <= 0:
+            raise ValueError("max_frame_age_s must be positive")
+        if float(self.operation_timeout_s) <= 0:
+            raise ValueError("operation_timeout_s must be positive")
+        object.__setattr__(self, "max_seconds", seconds)
+        object.__setattr__(self, "fps_cap", float(self.fps_cap))
+        for name in (
+            "max_blind_frames",
+            "max_control_failures",
+            "max_action_attempts",
+            "max_move_steps",
+        ):
+            object.__setattr__(self, name, int(getattr(self, name)))
+        object.__setattr__(self, "max_frame_age_s", float(self.max_frame_age_s))
+        object.__setattr__(self, "operation_timeout_s", float(self.operation_timeout_s))
+
+    def as_dict(self) -> dict[str, float | int]:
+        return {
+            "max_seconds": self.max_seconds,
+            "fps_cap": self.fps_cap,
+            "max_blind_frames": self.max_blind_frames,
+            "max_control_failures": self.max_control_failures,
+            "max_frame_age_s": self.max_frame_age_s,
+            "max_action_attempts": self.max_action_attempts,
+            "max_move_steps": self.max_move_steps,
+            "operation_timeout_s": self.operation_timeout_s,
+        }
 
 
 @dataclass(frozen=True)
@@ -120,6 +182,12 @@ class ReflexResult:
     final_state: Any = None
     #: Free-form counters a skill wants reported (lines cleared, score, …).
     counters: dict[str, Any] = field(default_factory=dict)
+    #: The exact budget this run executed under (None only for legacy callers).
+    budget: ReflexBudget | None = None
+    #: Canonical §7.2 incident for the stop cause, or None for a clean finish.
+    incident: str | None = None
+    #: Bounded, de-duplicated incidents observed in the session.
+    incidents: tuple[str, ...] = ()
 
     @property
     def achieved(self) -> bool:
@@ -141,6 +209,12 @@ class ReflexResult:
             "blind_frames": self.blind_frames,
             "control_failures": self.control_failures,
         }
+        if self.budget is not None:
+            payload["budget"] = self.budget.as_dict()
+        if self.incident:
+            payload["incident"] = self.incident
+        if self.incidents:
+            payload["incidents"] = list(self.incidents)
         if self.skill_error:
             payload["skill_error"] = self.skill_error
         if self.counters:
@@ -158,6 +232,8 @@ class ReflexResult:
         if self.counters:
             pairs = ", ".join(f"{k}={v}" for k, v in self.counters.items())
             head += f" | {pairs}"
+        if self.incident:
+            head += f" | incident={self.incident}"
         if self.skill_error:
             head += f" | skill error: {self.skill_error}"
         return head
@@ -179,9 +255,16 @@ class Control(Protocol):
     def dispatch(self, gesture: Gesture) -> float:
         """Perform one gesture; return its latency in milliseconds."""
 
+    # Optional: release all held keys/buttons/touches. Runtime calls it on exit.
+    # Implementations without this method remain compatible (ADR-007 D9).
+
 
 class CaptureError(RuntimeError):
     """No usable frame (device gone, decode failed, session dropped)."""
+
+    def __init__(self, message: str, *, incident: str | None = None) -> None:
+        super().__init__(message)
+        self.incident = incident
 
 
 @dataclass

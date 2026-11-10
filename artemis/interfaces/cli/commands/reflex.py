@@ -29,6 +29,7 @@ from artemis.devices.descriptors import host_resource_ids
 from artemis.reflex import registry
 from artemis.reflex.capture import default_capture
 from artemis.reflex.control import AdbInputControl, Esp32HidControl, HelperControl, esp32_port
+from artemis.reflex.contract import ReflexBudget
 from artemis.reflex.runtime import DEFAULT_FPS_CAP, ReflexRuntime
 from artemis.runtime.host_identity import host_id as resolve_host_id
 from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError, leases_enabled
@@ -85,6 +86,13 @@ def probe(
     serial: Annotated[str | None, typer.Option("--serial", help="Device serial.")] = None,
     seconds: Annotated[float, typer.Option("--seconds", help="Wall-clock budget.")] = 10.0,
     fps_cap: Annotated[float, typer.Option("--fps-cap", help="Loop rate cap.")] = DEFAULT_FPS_CAP,
+    max_blind_frames: Annotated[
+        int, typer.Option("--max-blind-frames", help="Consecutive unreadable frames before stop.")
+    ] = 15,
+    max_control_failures: Annotated[
+        int,
+        typer.Option("--max-control-failures", help="Consecutive control failures before stop."),
+    ] = 2,
     capture: Annotated[str, typer.Option("--capture", help="'helper' or 'screencap'.")] = "helper",
     as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
 ) -> None:
@@ -128,11 +136,17 @@ def probe(
             actuator = HelperControl(target)
         else:
             actuator = AdbInputControl(target)
-        runtime = ReflexRuntime(capture=frame_source, control=actuator, fps_cap=fps_cap)
+        budget = ReflexBudget(
+            max_seconds=seconds,
+            fps_cap=fps_cap,
+            max_blind_frames=max_blind_frames,
+            max_control_failures=max_control_failures,
+        )
+        runtime = ReflexRuntime(capture=frame_source, control=actuator, budget=budget)
         typer.echo(
             f"Running reflex skill '{skill}' on {target} for {seconds:g}s ({capture} capture)…"
         )
-        result = runtime.run(handle, seconds=seconds)
+        result = runtime.run(handle)
     finally:
         for resource in (actuator, frame_source):
             closer = getattr(resource, "close", None)
@@ -160,6 +174,7 @@ def probe(
         ("Action p50 / p95", f"{result.action_ms_p50:.1f} ms / {result.action_ms_p95:.1f} ms"),
         ("Blind frames", str(result.blind_frames)),
         ("Control failures", str(result.control_failures)),
+        ("Incident", result.incident or "none"),
     ):
         table.add_row(label, value)
     if result.counters:

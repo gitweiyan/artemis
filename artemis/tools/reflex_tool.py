@@ -21,6 +21,7 @@ from artemis.devices.descriptors import host_resource_ids
 from artemis.reflex import registry
 from artemis.reflex.capture import default_capture
 from artemis.reflex.control import AdbInputControl, Esp32HidControl, HelperControl, esp32_port
+from artemis.reflex.contract import ReflexBudget
 from artemis.reflex.runtime import DEFAULT_FPS_CAP, ReflexRuntime
 from artemis.runtime.host_identity import host_id as resolve_host_id
 from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError, leases_enabled
@@ -228,10 +229,11 @@ class PlayReflexTool(ArtemisTool):
             except (OSError, ValueError, RuntimeError):
                 return False
 
-        session = ReflexRuntime(capture=frame_source, control=actuator, fps_cap=fps_cap)
+        budget = ReflexBudget(max_seconds=seconds, fps_cap=fps_cap)
+        session = ReflexRuntime(capture=frame_source, control=actuator, budget=budget)
         try:
             try:
-                result = session.run(handle, seconds=seconds, should_stop=should_stop)
+                result = session.run(handle, should_stop=should_stop)
             except Exception as exc:  # noqa: BLE001 - a third-party skill may raise anything
                 logger.error(f"play_reflex('{name}') aborted: {exc}", exc_info=True)
                 return f"Error: reflex skill '{name}' aborted: {exc}"

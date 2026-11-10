@@ -59,12 +59,34 @@ class PointerControl:
             raise RuntimeError("no relative pointer control behind this session")
         return control
 
+    def apply_budget(self, budget) -> None:
+        """Apply the Reflex action-level budgets to the pointer controller."""
+
+        controller = getattr(self, "controller", None)
+        if controller is None:
+            return
+        for name, value in (
+            ("max_attempts", budget.max_action_attempts),
+            ("max_steps", budget.max_move_steps),
+            ("max_frame_age_s", budget.max_frame_age_s),
+        ):
+            if hasattr(controller, name):
+                setattr(controller, name, value)
+
     # --- Control protocol -------------------------------------------------------
 
     def preflight(self):
         control = self._hid_control()
         probe = getattr(control, "preflight", None)
         return probe() if callable(probe) else {}
+
+    def release_inputs(self) -> None:
+        """Best-effort release through the underlying HID control (ADR-007 D4)."""
+
+        control = self._hid_control()
+        release = getattr(control, "release_inputs", None) or getattr(control, "release_all", None)
+        if callable(release):
+            release()
 
     def dispatch(self, gesture: Gesture) -> float:
         """Perform one skill gesture; return its latency in milliseconds."""
