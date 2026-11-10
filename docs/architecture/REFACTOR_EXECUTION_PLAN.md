@@ -468,6 +468,8 @@ Application Service / Agent Tool
 
 #### 4.3 Pointer Control 与 iOS 平台策略
 
+> Phase 4.3a（2026-11-10）：`artemis/core/platform_extension.py` 定义 `PlatformExtension`、`AppLifecyclePort`、`NavigationPolicy`、`TextInputPolicy`、`TargetAdjuster`、`TargetLocator`、`PromptGuidance`、`PermissionChecks` 及结构化 DTO；缺失端口返回稳定 `capability_unavailable` 原因。仅新增契约，未接线 Profile/驱动。
+
 - [ ] 将 `PointerSession` 的位置估计、Gain Calibration、Move Planner 等放入相对指针 Adapter 的内部状态；不要放在通用 `DeviceSession`。
 - [ ] 将视觉检测器放进可复用 Perception/Pointer Detection；将 pointer-vs-target 前置校验留在 Safety。
 - [ ] `HidControlSink` 中通用 Mouse/Keyboard 原语与 iOS 专属 BACK 左边缘手势、Full Keyboard Access 导航策略分开。
