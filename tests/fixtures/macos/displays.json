@@ -1,0 +1,29 @@
+[
+  {
+    "display_id": "builtin-retina",
+    "primary": true,
+    "origin_points": [0, 0],
+    "size_points": [1512, 982],
+    "backing_scale": 2,
+    "rotation_degrees": 0,
+    "screenshot_size_px": [3024, 1964]
+  },
+  {
+    "display_id": "studio-secondary",
+    "primary": false,
+    "origin_points": [1512, 0],
+    "size_points": [1920, 1080],
+    "backing_scale": 1,
+    "rotation_degrees": 0,
+    "screenshot_size_px": [1920, 1080]
+  },
+  {
+    "display_id": "left-negative",
+    "primary": false,
+    "origin_points": [-1080, 0],
+    "size_points": [1080, 1920],
+    "backing_scale": 1,
+    "rotation_degrees": 90,
+    "screenshot_size_px": [1080, 1920]
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "window_id": "window-settings",
+  "app": "com.apple.systempreferences",
+  "title": "Settings",
+  "frame_points": [100, 120, 800, 600],
+  "display_id": "builtin-retina",
+  "focused_element_id": "ax-wifi",
+  "nodes": [
+    {"id": "ax-root", "role": "AXWindow", "label": "Settings", "frame": [100, 120, 800, 600]},
+    {"id": "ax-wifi", "role": "AXButton", "label": "Wi-Fi", "frame": [140, 220, 360, 260], "focused": true},
+    {"id": "ax-search", "role": "AXTextField", "label": "Search", "frame": [140, 170, 500, 200]}
+  ]
+}

@@ -546,12 +546,14 @@ Application Service / Agent Tool
 
 **状态：** 设计验证 / Backlog。Phase 1–6 未完成前，不实现生产 macOS Adapter，不以此阻塞当前重构。
 
+> Phase 7a（2026-11-10，design-only）：输出 `docs/architecture/MACOS_PROFILE_DESIGN.md`，区分 Host PAL 与 Target Adapter，定义 `macos.desktop` capabilities/Ports、多显示器/Retina/Rotation 坐标、TCC 权限矩阵、evidence/fingerprint，并加入 `tests/fixtures/macos/` Mock Observation/Input/Permission fixtures。未实现生产 Adapter。
+
 **设计交付：**
 
-- [ ] 区分 `artemis/platform/darwin.py`（ARTEMIS Host OS PAL）与被控 Mac 的 Target Adapter；前者不算 macOS 控制能力。
-- [ ] 输出 `macos.desktop` Profile 设计：ScreenCaptureKit/截图、Accessibility/AX Tree、窗口/焦点、原生键鼠、权限状态。
-- [ ] 明确多显示器、Retina Scale、Window Offset、Display Rotation/坐标转换要求。
-- [ ] 建立 Mock Observation/Input Contract Fixture 与权限状态矩阵；不实现生产 Adapter、不承诺实机能力。
+- [x] 区分 `artemis/platform/darwin.py`（ARTEMIS Host OS PAL）与被控 Mac 的 Target Adapter；前者不算 macOS 控制能力（设计文档 §Host≠Target）。
+- [x] 输出 `macos.desktop` Profile 设计：ScreenCaptureKit/截图、Accessibility/AX Tree、窗口/焦点、原生键鼠、权限状态。
+- [x] 明确多显示器、Retina Scale、Window Offset、Display Rotation/坐标转换要求。
+- [x] 建立 Mock Observation/Input Contract Fixture 与权限状态矩阵；不实现生产 Adapter、不承诺实机能力（`tests/fixtures/macos/` + design tests）。
 - [ ] Phase 1–6 的核心契约稳定后，再由独立 ADR 决定是否启动 macOS 真实纵向切片。
 
 **激活条件：** Android/iOS 使用统一 Ports；Capability Evidence、Session/Lease、Geometry 和 Action Receipt 契约通过测试；有明确真实 Mac 设备、权限环境和验收任务。

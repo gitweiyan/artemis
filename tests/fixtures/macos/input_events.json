@@ -1,0 +1,9 @@
+{
+  "events": [
+    {"kind": "mouse.click", "space": "HOST_LOGICAL", "point": [200, 300], "button": "left"},
+    {"kind": "keyboard.key", "key": "cmd+h", "down": true},
+    {"kind": "keyboard.key", "key": "cmd+h", "down": false},
+    {"kind": "text.input", "text": "设置"}
+  ],
+  "release_required": ["keyboard.key"]
+}
