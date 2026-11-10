@@ -41,6 +41,7 @@ from artemis.agents.validator import (
     precondition_xml,
 )
 from artemis.agents.validator.categories import ValidationErrorCategory
+from artemis.agents.validator.safety_gate import ValidatorActionGate
 from artemis.constants import (  # noqa: F401  (patchable seams; the UI-change
     # polling path that consumed the poll constants was removed as dead code,
     # but the names stay importable/patchable at this module path.)
@@ -78,6 +79,8 @@ class ValidatorNode:
 
     def __init__(self, ctx: ArtemisContext):
         self.ctx = ctx
+        # Task-mode safety policy behind the common ActionGate port (ADR-007).
+        self.safety_gate = ValidatorActionGate(self)
 
     async def _get_mcp_session(self) -> ActionSession:
         """Returns the in-process unified action session (created lazily on ctx).

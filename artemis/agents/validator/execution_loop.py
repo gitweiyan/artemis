@@ -78,55 +78,33 @@ class _ActionOutcome:
 async def _run_precondition_gate(
     node, session, action_item: dict, state: State, pre_screenshot_b64: str, original_coords: list
 ) -> tuple[bool, ValidationErrorCategory, str]:
-    """Runs the pre-execution Safety Net: XML-first with pixel fallback."""
-    is_explorer_candidate = action_item.get("target_class") == "ExplorerCandidate"
-    is_ocr_element = "[OCR]" in str(action_item.get("target_class") or "")
-    has_index_metadata = bool(
-        (
-            action_item.get("target_text")
-            or action_item.get("target_bounds")
-            or action_item.get("target_resource_id")
-        )
-        and not is_explorer_candidate
-        and not is_ocr_element
+    """Run the task-mode ActionGate (XML-first with pixel fallback)."""
+
+    from artemis.safety.gate import SafetyRequest
+
+    gate = getattr(node, "safety_gate", None)
+    if gate is None:
+        from artemis.agents.validator.safety_gate import ValidatorActionGate
+
+        gate = ValidatorActionGate(node)
+    request = SafetyRequest(
+        action=str(action_item.get("action") or "action"),
+        target=action_item.get("coordinates"),
+        metadata={
+            "session": session,
+            "action_item": action_item,
+            "state": state,
+            "pre_screenshot_b64": pre_screenshot_b64,
+            "original_coords": original_coords,
+        },
     )
-
-    async def _pixel_check() -> tuple[bool, ValidationErrorCategory, str]:
-        return await node._validate_action_precondition_pixel(
-            session, action_item, pre_screenshot_b64, original_coords, state=state
-        )
-
-    if not has_index_metadata:
-        # Pure coordinate/non-index interactions: pixel-based validation is the only gate.
-        return await _pixel_check()
-
-    # Index-based validation is fastest and safest when metadata is present
-    (
-        validation_passed,
-        validation_category,
-        validation_error,
-    ) = await node._validate_action_precondition(session, action_item, state=state)
-
-    if validation_passed:
-        return validation_passed, validation_category, validation_error
-
-    if validation_category == ValidationErrorCategory.XML_BYPASSED:
-        logger.info(
-            f"Pre-execution XML-based validation bypassed ({validation_error})."
-            " Falling back to Pixel-based validation..."
-        )
-        return await _pixel_check()
-
-    logger.info(
-        f"Pre-execution XML-based validation failed: {validation_error}."
-        " Attempting Pixel-based validation fallback..."
-    )
-    pixel_passed, pixel_category, _pixel_error = await _pixel_check()
-    if pixel_passed and pixel_category == ValidationErrorCategory.NONE:
-        logger.success("Pixel validation confirmed the target after XML validation failed.")
-        return True, ValidationErrorCategory.NONE, ""
-
-    return validation_passed, validation_category, validation_error
+    decision = await gate.check(request)
+    raw_category = decision.evidence.get("category", "general")
+    try:
+        category = ValidationErrorCategory(str(raw_category))
+    except ValueError:
+        category = ValidationErrorCategory.GENERAL
+    return bool(decision.allowed), category, decision.reason
 
 
 async def _attempt_local_execution(
