@@ -670,7 +670,7 @@ ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs
 | ADR-004 | [Action Intent/Command/Receipt/Verification 状态语义](../adr/ADR-004-action-intent-command-receipt.md) | Phase 1 PR-4；Phase 3；Phase 5 | **Accepted**（2026-11-10） |
 | ADR-005 | [AdapterRegistry、Profile Builder 与静态注册契约](../adr/ADR-005-adapter-registry-profile-builder.md) | Phase 2 | **Accepted**（2026-11-10） |
 | ADR-006 | [BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件](../adr/ADR-006-driver-controller-retirement.md) | Phase 3；Phase 9-B | **Accepted**（2026-11-10） |
-| ADR-007 | Reflex Runtime、SafetyNet 与高频闭环安全预算 | Phase 3；Phase 5 | Planned |
+| ADR-007 | [Reflex Runtime、SafetyNet 与高频闭环安全预算](../adr/ADR-007-reflex-runtime-safety-budget.md) | Phase 3；Phase 5 | **Proposed**（2026-11-10） |
 | ADR-008 | [Data Engine / Telemetry / Runtime Trace 数据权威；Capability Evidence Artifact 归属](../adr/ADR-008-data-engine-evidence-ownership.md) | Phase 1 PR-2；Phase 6 | **Accepted**（2026-11-09） |
 | ADR-009 | [ESP32 Host-Firmware Protocol Versioning、Capability Handshake 与 ACK 语义](../adr/ADR-009-firmware-protocol-handshake.md) | Phase 4.2 | **Accepted**（2026-11-10） |
 | ADR-010 | [Platform Extension、语义动作映射、Prompt Guidance/App Lifecycle/Locator 插件](../adr/ADR-010-platform-extensions-semantic-actions.md) | Phase 4.3（含 MCP iOS 分支清理） | **Accepted**（2026-11-10） |
