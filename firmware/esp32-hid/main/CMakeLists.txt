@@ -7,13 +7,21 @@ idf_component_register(
 # A v2 hello identifies the exact firmware build. The short git hash is enough to
 # correlate a run with a build; a tarball or CI checkout without .git reports "dev".
 execute_process(
-    COMMAND git -C "${CMAKE_CURRENT_LIST_DIR}" describe --always --dirty --abbrev=7
+    COMMAND git -C "${CMAKE_CURRENT_LIST_DIR}" describe --always --abbrev=7
     OUTPUT_VARIABLE ARTEMIS_FIRMWARE_BUILD
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+execute_process(
+    COMMAND git -C "${CMAKE_CURRENT_LIST_DIR}/.." status --porcelain -- .
+    OUTPUT_VARIABLE ARTEMIS_FIRMWARE_DIRTY
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET
 )
 if(NOT ARTEMIS_FIRMWARE_BUILD)
     set(ARTEMIS_FIRMWARE_BUILD "dev")
+elseif(ARTEMIS_FIRMWARE_DIRTY)
+    set(ARTEMIS_FIRMWARE_BUILD "${ARTEMIS_FIRMWARE_BUILD}-dirty")
 endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ARTEMIS_FIRMWARE_BUILD="${ARTEMIS_FIRMWARE_BUILD}"
