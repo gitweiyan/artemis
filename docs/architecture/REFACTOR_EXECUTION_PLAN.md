@@ -448,10 +448,12 @@ Application Service / Agent Tool
 
 #### 4.1 UVC / Capture
 
-- [ ] 将 `UvcCapture` / `UvcStream` 从 `artemis/reflex/capture.py` 逐步抽成 L4 UVC Capture Adapter（可先保留旧路径 shim）。
-- [ ] `artemis/perception/uvc.py::UvcSource` 继续负责 Frame 健康检查、OCR/Locator 等感知管线，不直接管理宿主机视频设备句柄。
-- [ ] UVC 设备选择、尺寸、帧率、Crop、重连、超时归 L4 Adapter 配置；Crop 变换由 Geometry 明确记录。
+- [x] 将 `UvcCapture` / `UvcStream` 从 `artemis/reflex/capture.py` 逐步抽成 L4 UVC Capture Adapter（可先保留旧路径 shim）（`artemis/adapters/uvc.py`；`reflex/capture.py` 只 re-export）。
+- [x] `artemis/perception/uvc.py::UvcSource` 继续负责 Frame 健康检查、OCR/Locator 等感知管线，不直接管理宿主机视频设备句柄（只消费 `Capture` Protocol）。
+- [x] UVC 设备选择、尺寸、帧率、Crop、重连、超时归 L4 Adapter 配置；Crop 变换由 Geometry 明确记录（设备/尺寸/帧率/crop/timeout 已在 Adapter；显式重连策略仍待 4.1b/Phase 5）。
 - [ ] Camera/HDMI/UVC 都实现同一 Observation Port，但其健康状态、延迟和标定质量不可伪装成相同。
+
+> Phase 4.1a（2026-11-10）：`UvcCapture`/`UvcStream` 迁到 `artemis/adapters/uvc.py`，`reflex.capture` 保留 re-export；`UvcSource` 只依赖 `Capture` Protocol。`tests/unit/adapters/test_uvc_adapter.py` + 原 17 个 capture 测试通过。
 
 #### 4.2 ESP32 HID / Serial
 
