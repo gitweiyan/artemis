@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 
-from artemis.control.hid import HidControlSink
+from artemis.control.ios_hid import IOSControlSink as HidControlSink
 from artemis.reflex.mouse import TapResult
 
 
@@ -550,7 +550,7 @@ def test_the_drag_start_is_placed_absolutely_when_the_control_supports_it():
 
 
 def test_go_back_starts_on_the_left_edge_and_drags_far_enough_right():
-    from artemis.control.hid import BACK_SWIPE_DURATION_MS, BACK_SWIPE_END_RATIO
+    from artemis.control.ios_hid import BACK_SWIPE_DURATION_MS, BACK_SWIPE_END_RATIO
 
     sink, _session, events = _placing_sink()
 
@@ -571,7 +571,7 @@ def test_go_back_starts_on_the_left_edge_and_drags_far_enough_right():
 
 def test_go_back_places_the_edge_start_absolutely_when_the_control_supports_it():
     """The real rig has `amove`: no home/gain dance, the edge point is exact."""
-    from artemis.control.hid import BACK_SWIPE_DURATION_MS, BACK_SWIPE_END_RATIO
+    from artemis.control.ios_hid import BACK_SWIPE_DURATION_MS, BACK_SWIPE_END_RATIO
 
     control = RecordingSwipeControl()
     control.mouse_move_abs = lambda x, y: None
@@ -606,7 +606,7 @@ def test_go_back_places_the_edge_start_absolutely_when_the_control_supports_it()
 
 def test_go_back_falls_back_to_a_host_driven_drag_on_old_firmware():
     """Without `mswipe` the gesture is mdown -> move -> mup, still from the edge."""
-    from artemis.control.hid import BACK_SWIPE_END_RATIO
+    from artemis.control.ios_hid import BACK_SWIPE_END_RATIO
 
     session = PlacingSession()
     control = FakeControl()

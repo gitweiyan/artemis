@@ -83,7 +83,7 @@ def test_the_back_gesture_is_backed_by_code_and_documented_in_both_live_channels
     places an agent actually reads before deciding to hunt for a back arrow.
     """
     from artemis.agents.ios_shortcuts import IOS_KEYBOARD_GUIDANCE
-    from artemis.control.hid import BACK_SWIPE_END_RATIO
+    from artemis.control.ios_hid import BACK_SWIPE_END_RATIO
 
     text = PLAYBOOK.read_text(encoding="utf-8")
     assert "go_back" in text

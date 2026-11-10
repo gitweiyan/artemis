@@ -116,6 +116,9 @@ def test_the_session_exposes_the_pointer_belief_the_driver_anchors():
 
     assert session.pointer is not None
     assert session.pointer.connected is False
+    adapter = session.adapter_state["pointer_adapter"]
+    assert adapter.session is session.pointer
+    assert adapter.frame_size == (449, 974)
 
     asyncio.run(driver.connect())
 

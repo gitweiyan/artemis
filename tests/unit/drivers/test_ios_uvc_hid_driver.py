@@ -217,7 +217,7 @@ def test_a_capture_failure_during_a_tap_becomes_an_incident_not_an_exception():
         def __init__(self):
             from artemis.devices.geometry import ScreenGeometry
 
-            from artemis.control.hid import HidControlSink
+            from artemis.control.ios_hid import IOSControlSink as HidControlSink
             from artemis.reflex.mouse import PointerSession, SessionTapController
 
             control = SimpleNamespace(
@@ -254,7 +254,7 @@ def test_a_capture_failure_during_a_tap_becomes_an_incident_not_an_exception():
 
 def test_pointer_control_is_bound_to_the_same_controller_and_geometry():
     """Reflex skills enter through the same verified tap path the agent uses."""
-    from artemis.control.hid import HidControlSink
+    from artemis.control.ios_hid import IOSControlSink as HidControlSink
     from artemis.devices.geometry import ScreenGeometry
     from artemis.reflex.mouse import PointerSession, SessionTapController
     from artemis.reflex.pointer_control import PointerControl

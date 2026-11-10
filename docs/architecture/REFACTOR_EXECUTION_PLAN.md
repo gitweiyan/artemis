@@ -472,10 +472,11 @@ Application Service / Agent Tool
 > Phase 4.3b（2026-11-10）：`artemis/drivers/ios/extension.py` 提供 iOS 的 Spotlight AppLifecycle、左边缘 BACK Navigation、pinyin TextInput、SpringBoard 图标抬升 TargetAdjuster 和结构化 PromptGuidance；Factory 把它挂到 `ProfileBuild.adapters["platform_extension"]`。MCP 的 `is_ios_device`/LocateAnything 分支尚未迁移，行为未变。
 > Phase 4.3c（2026-11-10）：能力目录新增 `grounding.locate`；`UvcSource` 接受通用 `locator`，iOS session 用 10s 的 LocateAnything target locator 并注册为 Extension 的 `grounding`。
 > Phase 4.3d（2026-11-10）：`McpActionExecutor` 改用 Profile grounding（不再 import `is_ios_device`）；`AdbActuator` 的文本/ BACK/ App launch 改读 Extension；Planner guidance 优先读 Extension（旧 `ios_shortcuts` 保留到 9-A）。真机 `ios-smoke --target 设置` 四段全绿，7 项 evidence 记录（firmware=db32169、protocol=2）。
+> Phase 4.3e（2026-11-10）：pointer 检测迁到 `perception/pointer_detection.py`；`RelativePointerAdapter` 收口 pointer 状态；`IOSControlSink` 承接 iOS BACK/FKA/安全锚点，通用 `HidControlSink` 只保留原语。最后一次布局调整后的真机 smoke 因 iPhone 锁屏黑帧未复跑，需解锁后复测。
 
-- [ ] 将 `PointerSession` 的位置估计、Gain Calibration、Move Planner 等放入相对指针 Adapter 的内部状态；不要放在通用 `DeviceSession`。
-- [ ] 将视觉检测器放进可复用 Perception/Pointer Detection；将 pointer-vs-target 前置校验留在 Safety。
-- [ ] `HidControlSink` 中通用 Mouse/Keyboard 原语与 iOS 专属 BACK 左边缘手势、Full Keyboard Access 导航策略分开。
+- [x] 将 `PointerSession` 的位置估计、Gain Calibration、Move Planner 等放入相对指针 Adapter 的内部状态；不要放在通用 `DeviceSession`（`RelativePointerAdapter` 存于 `adapter_state`；`session.pointer` 兼容读取）。
+- [x] 将视觉检测器放进可复用 Perception/Pointer Detection；将 pointer-vs-target 前置校验留在 Safety（`perception/pointer_detection.py`；`reflex/vision.py` shim；Safety 仍用 `safety/pointer.py`）。
+- [x] `HidControlSink` 中通用 Mouse/Keyboard 原语与 iOS 专属 BACK 左边缘手势、Full Keyboard Access 导航策略分开（`IOSControlSink`；通用 base 只保留 pointer/key/text 原语）。
 - [x] `perception/ios_targets.py::icon_above_label` 迁移为 iOS Profile 的目标调整插件；通用 OCR/Locator 不知道 SpringBoard 图标布局（`IOSTargetAdjuster`；iOS session 注入；旧函数保留到 9-A）。
 - [x] `reflex/ios_apps.py`、`agents/ios_shortcuts.py` 迁为 iOS Profile 提供的可选 App Launcher / Keyboard Guidance。上层只读取可用能力和操作提示，不硬编码 `is_ios_device`（Extension/Planner 已走 Profile；旧入口保留到 9-A）。
 - [x] `drivers/ios/smoke.py` 和 `calibration.py` 保留为平台 Adapter 的诊断/校准工具，不塞入通用 Agent 核心。

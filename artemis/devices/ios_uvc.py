@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+from artemis.adapters.pointer import RelativePointerAdapter
 from artemis.control.base import ActionResult
-from artemis.control.hid import HidControlSink
+from artemis.control.ios_hid import IOSControlSink
 from artemis.devices.geometry import ScreenGeometry
 from artemis.devices.session import DeviceSession
 from artemis.drivers.ios.extension import IOSTargetAdjuster, build_ios_extension
@@ -87,16 +88,25 @@ def build_ios_uvc_session(
 
             warm_up_locate_anything(locate_url)
         detector = CompositePointerDetector(detectors)
+    # The AssistiveTouch pointer is sometimes grey and half-clipped at the screen
+    # edge, which no colour/shape model catches reliably; the nudge/diff locator
+    # needs no appearance model at all, so it backs the colour detector up.
+    tracker = PointerTracker(menu_box=assistive_button_box or (0, 0, 0, 0))
     controller = SessionTapController(
         pointer,
         capture=_GrabLatest(capture),
         detector=detector,
-        # The AssistiveTouch pointer is sometimes grey and half-clipped at the screen
-        # edge, which no colour/shape model catches reliably; the nudge/diff locator
-        # needs no appearance model at all, so it backs the colour detector up.
-        tracker=PointerTracker(menu_box=assistive_button_box or (0, 0, 0, 0)),
+        tracker=tracker,
     )
     geometry = ScreenGeometry(frame_size, screen_size)
+    pointer_adapter = RelativePointerAdapter(
+        pointer,
+        controller,
+        capture=capture,
+        geometry=geometry,
+        detector=detector,
+        tracker=tracker,
+    )
     session = DeviceSession(
         perception=[
             UvcSource(
@@ -106,12 +116,16 @@ def build_ios_uvc_session(
                 locator=target_locator,
             )
         ],
-        control=[HidControlSink(pointer, controller, geometry=geometry)],
+        control=[IOSControlSink(pointer, controller, geometry=geometry)],
         geometry=geometry,
         descriptor=descriptor,
         leases=leases,
         session_id=session_id,
-        adapter_state={"pointer": pointer, "target_locator": target_locator},
+        adapter_state={
+            "pointer": pointer,
+            "pointer_adapter": pointer_adapter,
+            "target_locator": target_locator,
+        },
     )
     session.adapter_state["platform_extension"] = build_ios_extension(
         control,

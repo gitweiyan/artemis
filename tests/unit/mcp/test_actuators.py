@@ -393,7 +393,7 @@ def _press_key_actuator(platform, refused=(), *, fail_swipe=False):
     """Real HID sink + real controller; only the firmware is a double."""
     from types import SimpleNamespace
 
-    from artemis.control.hid import HidControlSink
+    from artemis.control.ios_hid import IOSControlSink as HidControlSink
     from artemis.mcp.actuators.adb import AdbActuator
     from third_party.mobile_use.controllers.unified_controller import UnifiedMobileControllerBase
 

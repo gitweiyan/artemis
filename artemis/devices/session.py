@@ -72,6 +72,9 @@ class DeviceSession:
     def pointer(self) -> Any | None:
         """Deprecated read-only compatibility view (ADR-003 §5.4; remove in Phase 9)."""
 
+        adapter = self.adapter_state.get("pointer_adapter")
+        if adapter is not None:
+            return getattr(adapter, "session", None)
         return self.adapter_state.get("pointer")
 
     @property
