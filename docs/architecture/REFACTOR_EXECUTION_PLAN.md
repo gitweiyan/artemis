@@ -519,6 +519,8 @@ Application Service / Agent Tool
 
 **目的：** 解决可关联、可回放、可观测，不是简单合并三个目录。
 
+> Phase 6a（2026-11-10）：新增 `data_engine/ids.py`（`DataIds`/`ArtifactRef`/`ActionEvidence`）；Validator action trace 带 `action_evidence`（session/step/action/frame/trace、profile/adapter、target、coordinate space、dispatch/ACK、pre/post verification、latency、incident、artifact ref）；TelemetrySpan 可带 session/device/step/action/frame 关联。Replay/query 与历史 Trace 消费仍待做。
+
 现状职责判断：
 
 - `artemis/data_engine/`：Task/Step、截图、视频、History Chunk、Artifact 等持久化记录，是任务证据和回放数据的主要候选权威源。
@@ -527,10 +529,10 @@ Application Service / Agent Tool
 
 任务：
 
-- [ ] 定义 `task_id`、`session_id`、`device_id`、`step_id`、`action_id`、`frame_id`、`trace_id` 的关系和创建方。
-- [ ] 每个 Action 记录所用 Profile、source/adapter、target evidence、coordinate space、capability decision、dispatch result、device ACK、pre/post verification、latency 和 incident。
-- [ ] 大图像/视频只存 Artifact Reference/hash/metadata，不复制进多份 JSON Trace。
-- [ ] Telemetry Span 可关联 Data Engine Step，但 Span 不承担完整 Step 历史；Runtime Trace Store 只管后台任务状态。
+- [x] 定义 `task_id`、`session_id`、`device_id`、`step_id`、`action_id`、`frame_id`、`trace_id` 的关系和创建方（`data_engine/ids.py::DataIds`；Data Engine 拥有 Task/Step/Action 事实，Telemetry 只引用；Runtime Trace Store 仍只管后台任务状态）。
+- [x] 每个 Action 记录所用 Profile、source/adapter、target evidence、coordinate space、capability decision、dispatch result、device ACK、pre/post verification、latency 和 incident（`ActionEvidence` 写入 Validator action trace）。
+- [x] 大图像/视频只存 Artifact Reference/hash/metadata，不复制进多份 JSON Trace（`ArtifactRef`；action evidence 引用 post screenshot hash）。
+- [x] Telemetry Span 可关联 Data Engine Step，但 Span 不承担完整 Step 历史；Runtime Trace Store 只管后台任务状态（Span 新增 session/device/step/action/frame 字段）。
 - [ ] 增加按 Task/Device/Action/Artifact 的回放与查询测试；隐私/敏感屏幕内容遵循保留和脱敏策略。
 
 **Exit Criteria：** 能从一次失败动作还原“观察到什么、用哪个 Adapter、执行了什么、收到什么 ACK、屏幕如何变化、为什么判定成功/失败”。

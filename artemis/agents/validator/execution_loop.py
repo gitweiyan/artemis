@@ -51,6 +51,7 @@ from artemis.agents.validator.incidents import (
     KIND_SAFETY_NET,
     open_incident,
 )
+from artemis.data_engine.ids import ActionEvidence, ArtifactRef, DataIds
 from artemis.data_engine.trace import CURRENT_TRACE_ID
 from artemis.graph.state import State
 from artemis.utils.coordinates import normalize_action_dict
@@ -329,6 +330,63 @@ def _record_action_start(ctx, step_id, action_name, action_item, parent_id, acti
         )
 
 
+def _action_evidence(
+    ctx,
+    step_id,
+    action_name,
+    outcome: _ActionOutcome,
+    post_image_name,
+    action_trace_id,
+    duration: float,
+) -> dict | None:
+    """Correlate one action with its step/trace/frame and attach replay evidence."""
+
+    engine = getattr(ctx, "data_engine", None)
+    session_id = getattr(engine, "current_session_id", None)
+    if not session_id:
+        return None
+    item = outcome.action_item
+    artifacts = ()
+    if post_image_name:
+        artifacts = (
+            ArtifactRef(
+                artifact_id=str(post_image_name),
+                kind="screenshot",
+                content_type="image/png",
+            ),
+        )
+    ids = DataIds(
+        session_id=str(session_id),
+        device_id=str(getattr(getattr(ctx, "device", None), "device_id", "") or "") or None,
+        step_id=str(step_id) if step_id else None,
+        action_id=str(item.get("action_id") or "") or None,
+        frame_id=str(item.get("frame_id") or "") or None,
+        trace_id=str(action_trace_id) if action_trace_id else None,
+    )
+    evidence = ActionEvidence(
+        ids=ids,
+        profile_id=getattr(ctx, "profile_id", None),
+        adapter_id=str(item.get("action_result", {}).get("action") or action_name),
+        source="validator",
+        target={
+            "coordinates": item.get("coordinates"),
+            "target_text": item.get("target_text"),
+            "target_bounds": item.get("target_bounds"),
+            "target_description": item.get("target_description"),
+        },
+        coordinate_space=str(item.get("coordinate_space") or "agent_point"),
+        capability_decision=dict(item.get("capability_decision") or {}),
+        dispatch_result=dict(item.get("action_result") or {}),
+        device_ack=str(item.get("action_state") or "unknown"),
+        pre_verification=dict(item.get("safety_net_evidence") or {}),
+        post_verification=dict(item.get("post_verification") or {}),
+        latency_ms=float(duration) * 1000.0,
+        incident=item.get("incident"),
+        artifacts=artifacts,
+    )
+    return evidence.as_dict()
+
+
 def _record_action_end(
     ctx,
     step_id,
@@ -355,6 +413,15 @@ def _record_action_end(
                 "timestamp": time.time(),
                 "relative_time": relative_time,
                 "burst": burst,
+                "action_evidence": _action_evidence(
+                    ctx,
+                    step_id,
+                    action_name,
+                    outcome,
+                    post_image_name,
+                    action_trace_id,
+                    duration,
+                ),
             },
             status="success" if outcome.success else "failed",
             duration=duration,

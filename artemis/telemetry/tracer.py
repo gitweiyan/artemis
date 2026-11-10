@@ -62,11 +62,22 @@ class TelemetryTracer:
         name: str,
         span_type: SpanType = SpanType.CUSTOM,
         payload: dict[str, Any] | None = None,
+        *,
+        session_id: str | None = None,
+        device_id: str | None = None,
+        step_id: str | None = None,
+        action_id: str | None = None,
+        frame_id: str | None = None,
     ) -> AsyncIterator[TelemetrySpan]:
         """Asynchronous context manager creating and recording a span."""
         parent_id = CURRENT_PARENT_SPAN_ID.get()
         span = TelemetrySpan(
             trace_id=self.trace_id,
+            session_id=session_id,
+            device_id=device_id,
+            step_id=step_id,
+            action_id=action_id,
+            frame_id=frame_id,
             parent_id=parent_id,
             name=name,
             type=span_type,

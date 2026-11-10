@@ -53,3 +53,23 @@ async def test_telemetry_span_lifecycle(tmp_path: Path):
     content = log_file.read_text(encoding="utf-8")
     assert "child_device_action" in content
     assert "parent_agent_step" in content
+
+
+@pytest.mark.asyncio
+async def test_spans_can_link_to_data_engine_step_and_action_ids(tmp_path):
+    from artemis.telemetry.tracer import TelemetryTracer
+
+    tracer = TelemetryTracer(trace_id="trace-1", traces_dir=tmp_path)
+    async with tracer.start_span(
+        "click",
+        session_id="session-1",
+        device_id="ios-uvc",
+        step_id="step-1",
+        action_id="action-1",
+        frame_id="frame-1",
+    ) as span:
+        assert span.session_id == "session-1"
+        assert span.action_id == "action-1"
+
+    assert tracer.spans[0].step_id == "step-1"
+    assert tracer.spans[0].frame_id == "frame-1"
