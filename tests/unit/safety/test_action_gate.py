@@ -219,3 +219,21 @@ def test_opt_in_post_verification_records_the_gate_decision():
     assert outcome.error_category.value == "no_effect"
     assert action["post_verification"]["incident"] == "no_effect"
     assert gate.request.metadata["point_px"] == (500, 500)
+
+
+def test_evidence_policy_reflects_pointer_and_remote_capabilities():
+    from artemis.safety.evidence import EvidenceKind, evidence_policy
+
+    absolute = evidence_policy("tap", absolute_touch=True, relative_pointer=False)
+    assert absolute.pointer_precheck is False
+    assert EvidenceKind.POINTER_ALIGNMENT not in absolute.evidence
+
+    relative = evidence_policy("tap", absolute_touch=False, relative_pointer=True)
+    assert relative.pointer_precheck is True
+    assert EvidenceKind.POINTER_ALIGNMENT in relative.evidence
+
+    remote = evidence_policy("press_key", remote_input=True)
+    assert remote.pointer_precheck is False
+    assert EvidenceKind.DISPATCH_RECEIPT in remote.evidence
+
+    assert evidence_policy("wait_for_delay").requires_post_verification is False

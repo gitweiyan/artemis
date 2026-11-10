@@ -13,6 +13,7 @@ from typing import Any
 
 from artemis.agents.validator.categories import ValidationErrorCategory
 from artemis.safety.gate import GateDecision, SafetyRequest
+from artemis.safety.evidence import evidence_policy
 from artemis.safety.incidents import canonical_incident
 from artemis.safety.pixel import verify_effect
 from third_party.mobile_use.utils.logger import get_logger
@@ -84,12 +85,22 @@ class ValidatorActionGate:
                         passed, category, error = True, ValidationErrorCategory.NONE, ""
 
         incident = None if passed else canonical_incident(category)
+        policy = evidence_policy(
+            request.action,
+            absolute_touch=bool(meta.get("absolute_touch", False)),
+            relative_pointer=bool(meta.get("relative_pointer", True)),
+            remote_input=bool(meta.get("remote_input", False)),
+        )
         return GateDecision(
             allowed=passed,
             incident=incident,
             reason=error,
-            evidence={"category": category.value, "validator": "xml+pixel"},
-            requires_post_verification=passed,
+            evidence={
+                "category": category.value,
+                "validator": "xml+pixel",
+                "evidence_policy": policy.as_dict(),
+            },
+            requires_post_verification=bool(passed and policy.requires_post_verification),
         )
 
     async def verify(self, request: SafetyRequest, result: Any) -> GateDecision:

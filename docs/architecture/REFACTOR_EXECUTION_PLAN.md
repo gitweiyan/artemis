@@ -496,6 +496,7 @@ Application Service / Agent Tool
 >> Phase 5e（2026-11-10）：新增 `safety/gate.py`（`ActionGate`/`SafetyPolicy`）、`safety/incidents.py`（canonical 映射）、Validator 分类补齐 canonical 值；Pixel SafetyNet 缺失 `confidence` 时不再伪造成高/低置信失败（走 `pixel_bypassed`）。
 > Phase 5f（2026-11-10）：`ValidatorActionGate` 接入 `execution_loop._run_precondition_gate`；XML-first/pixel-fallback 行为不变，Port 返回 `GateDecision`。任务式 post-action verification 与 evidence 要求仍未接入。
 > Phase 5g（2026-11-10）：`ValidatorActionGate.verify()` 用 `safety/pixel.verify_effect` 检查 before/after 证据；`execution_loop` 支持显式 `verify_after` 的动作，缺失证据为 `target_unverified`、屏幕未变为 `no_effect`。默认高价值动作分类与 evidence 要求仍待接线。
+> Phase 5h（2026-11-10）：`safety/evidence.py` 定义按动作/指针/远程输入的 evidence policy，`ValidatorActionGate` 把 policy 写入 GateDecision evidence；默认自动触发仍留给 Validator/Checker 接线。
 
 当前已有：`safety/xml.py`、`safety/pixel.py`、`safety/pointer.py`，以及 `agents/validator` 中的 Precondition/Execution/Incident 逻辑；`reflex/mouse.py` 也调用 Pixel/Pointer 原语。
 
@@ -503,7 +504,7 @@ Application Service / Agent Tool
 
 - [x] 定义统一 `ActionGate` / `SafetyPolicy` Port，集中动作前校验、执行约束和结果后检的统一术语（`safety/gate.py`；Validator 接线仍待下一步）。
 - [x] Validator 的 XML/Pixel Precondition、Pointer Gate 使用同一 Incident Taxonomy；避免重复实现阈值和状态名（`safety/incidents.py` + `ValidatorActionGate` 接入 `_run_precondition_gate`）。
-- [ ] 明确不同动作所需证据：绝对触控不要求 Pointer Precheck；相对指针点击必须先证明指针位置与目标一致；Remote Key 不需要像素 Pointer 校验。
+- [x] 明确不同动作所需证据：绝对触控不要求 Pointer Precheck；相对指针点击必须先证明指针位置与目标一致；Remote Key 不需要像素 Pointer 校验（`safety/evidence.py`；GateDecision evidence）。
 - [x] `confidence=None` 必须表示“来源未提供置信度”，不能自动映射为 `low_confidence`；没有证据不能虚构失败原因（Pixel SafetyNet 缺失/非法 confidence 走 `pixel_bypassed`）。
 - [x] 区分 `target_disappeared`、`target_shifted`、`pointer_missing`、`stale_frame`、`no_effect`、`capability_unavailable`、`command_unsupported`、`transport_error`、`device_disconnected` 等 Incident；取值以契约 §7.2 唯一命名表为准，不得另起别名（`ValidationErrorCategory`/`safety/incidents.py`；新增取值需先改契约）。
 - [ ] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification（`verify_after` 显式动作已支持；默认高价值分类待接线）。
