@@ -641,9 +641,9 @@ ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs
 | ADR | 决策主题 | 阻塞的 PR / Phase | 状态 |
 |---|---|---|---|
 | ADR-001 | [Capability Model、Capability Evidence 与 Fingerprint/Invalidation](../adr/ADR-001-capability-model-evidence-fingerprint.md) | Phase 1 PR-2；Phase 2；Phase 4.2 固件能力握手 | **Accepted**（2026-11-09） |
-| ADR-002 | Coordinate Space、Transform 与迁移兼容 | Phase 1 PR-4；Phase 3 所有坐标链路 | Planned |
+| ADR-002 | [Coordinate Space、Transform 与迁移兼容](../adr/ADR-002-coordinate-spaces-transform.md) | Phase 1 PR-4；Phase 3 所有坐标链路；Phase 7 | **Proposed** |
 | ADR-003 | [Device/Target/Endpoint Identity、Session 生命周期与资源所有权](../adr/ADR-003-device-identity-session-resource-ownership.md) | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | **Accepted**（2026-11-09） |
-| ADR-004 | Action Intent/Command/Receipt/Verification 状态语义 | Phase 1 PR-4；Phase 3；Phase 5 | Planned |
+| ADR-004 | [Action Intent/Command/Receipt/Verification 状态语义](../adr/ADR-004-action-intent-command-receipt.md) | Phase 1 PR-4；Phase 3；Phase 5 | **Proposed** |
 | ADR-005 | AdapterRegistry、Profile Builder 与静态注册契约 | Phase 2 | Planned |
 | ADR-006 | BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件 | Phase 3；Phase 9-B | Planned |
 | ADR-007 | Reflex Runtime、SafetyNet 与高频闭环安全预算 | Phase 3；Phase 5 | Planned |

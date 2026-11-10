@@ -24,9 +24,9 @@
 | ADR | 决策主题 | 阻塞的 PR / Phase | 当前状态 |
 |---|---|---|---|
 | ADR-001 | [Capability Model、Evidence、Fingerprint 与 Invalidation](ADR-001-capability-model-evidence-fingerprint.md) | Phase 1 PR-2；Phase 2；Phase 4.2 | **Accepted**（2026-11-09） |
-| ADR-002 | Coordinate Space、Transform 与坐标兼容迁移 | Phase 1 PR-4；Phase 3 坐标链路 | Planned |
+| ADR-002 | [Coordinate Space、Transform 与坐标兼容迁移](ADR-002-coordinate-spaces-transform.md) | Phase 1 PR-4；Phase 3 坐标链路；Phase 7 | Proposed |
 | ADR-003 | [Device/Target/Endpoint Identity、Session 生命周期与资源所有权](ADR-003-device-identity-session-resource-ownership.md) | Phase 1 PR-1/PR-3；Phase 2；Phase 3 | **Accepted**（2026-11-09） |
-| ADR-004 | Action Intent/Command/Receipt/Verification 状态语义 | Phase 1 PR-4；Phase 3；Phase 5 | Planned |
+| ADR-004 | [Action Intent/Command/Receipt/Verification 状态语义](ADR-004-action-intent-command-receipt.md) | Phase 1 PR-4；Phase 3；Phase 5 | Proposed |
 | ADR-005 | Adapter Registry、Profile Builder、静态注册机制 | Phase 2 | Planned |
 | ADR-006 | BaseDeviceDriver / UnifiedMobileController 兼容期与退役条件 | Phase 3；Phase 9-B | Planned |
 | ADR-007 | Reflex Runtime、SafetyNet 与高频闭环安全预算 | Phase 3；Phase 5 | Planned |
