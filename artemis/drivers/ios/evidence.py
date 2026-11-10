@@ -47,6 +47,8 @@ def record_smoke_evidence(
     absolute_ready: bool,
     now: float | None = None,
     capture_mode: str | None = None,
+    firmware_build: str = "unknown",
+    protocol_version: str = "unknown",
 ) -> tuple[str, ...]:
     steps = {step.name: step for step in report.steps}
     executed_at = time.time() if now is None else float(now)
@@ -54,6 +56,8 @@ def record_smoke_evidence(
         descriptor,
         adapter_id="esp32_hid",
         adapter_version=test_version,
+        firmware_build=firmware_build,
+        protocol_version=protocol_version,
     )
     fingerprint = capability_fingerprint(fields)
 

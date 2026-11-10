@@ -195,6 +195,8 @@ def _smoke_or_exit(
         sink = session.control_for(absolute=False)
         controller = getattr(sink, "controller", None)
         absolute_ready = bool(getattr(controller, "absolute_ready", False))
+        pointer = getattr(session, "pointer", None)
+        firmware = getattr(getattr(pointer, "control", None), "firmware_info", None)
         try:
             evidence_ids = record_smoke_evidence(
                 store=store,
@@ -203,6 +205,8 @@ def _smoke_or_exit(
                 test_version=test_version,
                 absolute_ready=absolute_ready,
                 capture_mode=capture_mode,
+                firmware_build=getattr(firmware, "build", "unknown"),
+                protocol_version=str(getattr(firmware, "protocol", "unknown")),
             )
         except (OSError, RuntimeError, ValueError) as exc:
             console.print(f"[yellow]⚠ capability evidence was not recorded: {exc}[/yellow]")

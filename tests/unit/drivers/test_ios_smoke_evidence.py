@@ -167,3 +167,23 @@ def test_a_report_without_a_target_does_not_invent_ocr_evidence(tmp_path):
 
     assert _lookup(store, descriptor, CapabilityId.OCR_READ) is None
     assert _lookup(store, descriptor, CapabilityId.FRAME_CAPTURE) is not None
+
+
+def test_evidence_fingerprint_uses_the_firmware_handshake(tmp_path):
+    artifacts, store = _store(tmp_path)
+    descriptor = _descriptor()
+
+    ids = record_smoke_evidence(
+        store=store,
+        descriptor=descriptor,
+        report=_report(),
+        test_version="1.2.3",
+        absolute_ready=True,
+        firmware_build="abc123",
+        protocol_version="2",
+    )
+
+    assert ids
+    record = store.list()[0]
+    assert dict(record.fingerprint_fields)["firmware_build"] == "abc123"
+    assert dict(record.fingerprint_fields)["protocol_version"] == "2"
