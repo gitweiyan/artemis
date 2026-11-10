@@ -16,7 +16,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["PROFILE_KINDS", "ProfilePlan", "ProfileSelectionError", "select_profile"]
+__all__ = [
+    "PROFILE_KINDS",
+    "ExecutionPlan",
+    "ExecutionSelectionError",
+    "ProfilePlan",
+    "ProfileSelectionError",
+    "select_profile",
+]
 
 #: ``flash`` = single reactive loop; ``pro`` = Planner/Operator/Validator graph;
 #: ``skill`` = a fixed closed loop that bypasses per-frame model calls.
@@ -82,3 +89,9 @@ def select_profile(
         reason=reason,
         requested=was_requested,
     )
+
+
+#: ADR-005: the L2 name for a task execution profile (flash/pro/skill).
+ExecutionPlan = ProfilePlan
+#: Backwards-compatible alias for code that still says "profile".
+ExecutionSelectionError = ProfileSelectionError
