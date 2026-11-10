@@ -40,6 +40,7 @@ active window until its turn is chunked, whose user lines then carry it on.
 import asyncio
 import base64
 from dataclasses import dataclass, field
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -79,6 +80,7 @@ from artemis.config import (
 )
 from artemis.context import ArtemisContext
 from artemis.controllers.unified_controller import UnifiedMobileController
+from artemis.data_engine.ids import ActionEvidence, ArtifactRef, DataIds
 from artemis.data_engine.trace import trace
 from artemis.graph.perception import _check_injected_instruction_file
 from artemis.graph.state import State
@@ -339,9 +341,7 @@ class FlashRunner:
         prompt_path = Path(__file__).parent / "flash_runner.md"
         prompt_template = prompt_path.read_text(encoding="utf-8")
         available_tools = frozenset(t.name for t in tools_declaration)
-        rendered = Template(prompt_template).render(
-            goal=self.goal, available_tools=available_tools
-        )
+        rendered = Template(prompt_template).render(goal=self.goal, available_tools=available_tools)
         return append_ios_shortcuts(rendered, self.ctx)
 
     # ------------------------------------------------------------------
@@ -784,6 +784,43 @@ class FlashRunner:
                 last_execution_result["error"] = exec_result.text_summary
 
             extra_metadata: dict = {"token_usage": step_token_usage}
+            metadata = getattr(exec_result, "metadata", None) or {}
+            post_hash = hashlib.sha256(post_img_bytes).hexdigest() if post_img_bytes else None
+            step_id = self.ctx.data_engine.current_step_id
+            if step_id is not None:
+                evidence = ActionEvidence(
+                    ids=DataIds(
+                        session_id=str(self.ctx.data_engine.current_session_id),
+                        device_id=str(
+                            getattr(getattr(self.ctx, "device", None), "device_id", "") or ""
+                        )
+                        or None,
+                        step_id=str(step_id),
+                        action_id=str(metadata.get("action_id") or "") or None,
+                    ),
+                    profile_id=getattr(self.ctx, "profile_id", None),
+                    adapter_id=name,
+                    source="flash",
+                    target=dict(action_dict),
+                    coordinate_space=str(action_dict.get(COORDINATE_SPACE_KEY) or "agent_point"),
+                    capability_decision={},
+                    dispatch_result={
+                        "status": str(getattr(exec_result, "status", "unknown")),
+                        "message": str(getattr(exec_result, "text_summary", "") or ""),
+                    },
+                    device_ack=str(metadata.get("action_state") or "unknown"),
+                    pre_verification=(
+                        {"target_unverified": True} if metadata.get("target_unverified") else {}
+                    ),
+                    post_verification=dict(metadata.get("post_verification") or {}),
+                    latency_ms=None,
+                    incident=metadata.get("incident"),
+                    artifacts=(
+                        (ArtifactRef(post_hash, "screenshot", "image/png"),) if post_hash else ()
+                    ),
+                )
+                extra_metadata["action_evidence"] = evidence.as_dict()
+                self._record_action_telemetry(name, step_id, action_dict, metadata)
             if injected:
                 # Stamped verbatim on the step it reached: the chunk ledger
                 # keeps it as a never-evicted line at every compression level.
@@ -803,6 +840,43 @@ class FlashRunner:
         except Exception as step_err:
             logger.warning(f"Error recording step in FlashRunner: {step_err}")
         return recorded_step_id
+
+    def _record_action_telemetry(self, name, step_id, action_dict, metadata) -> None:
+        """Emit the same DEVICE_ACTION span shape as the Validator path."""
+
+        getter = getattr(self.ctx, "get_telemetry_tracer", None)
+        if not callable(getter):
+            return
+        try:
+            tracer = getter()
+        except (OSError, RuntimeError, ValueError):
+            return
+        from artemis.telemetry.models import SpanType, TelemetrySpan
+        from artemis.telemetry.tracer import TelemetryTracer
+
+        if not isinstance(tracer, TelemetryTracer):
+            return
+        engine = getattr(self.ctx, "data_engine", None)
+        span = TelemetrySpan(
+            trace_id=str(getattr(engine, "current_session_id", "") or tracer.trace_id),
+            session_id=str(getattr(engine, "current_session_id", "") or "") or None,
+            device_id=str(getattr(getattr(self.ctx, "device", None), "device_id", "") or "")
+            or None,
+            step_id=str(step_id) if step_id else None,
+            action_id=str(metadata.get("action_id") or "") or None,
+            name=name,
+            type=SpanType.DEVICE_ACTION,
+            payload={
+                "action": action_dict,
+                "action_state": metadata.get("action_state"),
+                "incident": metadata.get("incident"),
+            },
+        )
+        span.finish(status="success" if not metadata.get("incident") else "failed")
+        try:
+            tracer.record_span(span)
+        except (OSError, RuntimeError, ValueError, TypeError):
+            return
 
     def _notify_history_chunker(self, step_id) -> None:
         """Stamps the recorded step for the chunk manager (single segment, no plan)."""

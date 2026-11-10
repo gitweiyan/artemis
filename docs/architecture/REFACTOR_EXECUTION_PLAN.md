@@ -522,6 +522,7 @@ Application Service / Agent Tool
 > Phase 6a（2026-11-10）：新增 `data_engine/ids.py`（`DataIds`/`ArtifactRef`/`ActionEvidence`）；Validator action trace 带 `action_evidence`（session/step/action/frame/trace、profile/adapter、target、coordinate space、dispatch/ACK、pre/post verification、latency、incident、artifact ref）；TelemetrySpan 可带 session/device/step/action/frame 关联。Replay/query 与历史 Trace 消费仍待做。
 > Phase 6b（2026-11-10）：`data_engine/replay.py::query_action_evidence` + `DataEngine.query_action_evidence` 支持按 action/device/artifact/session 查询；测试覆盖缺失 evidence 忽略与 limit。按 task_id 的关联和敏感内容脱敏策略仍待补。
 > Phase 6c（2026-11-10）：`ArtemisContext.get_telemetry_tracer()` 懒创建 session tracer；Validator action 结束时发 `DEVICE_ACTION` span（session/step/action/frame/data trace）。`artemis trace actions` 支持按 session/action/device/artifact 查询 action evidence（JSON/表格）。
+> Phase 6d（2026-11-10）：Flash 的每个 device action 也写 `action_evidence` 到 Step extra_metadata，并发射 `DEVICE_ACTION` span；`trace actions` 同时读取 action trace 与 step metadata，真机 Flash `打开设置` 已验证 action evidence + telemetry_spans.jsonl。
 
 现状职责判断：
 

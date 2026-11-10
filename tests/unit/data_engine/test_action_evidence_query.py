@@ -35,3 +35,22 @@ def test_traces_without_action_evidence_are_ignored():
     traces = [SimpleNamespace(payload={}), SimpleNamespace(payload=None), _trace("a1")]
 
     assert len(query_action_evidence(traces)) == 1
+
+
+def test_query_reads_action_evidence_from_step_metadata_too():
+    from types import SimpleNamespace
+
+    from artemis.data_engine.replay import query_action_evidence
+
+    step = SimpleNamespace(
+        extra_metadata={
+            "action_evidence": {
+                "ids": {"action_id": "flash-step-action", "session_id": "s1", "device_id": "ios"},
+                "artifacts": [],
+            }
+        }
+    )
+
+    assert query_action_evidence([step], action_id="flash-step-action")[0]["ids"]["action_id"] == (
+        "flash-step-action"
+    )

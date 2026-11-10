@@ -209,8 +209,9 @@ def query_actions(
     traces = storage.get_traces_for_session(
         resolved, trace_type="action", limit=max(limit * 10, 100)
     )
+    steps = storage.get_steps(resolved)
     evidence = query_action_evidence(
-        traces,
+        [*traces, *steps],
         action_id=action_id,
         session_id=resolved,
         device_id=device_id,

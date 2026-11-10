@@ -17,6 +17,11 @@ def _evidence(trace: Any) -> dict[str, Any] | None:
         value = payload.get("action_evidence")
         if isinstance(value, dict):
             return value
+    extra = getattr(trace, "extra_metadata", None)
+    if isinstance(extra, dict):
+        value = extra.get("action_evidence")
+        if isinstance(value, dict):
+            return value
     return None
 
 
