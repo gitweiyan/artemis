@@ -363,7 +363,7 @@ Phase 0 的“事实源收敛”和 Phase 9 的“旧规范标记 Superseded”�
 
 > 行为变更（严格幂等重试策略、Checker 写 `VerificationResult`、执行器按帧/Transform 拒绝旧 Agent 坐标）按 ADR-004 迁移表留到 **Phase 5**（Safety/Verification 收敛），避免在契约 PR 中改变点击成功率。
 >
-> 真机复测：边界改动提交时 ESP32 串口已断开（`/dev/cu.usbmodem5B140947461` 不存在），未重跑；2026-11-09 的 7 项 smoke evidence 仍保留，机台恢复后需重跑 `ios-smoke` 确认 `HidControlSink._frame_point` 的 Transform 切换。
+> 真机复测（2026-11-10）：串口恢复后重跑 `ios-smoke --target 设置`，四段门禁全绿，7 项 capability 仍为 verified；`HidControlSink._frame_point` 的 Transform 切换未改变点击结果。
 
 **Phase 1 Exit Criteria：** 四个 PR 合并；Core Contract 不导入 ADB、UVC、pyserial、TinyUSB、Android/iOS SDK；Android/iOS 兼容测试保持；能力缺失可明确报告 `capability_unavailable` / `unknown`，不会退化为 AttributeError；设备与共享硬件资源生命周期可测试、可恢复。
 
