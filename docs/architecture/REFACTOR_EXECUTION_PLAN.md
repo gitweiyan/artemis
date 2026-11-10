@@ -524,6 +524,7 @@ Application Service / Agent Tool
 > Phase 6c（2026-11-10）：`ArtemisContext.get_telemetry_tracer()` 懒创建 session tracer；Validator action 结束时发 `DEVICE_ACTION` span（session/step/action/frame/data trace）。`artemis trace actions` 支持按 session/action/device/artifact 查询 action evidence（JSON/表格）。
 > Phase 6d（2026-11-10）：Flash 的每个 device action 也写 `action_evidence` 到 Step extra_metadata，并发射 `DEVICE_ACTION` span；`trace actions` 同时读取 action trace 与 step metadata，真机 Flash `打开设置` 已验证 action evidence + telemetry_spans.jsonl。
 > Phase 6e（2026-11-10）：Data Engine 在 `start_session` 确定 `current_task_id`（默认 session_id，`ARTEMIS_TASK_ID` 可覆盖 batch task）；ActionEvidence/TelemetrySpan/查询/CLI 均带 task_id。
+> Phase 6f（2026-11-10）：真机 Flash `打开设置` 验证 task_id 贯穿（session=task=`d99760c1...`），`trace actions --json` 返回 task_id/latency/artifact；Flash DEVICE_ACTION span duration=7146ms（含 post screenshot），修复了记录点无起点导致的 0ms span。
 
 现状职责判断：
 

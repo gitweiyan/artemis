@@ -44,6 +44,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import time
 import uuid
 
 from jinja2 import Template
@@ -765,6 +766,7 @@ class FlashRunner:
         injected: str | None = None,
         native_text: str | None = None,
         action_dict: dict | None = None,
+        action_started: float | None = None,
     ):
         """Records telemetry / step in DataEngine; returns the step id or None."""
         recorded_step_id = None
@@ -815,14 +817,18 @@ class FlashRunner:
                         {"target_unverified": True} if metadata.get("target_unverified") else {}
                     ),
                     post_verification=dict(metadata.get("post_verification") or {}),
-                    latency_ms=None,
+                    latency_ms=(
+                        max(0.0, (time.time() - action_started) * 1000.0)
+                        if action_started is not None
+                        else None
+                    ),
                     incident=metadata.get("incident"),
                     artifacts=(
                         (ArtifactRef(post_hash, "screenshot", "image/png"),) if post_hash else ()
                     ),
                 )
                 extra_metadata["action_evidence"] = evidence.as_dict()
-                self._record_action_telemetry(name, step_id, action_dict, metadata)
+                self._record_action_telemetry(name, step_id, action_dict, metadata, action_started)
             if injected:
                 # Stamped verbatim on the step it reached: the chunk ledger
                 # keeps it as a never-evicted line at every compression level.
@@ -843,7 +849,9 @@ class FlashRunner:
             logger.warning(f"Error recording step in FlashRunner: {step_err}")
         return recorded_step_id
 
-    def _record_action_telemetry(self, name, step_id, action_dict, metadata) -> None:
+    def _record_action_telemetry(
+        self, name, step_id, action_dict, metadata, action_started: float | None = None
+    ) -> None:
         """Emit the same DEVICE_ACTION span shape as the Validator path."""
 
         getter = getattr(self.ctx, "get_telemetry_tracer", None)
@@ -869,6 +877,7 @@ class FlashRunner:
             action_id=str(metadata.get("action_id") or "") or None,
             name=name,
             type=SpanType.DEVICE_ACTION,
+            start_time=action_started if action_started is not None else time.time(),
             payload={
                 "action": action_dict,
                 "action_state": metadata.get("action_state"),
@@ -956,6 +965,7 @@ class FlashRunner:
         # Dynamic dispatch set: manifest device actions plus any backend
         # extension tools, so extension steps are recorded like actions.
         action_names = self.executor.action_tool_names
+        action_started = time.time()
         try:
             exec_result = await self.executor.execute(
                 name, args, tc_id, state, index_elements=index_elements
@@ -1002,6 +1012,7 @@ class FlashRunner:
                     injected=injected,
                     native_text=native_text,
                     action_dict=action_dict,
+                    action_started=action_started,
                 )
 
             if name in action_names:
