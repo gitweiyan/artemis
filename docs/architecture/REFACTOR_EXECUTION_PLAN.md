@@ -457,6 +457,8 @@ Application Service / Agent Tool
 
 #### 4.2 ESP32 HID / Serial
 
+> Phase 4.2a（2026-11-10）：`artemis/adapters/firmware.py::FirmwareBridge`（Transport seam、126 字节行限、`OK`/`ERR`、ACK 超时、line-too-long resync、`usb` 状态解析/preflight）；`tests/unit/adapters/test_firmware_bridge.py`。尚未接线到 `Esp32HidControl`/新 Adapter，固件 v2 未实现。
+
 - [ ] 将 `Esp32HidControl` 从 `artemis/reflex/control.py` 抽为 L4 `Esp32HidAdapter` + Serial Transport；保留旧 `Control` Protocol 适配器给 Reflex。
 - [ ] 将串口 115200 8N1、LF/CRLF 行结束、单命令等待 ACK、单行长度、长文本分片等协议事实集中到 Firmware Bridge，不散落在业务层。
 - [ ] 正式区分 Host 命令 ACK、HID Report 已提交、iOS/Android 实际响应、屏幕效果验证。
