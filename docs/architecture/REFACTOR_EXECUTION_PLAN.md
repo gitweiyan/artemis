@@ -498,6 +498,7 @@ Application Service / Agent Tool
 > Phase 5g（2026-11-10）：`ValidatorActionGate.verify()` 用 `safety/pixel.verify_effect` 检查 before/after 证据；`execution_loop` 支持显式 `verify_after` 的动作，缺失证据为 `target_unverified`、屏幕未变为 `no_effect`。默认高价值动作分类与 evidence 要求仍待接线。
 > Phase 5h（2026-11-10）：`safety/evidence.py` 定义按动作/指针/远程输入的 evidence policy，`ValidatorActionGate` 把 policy 写入 GateDecision evidence；默认自动触发仍留给 Validator/Checker 接线。
 > Phase 5i（2026-11-10）：高价值 `launch_app`/`manage_app`/`open_link` 默认执行后置 pixel 验证（`DEFAULT_POST_VERIFY_ACTIONS`）；显式 `verify_after` 仍可覆盖。非图像测试 fixture 自动记录 `evidence_unavailable`，不伪造失败。
+> Phase 5 真机（2026-11-10）：Flash 打开设置在 2 turns 完成（`traces/2a1ed0c5..._PASS...`）；Pro 同任务 2 steps、Checker 3/3 通过（`traces/a8c82bba..._PASS...`）；iOS `PointerControl` 短 Reflex 在 1 帧后取消，返回 `stop_reason=cancelled`/`incident=cancelled`，释放路径执行。
 
 当前已有：`safety/xml.py`、`safety/pixel.py`、`safety/pointer.py`，以及 `agents/validator` 中的 Precondition/Execution/Incident 逻辑；`reflex/mouse.py` 也调用 Pixel/Pointer 原语。
 
