@@ -96,6 +96,8 @@ class AndroidAdbDriver(BaseDeviceDriver):
         self._device: AdbDevice | None = None
         self._recording_process: asyncio.subprocess.Process | None = None
         self._recording_output_path: Path | None = None
+        #: ADR-006 3b re-entrancy guard: session sinks call the legacy implementation.
+        self._session_dispatch_depth = 0
 
     @property
     def device_id(self) -> str:
@@ -259,6 +261,24 @@ class AndroidAdbDriver(BaseDeviceDriver):
         times: int = 1,
         delay_ms: int = 100,
     ) -> bool:
+        if self._session_dispatch_depth or times != 1 or duration_ms >= 500:
+            return await self._tap_legacy(x, y, duration_ms, times, delay_ms)
+        try:
+            sink = self.session.control_for(absolute=True)
+            result = await sink.tap_abs(int(x), int(y))
+            return bool(result.ok)
+        except (OSError, RuntimeError, ValueError, AttributeError) as e:
+            logger.error(f"Session tap failed at ({x}, {y}): {e}")
+            return False
+
+    async def _tap_legacy(
+        self,
+        x: int,
+        y: int,
+        duration_ms: int = 100,
+        times: int = 1,
+        delay_ms: int = 100,
+    ) -> bool:
         try:
             if duration_ms >= 500:
                 cmd = f"input swipe {x} {y} {x} {y} {duration_ms}"
@@ -277,9 +297,29 @@ class AndroidAdbDriver(BaseDeviceDriver):
             return False
 
     async def long_press(self, x: int, y: int, duration_ms: int = 1000) -> bool:
-        return await self.tap(x=x, y=y, duration_ms=duration_ms)
+        return await self._tap_legacy(x=x, y=y, duration_ms=duration_ms)
 
     async def swipe(
+        self,
+        start_x: int,
+        start_y: int,
+        end_x: int,
+        end_y: int,
+        duration_ms: int = 800,
+    ) -> bool:
+        if self._session_dispatch_depth:
+            return await self._swipe_legacy(start_x, start_y, end_x, end_y, duration_ms)
+        try:
+            sink = self.session.control_for(absolute=True)
+            result = await sink.swipe(
+                int(start_x), int(start_y), int(end_x), int(end_y), duration_ms
+            )
+            return bool(result.ok)
+        except (OSError, RuntimeError, ValueError, AttributeError) as e:
+            logger.error(f"Session swipe failed: {e}")
+            return False
+
+    async def _swipe_legacy(
         self,
         start_x: int,
         start_y: int,
@@ -330,6 +370,17 @@ class AndroidAdbDriver(BaseDeviceDriver):
         return False
 
     async def input_text(self, text: str, clear_existing: bool = True) -> bool:
+        if self._session_dispatch_depth or not clear_existing:
+            return await self._input_text_legacy(text, clear_existing)
+        try:
+            sink = self.session.control_for(absolute=True)
+            result = await sink.input_text(text)
+            return bool(result.ok)
+        except (OSError, RuntimeError, ValueError, AttributeError) as e:
+            logger.error(f"Session input_text failed: {e}")
+            return False
+
+    async def _input_text_legacy(self, text: str, clear_existing: bool = True) -> bool:
         try:
             if clear_existing:
                 # Safe & robust clearing: Move to End -> Shift+Home selection -> Delete -> Fallback backspaces
@@ -395,6 +446,17 @@ class AndroidAdbDriver(BaseDeviceDriver):
             return False
 
     async def press_key(self, key: KeyCode | str | int) -> bool:
+        if self._session_dispatch_depth:
+            return await self._press_key_legacy(key)
+        try:
+            sink = self.session.control_for(absolute=True)
+            result = await sink.press_key(key)
+            return bool(result.ok)
+        except (OSError, RuntimeError, ValueError, AttributeError) as e:
+            logger.error(f"Session press_key failed: {e}")
+            return False
+
+    async def _press_key_legacy(self, key: KeyCode | str | int) -> bool:
         try:
             keycode_val = key
             if isinstance(key, (KeyCode, str)):

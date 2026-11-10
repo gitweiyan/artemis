@@ -33,9 +33,25 @@ class AppControlSink:
     def __init__(self, driver):
         self.driver = driver
 
+    async def _call_driver(self, method, *args, **kwargs):
+        """Call a driver action inside the session-dispatch scope (ADR-006 3b).
+
+        Android's driver delegates its public actions to the session sink; the sink
+        must call the legacy implementation instead of re-entering the session.
+        """
+
+        depth = getattr(self.driver, "_session_dispatch_depth", None)
+        if isinstance(depth, int):
+            setattr(self.driver, "_session_dispatch_depth", depth + 1)
+        try:
+            return await method(*args, **kwargs)
+        finally:
+            if isinstance(depth, int):
+                setattr(self.driver, "_session_dispatch_depth", depth)
+
     async def tap_abs(self, x: int, y: int) -> ActionResult:
         try:
-            ok = await self.driver.tap(int(x), int(y))
+            ok = await self._call_driver(self.driver.tap, int(x), int(y))
         except Exception as exc:  # noqa: BLE001 - a device failure is an incident
             return ActionResult(False, "tap_abs", "tap_failed", str(exc))
         if ok:
@@ -61,8 +77,13 @@ class AppControlSink:
         duration_ms: int = 800,
     ) -> ActionResult:
         try:
-            ok = await self.driver.swipe(
-                int(start_x), int(start_y), int(end_x), int(end_y), duration_ms=duration_ms
+            ok = await self._call_driver(
+                self.driver.swipe,
+                int(start_x),
+                int(start_y),
+                int(end_x),
+                int(end_y),
+                duration_ms=duration_ms,
             )
         except Exception as exc:  # noqa: BLE001
             return ActionResult(False, "swipe", "swipe_failed", str(exc))
@@ -72,7 +93,7 @@ class AppControlSink:
 
     async def input_text(self, text: str) -> ActionResult:
         try:
-            ok = await self.driver.input_text(text)
+            ok = await self._call_driver(self.driver.input_text, text)
         except Exception as exc:  # noqa: BLE001
             return ActionResult(False, "input_text", "text_input_failed", str(exc))
         if ok:
@@ -81,7 +102,7 @@ class AppControlSink:
 
     async def press_key(self, key) -> ActionResult:
         try:
-            ok = await self.driver.press_key(key)
+            ok = await self._call_driver(self.driver.press_key, key)
         except Exception as exc:  # noqa: BLE001
             return ActionResult(False, "press_key", "key_failed", str(exc))
         if ok:

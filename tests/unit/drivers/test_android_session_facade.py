@@ -86,3 +86,37 @@ def test_the_factory_logs_the_android_composition(monkeypatch, caplog):
     logged = "\n".join(record.getMessage() for record in caplog.records)
     assert "Composition: app" in logged
     assert "UI tree" in logged or "tree" in logged
+
+
+def test_driver_tap_goes_through_the_session_control_sink():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from artemis.control.base import ActionResult
+
+    driver = _driver()
+    session = driver.session
+    sink = MagicMock()
+    sink.tap_abs = AsyncMock(return_value=ActionResult(True, "tap_abs"))
+
+    with patch.object(session, "control_for", return_value=sink) as control_for:
+        ok = asyncio.run(driver.tap(540, 1200))
+
+    assert ok is True
+    control_for.assert_called_once_with(absolute=True)
+    sink.tap_abs.assert_awaited_once_with(540, 1200)
+
+
+def test_a_session_dispatch_uses_the_legacy_driver_instead_of_recursing():
+    import asyncio
+    from unittest.mock import MagicMock
+
+    driver = _driver()
+    driver._device = MagicMock()
+    driver._session_dispatch_depth = 1
+
+    ok = asyncio.run(driver.tap(540, 1200))
+
+    assert ok is True
+    driver.device.shell.assert_called_with("input tap 540 1200")
+    assert driver._session_dispatch_depth == 1
