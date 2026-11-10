@@ -6,6 +6,8 @@ Full Keyboard Access > Commands screenshots in ``captures/hot_key``.
 
 from __future__ import annotations
 
+from artemis.core.platform_extension import extension_from_context
+
 __all__ = ["IOS_KEYBOARD_GUIDANCE", "append_ios_shortcuts", "is_ios_device"]
 
 _MARKER = "## iOS: keyboard before pointer"
@@ -74,7 +76,17 @@ def is_ios_device(ctx) -> bool:
 
 
 def append_ios_shortcuts(prompt: str, ctx) -> str:
-    """Append keyboard-first guidance only for an iOS device (idempotent)."""
+    """Append Profile-provided guidance (legacy platform fallback) once, idempotently."""
+    extension = extension_from_context(ctx)
+    guidance = getattr(extension, "prompt_guidance", None) if extension is not None else None
+    if guidance is not None:
+        marker = f"<!-- platform-extension:{guidance.guidance_id} -->"
+        if marker in prompt:
+            return prompt
+        rendered = "\n\n".join(
+            f"## {section.title}\n{section.body}" for section in guidance.sections
+        )
+        return prompt.rstrip() + "\n\n" + marker + "\n\n" + rendered
     if not is_ios_device(ctx) or _MARKER in prompt:
         return prompt
     return prompt.rstrip() + "\n\n" + IOS_KEYBOARD_GUIDANCE

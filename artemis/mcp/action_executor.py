@@ -34,12 +34,12 @@ import ast
 import asyncio
 import hashlib
 import json
-import os
 import uuid
 from pathlib import Path
 from typing import Any
 
-from artemis.agents.ios_shortcuts import is_ios_device
+from artemis.core.capabilities import CapabilityId
+from artemis.core.platform_extension import extension_from_context
 from artemis.core.tool_failure import ToolFailure, is_tool_failure
 from artemis.context import ArtemisContext
 from artemis.controllers.unified_controller import UnifiedMobileController
@@ -105,8 +105,6 @@ class McpActionExecutor:
         # never sees or chooses the tier.
         self.agent_name = agent_name
         self._session: ActionSession | None = None
-        #: Cached LocateAnything client for coordinate targets (cooldown survives steps).
-        self._locate_service = None
 
     @property
     def action_tool_names(self) -> frozenset[str]:
@@ -315,34 +313,26 @@ class McpActionExecutor:
         description = args.get("target_description")
         if not (isinstance(description, str) and description.strip()):
             return args, None
-        if not is_ios_device(self.ctx):
+        extension = extension_from_context(self.ctx)
+        if extension is None or not extension.supports(CapabilityId.GROUNDING_LOCATE):
             return args, None
-        from artemis.reflex.locate_anything import DEFAULT_LOCATE_URL, LocateAnythingDetector
-
-        url = os.environ.get("ARTEMIS_IOS_LOCATE_URL", DEFAULT_LOCATE_URL).strip()
-        if not url or url.lower() in ("off", "none", "0"):
+        locator = extension.grounding
+        if locator is None:
             return args, None
         screenshot_path = getattr(state, "latest_screenshot", None)
         if not screenshot_path:
             return args, None
-        if self._locate_service is None or getattr(self._locate_service, "url", "") != url.rstrip(
-            "/"
-        ):
-            # 10 s: the service's first request after an idle period loads/warms the
-            # model; a 4 s budget made the first target of a run fall back silently.
-            self._locate_service = LocateAnythingDetector(
-                url, timeout_s=10.0, cooldown_s=4.0, max_cooldown_s=60.0
-            )
         try:
             image = Path(screenshot_path).read_bytes()
         except OSError:
             return args, None
-        point = await asyncio.to_thread(self._locate_service.locate, image, description.strip())
+        source = str(getattr(locator, "source_id", "grounding"))
+        point = await asyncio.to_thread(locator.locate, image, description.strip())
         if point is None:
             return args, {
-                "source": "locate-anything",
+                "source": source,
                 "description": description.strip(),
-                "error": getattr(self._locate_service, "last_error", None) or "no point",
+                "error": getattr(locator, "last_error", None) or "no point",
                 "model_point": [int(target[0]), int(target[1])],
             }
         located = [
@@ -351,10 +341,10 @@ class McpActionExecutor:
         ]
         original = [int(target[0]), int(target[1])]
         record: dict[str, Any] = {
-            "source": "locate-anything",
+            "source": source,
             "description": description.strip(),
             "point": located,
-            "elapsed_ms": round(getattr(self._locate_service, "last_elapsed_ms", 0.0)),
+            "elapsed_ms": round(getattr(locator, "last_elapsed_ms", 0.0)),
         }
         if located != original:
             record["model_point"] = original
@@ -862,23 +852,28 @@ class McpActionExecutor:
         ``ok`` is False only when the Explorer run itself failed: a clean
         "not found" is a successful answer the agent has to reason about.
         """
-        # LocateAnything first on iOS: a point localization in ~2 s, with the LLM
-        # Explorer as the fallback when the service is off, down or finds nothing.
-        from artemis.agents.ios_shortcuts import is_ios_device
-
-        if is_ios_device(self.ctx):
-            from artemis.tools.explorer_tool import locate_with_locate_anything
-
-            point = await asyncio.to_thread(locate_with_locate_anything, state, query)
-            if point is not None:
-                nx = round(point[0] * 1000)
-                ny = round(point[1] * 1000)
-                return (
-                    f"LocateAnything located {query!r} at normalized [{nx}, {ny}] "
-                    f"(0-1000). Use click(target=[{nx}, {ny}], "
-                    f"target_description={query!r}).",
-                    True,
-                )
+        # A Profile-provided grounding locator (LocateAnything on this rig) is tried
+        # before the LLM Explorer; the Explorer remains the fallback when the service
+        # is off, down or finds nothing.
+        extension = extension_from_context(self.ctx)
+        locator = extension.grounding if extension is not None else None
+        if locator is not None and extension.supports(CapabilityId.GROUNDING_LOCATE):
+            screenshot_path = getattr(state, "latest_screenshot", None)
+            if screenshot_path:
+                try:
+                    image = Path(screenshot_path).read_bytes()
+                    point = await asyncio.to_thread(locator.locate, image, query)
+                except (OSError, RuntimeError, ValueError, AttributeError):
+                    point = None
+                if point is not None:
+                    nx = round(point[0] * 1000)
+                    ny = round(point[1] * 1000)
+                    return (
+                        f"LocateAnything located {query!r} at normalized [{nx}, {ny}] "
+                        f"(0-1000). Use click(target=[{nx}, {ny}], "
+                        f"target_description={query!r}).",
+                        True,
+                    )
         # Imported lazily: the explorer stack is heavy and recursive (it spawns an LLM
         # sub-agent), which is also why it must never live behind the action server.
         from artemis.tools.explorer_tool import locate, register_candidates, render_text

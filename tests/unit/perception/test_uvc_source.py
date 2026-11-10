@@ -145,3 +145,32 @@ def test_locate_keeps_the_text_box_when_nothing_is_above_it():
 
     assert located is not None
     assert located.box == (0.30, 0.40, 0.36, 0.42)
+
+
+def test_a_profile_locator_is_used_before_ocr_and_declares_grounding_locate():
+    import asyncio
+    from types import SimpleNamespace
+
+    from artemis.core.capabilities import CapabilityId
+    from artemis.perception.base import Target
+    from artemis.perception.uvc import UvcSource
+
+    class Locator:
+        def __init__(self):
+            self.calls = []
+
+        def locate(self, image, query):
+            self.calls.append((image, query))
+            return (0.5, 0.5)
+
+    locator = Locator()
+    source = UvcSource(FakeCapture(_png((200, 200, 200))), locator=locator)
+    frame = SimpleNamespace(image=b"png", width=200, height=200, frame_id="frame-1", health="ok")
+
+    target = asyncio.run(source.locate(frame, Target("Settings", (0.1, 0.1, 0.2, 0.2), 0.9, "ocr")))
+
+    assert locator.calls == [(b"png", "Settings")]
+    assert target is not None
+    assert target.source == "locate-anything"
+    assert target.frame_id == "frame-1"
+    assert CapabilityId.GROUNDING_LOCATE in source.capability_manifest.declared_ids

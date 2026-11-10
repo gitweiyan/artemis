@@ -31,12 +31,11 @@ import re
 import time
 from typing import Any
 
-from artemis.agents.ios_shortcuts import is_ios_device
 from artemis.context import ArtemisContext
 from artemis.core.coordinates import CoordinateSpace, CoordinateTransform, PointRef
+from artemis.core.platform_extension import extension_from_context
 from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.mcp.action_manifest import DEVICE_ACTIONS, ExtensionTool
-from artemis.reflex.pinyin import to_ascii_input
 from artemis.mcp.action_types import ActionCode, ActionResult
 from third_party.mobile_use.utils.logger import get_logger
 
@@ -111,6 +110,9 @@ class AdbActuator:
     ):
         self.ctx = ctx
         self.controller = controller or UnifiedMobileController(ctx)
+
+    def _extension(self):
+        return extension_from_context(self.ctx)
 
     # --- Contract --------------------------------------------------------------------
 
@@ -221,6 +223,17 @@ class AdbActuator:
         clear_exist: bool = True,
     ) -> ActionResult:
         coords = None
+        typed = text
+        extension = self._extension()
+        if extension is not None and extension.text_input is not None:
+            try:
+                typed = extension.text_input.prepare(text).text
+            except ValueError as exc:
+                return ActionResult.failure(
+                    "input_text",
+                    f"Cannot encode text on this platform: {exc}",
+                    code=ActionCode.UNSUPPORTED,
+                )
         if target:
             nx, ny = target
             x, y = self._to_px(nx, ny)
@@ -244,15 +257,14 @@ class AdbActuator:
             # KEYCODE_MOVE_END: move cursor to the end for reliable append.
             await self.controller.press_key("123")
         if hasattr(self.controller, "type_text") and not await self.controller.type_text(
-            text, clear_existing=False
+            typed, clear_existing=False
         ):
             return ActionResult.failure(
                 "input_text",
-                f"Failed typing '{text}'.",
+                f"Failed typing '{typed}'.",
                 normalized_coordinates=coords,
             )
 
-        typed = to_ascii_input(text) if is_ios_device(self.ctx) else text
         suffix = f" at [{coords[0]}, {coords[1]}] (normalized)." if coords else "."
         note = f" (transliterated from '{text}')" if typed != text else ""
         return ActionResult.success(
@@ -301,7 +313,13 @@ class AdbActuator:
 
         named_key: str | None = None
         ok: bool | None = None
-        if key_str == "back" and hasattr(self.controller, "go_back"):
+        extension = self._extension()
+        if key_str == "back" and extension is not None and extension.navigation is not None:
+            result = extension.navigation.back()
+            if inspect.isawaitable(result):
+                result = await result
+            named_key, ok = "back", bool(getattr(result, "ok", result))
+        elif key_str == "back" and hasattr(self.controller, "go_back"):
             # The controller reports success as a bool. Dropping it let a failed
             # gesture reach the model as "Pressed key 'BACK'." with no screen
             # change -- four silent no-ops in the 2026-11-05 milk-tea run.
@@ -326,26 +344,48 @@ class AdbActuator:
                 return ActionResult.failure("press_key", f"Error executing key press '{key}'.")
 
         if named_key is not None and not ok:
-            if named_key == "back" and is_ios_device(self.ctx):
-                # BACK is a real capability now (the left-edge pop gesture), so a
-                # failed one is a device/execution error, not "unsupported". Give the
-                # model the fallbacks instead of letting it repeat a dead gesture.
+            if named_key == "back" and extension is not None:
+                # BACK is a semantic navigation action, not a key. A failed platform
+                # mapping is a device/execution error; give the model real fallbacks
+                # instead of letting it repeat a dead gesture.
                 return ActionResult.failure(
                     "press_key",
-                    f"Error executing key press '{key}': the iOS left-edge back swipe"
+                    f"Error executing key press '{key}': the platform back gesture"
                     " failed; use 'escape' to dismiss, the on-screen back arrow to go"
-                    " back, or 'home' (Cmd+H) for the Home screen",
+                    " back, or 'home' for the Home screen",
                 )
             return ActionResult.failure("press_key", f"Error executing key press '{key}'.")
 
-        if named_key == "back" and is_ios_device(self.ctx):
+        if named_key == "back" and extension is not None:
             # Not a key press: saying "Pressed key" made a no-op look like an action.
             return ActionResult.success(
-                "press_key", "Went back with the iOS left-edge swipe gesture."
+                "press_key", "Went back with the platform's left-edge back gesture."
             )
         return ActionResult.success("press_key", f"Pressed key '{key}'.")
 
     async def manage_app(self, action: str, app_name: str) -> ActionResult:
+        extension = self._extension()
+        if extension is not None and extension.app_lifecycle is not None:
+            if action.lower() != "launch":
+                return ActionResult.failure(
+                    "manage_app",
+                    f"This platform cannot stop an app by name ({app_name!r}).",
+                    code=ActionCode.UNSUPPORTED,
+                )
+            result = extension.app_lifecycle.launch(app_name)
+            if inspect.isawaitable(result):
+                result = await result
+            if getattr(result, "accepted", False):
+                return ActionResult.success(
+                    "manage_app",
+                    f"Requested {app_name!r} through the platform app launcher;"
+                    " verify the next screen.",
+                )
+            return ActionResult.failure(
+                "manage_app",
+                f"Failed to open {app_name!r}: {getattr(result, 'detail', 'launch failed')}",
+                code=ActionCode.DEVICE_ERROR,
+            )
         driver = getattr(self.controller, "driver", None)
         # iOS has no package manager. Its driver exposes a keyboard/Spotlight
         # launcher; use it before any Android package lookup is attempted.

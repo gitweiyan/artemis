@@ -40,9 +40,10 @@ def _evidence(**overrides):
 
 
 def test_catalog_is_closed_and_contains_the_contract_ids():
-    assert len(CATALOG) == 24
+    assert len(CATALOG) == 25
     assert CapabilityId.FRAME_CAPTURE in CATALOG
     assert CapabilityId.SHELL_EXEC in CATALOG
+    assert CapabilityId.GROUNDING_LOCATE in CATALOG
     assert "requires_pointer_precheck" not in CATALOG
 
 

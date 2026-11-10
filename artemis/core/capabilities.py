@@ -51,6 +51,7 @@ class CapabilityId(StrEnum):
     FRAME_CAPTURE = "frame.capture"
     UI_TREE_READ = "ui_tree.read"
     OCR_READ = "ocr.read"
+    GROUNDING_LOCATE = "grounding.locate"
     WINDOW_INSPECT = "window.inspect"
     LOG_READ = "log.read"
 
@@ -107,6 +108,12 @@ _CATALOG_ROWS = (
         "contract_test",
     ),
     (CapabilityId.OCR_READ, CapabilityDomain.OBSERVATION, "OCR text from a frame", "contract_test"),
+    (
+        CapabilityId.GROUNDING_LOCATE,
+        CapabilityDomain.OBSERVATION,
+        "locate a target through a grounding service",
+        "contract_test",
+    ),
     (
         CapabilityId.WINDOW_INSPECT,
         CapabilityDomain.OBSERVATION,

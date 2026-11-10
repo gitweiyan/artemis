@@ -101,7 +101,6 @@ def build_ios_profile(runtime, request, registry):
         )
 
     from artemis.devices.ios_uvc import build_ios_uvc_session
-    from artemis.drivers.ios.extension import build_ios_extension
     from artemis.drivers.ios.config import IosRuntimeConfig
     from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
     from artemis.orchestration.selector import (
@@ -218,11 +217,7 @@ def build_ios_profile(runtime, request, registry):
             except (OSError, RuntimeError, ValueError) as exc:
                 logger.warning(f"Capability evidence store unavailable: {exc}")
         driver = IOSUvcHidDriver(session)
-        extension = build_ios_extension(
-            control,
-            sink=session.control_for(absolute=False),
-            capture=capture,
-        )
+        extension = session.adapter_state.get("platform_extension")
         completed = True
     finally:
         if not completed:

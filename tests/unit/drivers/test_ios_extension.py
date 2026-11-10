@@ -124,3 +124,16 @@ def test_lifecycle_returns_failure_as_data():
     result = IOSAppLifecycle(FakeControl(), launcher=FailingLauncher()).launch("Settings")
 
     assert result == AppLifecycleResult(False, "no_screen_change", needs_observation=True)
+
+
+def test_a_locator_is_exposed_as_the_grounding_port_and_capability():
+    class FakeLocator:
+        def locate(self, frame, query):
+            return None
+
+    locator = FakeLocator()
+    extension = build_ios_extension(FakeControl(), locator=locator)
+
+    assert extension.supports(CapabilityId.GROUNDING_LOCATE)
+    assert extension.grounding is locator
+    assert extension.require("grounding") is locator

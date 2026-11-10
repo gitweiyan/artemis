@@ -31,6 +31,8 @@ __all__ = [
     "TargetLocator",
     "TextInputPlan",
     "TextInputPolicy",
+    "extension_from_context",
+    "extension_from_session",
 ]
 
 
@@ -198,3 +200,19 @@ class PlatformExtension:
         if value is None:
             raise ExtensionPortUnavailable(self.extension_id, port_name)
         return value
+
+
+def extension_from_session(session: Any | None) -> PlatformExtension | None:
+    """Read the Profile-provided extension from a session's adapter bag."""
+
+    state = getattr(session, "adapter_state", None)
+    if not isinstance(state, dict):
+        return None
+    extension = state.get("platform_extension")
+    return extension if isinstance(extension, PlatformExtension) else None
+
+
+def extension_from_context(ctx: Any | None) -> PlatformExtension | None:
+    """Read the Profile-provided extension from an Artemis/device context."""
+
+    return extension_from_session(getattr(ctx, "device_session", None))

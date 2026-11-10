@@ -189,3 +189,13 @@ def test_building_a_session_warms_the_locator_in_the_background(monkeypatch):
     build_ios_uvc_session(Capture(), Control())
 
     assert warmed == ["http://127.0.0.1:7861"]
+
+
+def test_the_session_capability_view_includes_the_platform_extension(monkeypatch):
+    from artemis.core.capabilities import CapabilityId
+
+    monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "off")
+    session = build_ios_uvc_session(Capture(), Control())
+
+    assert CapabilityId.APP_LAUNCH in session.capability_view
+    assert CapabilityId.TEXT_INPUT in session.capability_view

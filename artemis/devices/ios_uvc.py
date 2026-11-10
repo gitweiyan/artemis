@@ -9,10 +9,10 @@ from artemis.control.base import ActionResult
 from artemis.control.hid import HidControlSink
 from artemis.devices.geometry import ScreenGeometry
 from artemis.devices.session import DeviceSession
+from artemis.drivers.ios.extension import IOSTargetAdjuster, build_ios_extension
 from artemis.reflex.mouse import PointerSession, SessionTapController
 from artemis.perception.base import Target
 from artemis.perception.uvc import UvcSource
-from artemis.perception.ios_targets import icon_above_label
 from artemis.reflex.locate_anything import (
     DEFAULT_LOCATE_URL,
     LocateAnythingDetector,
@@ -51,6 +51,7 @@ def build_ios_uvc_session(
     pointer_gain: tuple[float, float] = (1.8, 1.8),
     detector=None,
     ocr_engine=None,
+    target_adjuster=None,
     assistive_button_box: tuple[int, int, int, int] | None = None,
     descriptor: DeviceDescriptor | None = None,
     leases: LeaseSet | None = None,
@@ -62,11 +63,17 @@ def build_ios_uvc_session(
     if locate_url.lower() in ("off", "none", "0"):
         locate_url = ""
     pointer = PointerSession(control, frame_size=frame_size, gain=pointer_gain)
+    target_locator = None
     if detector is None:
         # Size/area windows follow the capture: the defaults were measured on a 449-wide
         # frame, and a 2x capture makes the same ring twice as wide (see `scaled_for`).
         detectors = [BluePointerDetector.scaled_for(frame_size)]
         if locate_url:
+            target_locator = LocateAnythingDetector(
+                locate_url, timeout_s=10.0, cooldown_s=4.0, max_cooldown_s=60.0
+            )
+            # The pointer loop keeps its short 4 s budget; a cold target locator may
+            # need the model load on its first request, so it gets 10 s.
             detectors.insert(0, LocateAnythingDetector(locate_url))
             # The first inference after an idle period loads the model (measured 3.6 s and
             # 25.5 s here). Pay it now, in the background, instead of inside the first
@@ -86,13 +93,13 @@ def build_ios_uvc_session(
         tracker=PointerTracker(menu_box=assistive_button_box or (0, 0, 0, 0)),
     )
     geometry = ScreenGeometry(frame_size, screen_size)
-    return DeviceSession(
+    session = DeviceSession(
         perception=[
             UvcSource(
                 capture,
                 ocr_engine=ocr_engine,
-                target_adjuster=icon_above_label,
-                locate_url=locate_url,
+                target_adjuster=target_adjuster or IOSTargetAdjuster(),
+                locator=target_locator,
             )
         ],
         control=[HidControlSink(pointer, controller, geometry=geometry)],
@@ -100,8 +107,15 @@ def build_ios_uvc_session(
         descriptor=descriptor,
         leases=leases,
         session_id=session_id,
-        adapter_state={"pointer": pointer},
+        adapter_state={"pointer": pointer, "target_locator": target_locator},
     )
+    session.adapter_state["platform_extension"] = build_ios_extension(
+        control,
+        sink=session.control_for(absolute=False),
+        capture=capture,
+        locator=target_locator,
+    )
+    return session
 
 
 async def tap_target(session: DeviceSession, target: Target) -> ActionResult:

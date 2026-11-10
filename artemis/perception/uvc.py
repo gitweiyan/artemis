@@ -50,13 +50,15 @@ class UvcSource:
         name: str = "uvc",
         ocr_engine=None,
         target_adjuster=None,
+        locator=None,
         locate_url: str | None = None,
     ):
         self.capture = capture
         self.name = name
         self.ocr_engine = ocr_engine
-        #: The local LocateAnything service is the first *target* locator; OCR (and the
-        #: icon lift) stay as the fallback. Empty/off disables it.
+        #: A generic grounding locator supplied by the Profile. It is tried before OCR;
+        #: the legacy ``locate_url`` path creates a LocateAnything client lazily.
+        self.locator = locator
         raw_url = "" if locate_url is None else str(locate_url).strip()
         self.locate_url = "" if raw_url.lower() in ("off", "none", "0") else raw_url
         self._locate_client = None
@@ -86,6 +88,8 @@ class UvcSource:
         ]
         if self.ocr_engine is not None:
             declarations.append(CapabilityDeclaration(CapabilityId.OCR_READ))
+        if self.locator is not None or self.locate_url:
+            declarations.append(CapabilityDeclaration(CapabilityId.GROUNDING_LOCATE))
         return CapabilityManifest("uvc", "1", tuple(declarations))
 
     async def probe_capabilities(self) -> dict[str, ProbeResult]:
@@ -137,30 +141,36 @@ class UvcSource:
         )
 
     async def locate(self, frame: Frame, target: Target) -> Target | None:
-        if self.locate_url:
+        point = None
+        if self.locator is not None:
+            try:
+                point = await asyncio.to_thread(self.locator.locate, frame.image, target.label)
+            except (OSError, RuntimeError, ValueError, AttributeError):
+                point = None
+        elif self.locate_url:
             if self._locate_client is None:
                 from artemis.reflex.locate_anything import LocateAnythingDetector
 
                 self._locate_client = LocateAnythingDetector(self.locate_url)
             point = await asyncio.to_thread(self._locate_client.locate, frame.image, target.label)
-            if point is not None:
-                x, y = point
-                half = 0.005
-                box = (
-                    max(0.0, x - half),
-                    max(0.0, y - half),
-                    min(1.0, x + half),
-                    min(1.0, y + half),
-                )
-                return replace(
-                    Target(
-                        label=target.label,
-                        box=box,
-                        confidence=0.9,
-                        source="locate-anything",
-                    ),
-                    frame_id=frame.frame_id,
-                )
+        if point is not None:
+            x, y = point
+            half = 0.005
+            box = (
+                max(0.0, x - half),
+                max(0.0, y - half),
+                min(1.0, x + half),
+                min(1.0, y + half),
+            )
+            return replace(
+                Target(
+                    label=target.label,
+                    box=box,
+                    confidence=0.9,
+                    source="locate-anything",
+                ),
+                frame_id=frame.frame_id,
+            )
         boxes = await self.ocr(frame)
         if boxes is None:
             return None

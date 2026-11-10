@@ -80,6 +80,8 @@ def _data_url(image: bytes) -> str:
 class LocateAnythingDetector:
     """A ``detect(image, near)`` detector backed by the LocateAnything service."""
 
+    source_id = "locate-anything"
+
     def __init__(
         self,
         url: str = DEFAULT_LOCATE_URL,

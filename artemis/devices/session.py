@@ -87,6 +87,10 @@ class DeviceSession:
                     adapter_id=type(participant).__name__,
                 )
             manifests.append(manifest)
+        extension = self.adapter_state.get("platform_extension")
+        extension_manifest = getattr(extension, "capabilities", None)
+        if extension_manifest is not None:
+            manifests.append(extension_manifest)
         if self.capability_registry is None or self.descriptor is None:
             return declared_view(manifests)
         return self.capability_registry.resolve(

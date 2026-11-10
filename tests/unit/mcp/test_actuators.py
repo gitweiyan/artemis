@@ -413,9 +413,16 @@ def _press_key_actuator(platform, refused=(), *, fail_swipe=False):
             return (await sink.press_key(key)).ok
 
     ctx = SimpleNamespace(
-        device=SimpleNamespace(device_width=1080, device_height=2400, mobile_platform=platform)
+        device=SimpleNamespace(device_width=1080, device_height=2400, mobile_platform=platform),
+        device_session=None,
     )
     controller = UnifiedMobileControllerBase(SimpleNamespace(), Driver(platform == "ios"))
+    if platform == "ios":
+        from artemis.drivers.ios.extension import build_ios_extension
+
+        ctx.device_session = SimpleNamespace(
+            adapter_state={"platform_extension": build_ios_extension(control, sink=sink)}
+        )
     return AdbActuator(ctx, controller=controller), control
 
 
@@ -483,3 +490,41 @@ def test_adb_actuator_uses_the_agent_to_device_transform():
     assert actuator._to_px(0, 0) == (0, 0)
     assert actuator._to_px(500, 500) == (540, 1200)
     assert actuator._to_px(1000, 1000) == (1079, 2399)
+
+
+@pytest.mark.asyncio
+async def test_input_text_uses_the_profile_text_policy():
+    from types import SimpleNamespace
+
+    from artemis.core.capabilities import CapabilityManifest
+    from artemis.core.platform_extension import PlatformExtension, TextInputPlan
+    from artemis.mcp.actuators.adb import AdbActuator
+
+    class Policy:
+        def prepare(self, text):
+            return TextInputPlan("shezhi", "ascii", True)
+
+    typed = []
+
+    class Controller:
+        async def type_text(self, text, clear_existing=False):
+            typed.append((text, clear_existing))
+            return True
+
+    extension = PlatformExtension(
+        extension_id="test.text",
+        platform_family="test",
+        capabilities=CapabilityManifest("test", "1"),
+        text_input=Policy(),
+    )
+    ctx = SimpleNamespace(
+        device=SimpleNamespace(device_width=1080, device_height=2400),
+        device_session=SimpleNamespace(adapter_state={"platform_extension": extension}),
+    )
+
+    res = await AdbActuator(ctx, controller=Controller()).input_text("设置", clear_exist=False)
+
+    assert res.ok is True
+    assert res.message.startswith("Typed 'shezhi'.")
+    assert "transliterated from '设置'" in res.message
+    assert typed == [("shezhi", False)]

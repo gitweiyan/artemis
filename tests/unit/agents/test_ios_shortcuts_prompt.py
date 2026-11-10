@@ -43,3 +43,33 @@ def test_the_spotlight_shortcut_is_annotated_as_in_app_search_only():
 
     assert "manage_app" in line, "the shortcut line must point at the tool that launches"
     assert "search" in line.lower()
+
+
+def test_profile_guidance_is_used_instead_of_the_legacy_platform_branch():
+    from artemis.core.capabilities import CapabilityManifest
+    from artemis.core.platform_extension import (
+        PlatformExtension,
+        PromptGuidance,
+        PromptSection,
+    )
+
+    extension = PlatformExtension(
+        extension_id="test.keyboard",
+        platform_family="test",
+        capabilities=CapabilityManifest("test", "1"),
+        prompt_guidance=PromptGuidance(
+            guidance_id="test.keyboard",
+            sections=(PromptSection("rule", "Profile rule", "Use the profile keyboard rule."),),
+        ),
+    )
+    ctx = SimpleNamespace(
+        device=SimpleNamespace(mobile_platform="ios"),
+        device_session=SimpleNamespace(adapter_state={"platform_extension": extension}),
+    )
+
+    prompt = append_ios_shortcuts("BASE", ctx)
+
+    assert "Profile rule" in prompt
+    assert "Use the profile keyboard rule." in prompt
+    assert "Cmd+Space" not in prompt
+    assert append_ios_shortcuts(prompt, ctx) == prompt

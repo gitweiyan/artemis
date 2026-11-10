@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from artemis.core.capabilities import CapabilityDeclaration, CapabilityId, CapabilityManifest
+from artemis.core.platform_extension import PlatformExtension
 from artemis.mcp.action_executor import McpActionExecutor
 
 
@@ -34,6 +36,20 @@ def _executor():
     return McpActionExecutor(ctx, actuator=actuator)
 
 
+def _attach_locator(executor, locator):
+    extension = PlatformExtension(
+        extension_id="test.grounding",
+        platform_family="test",
+        capabilities=CapabilityManifest(
+            adapter_id="test",
+            adapter_version="1",
+            declarations=(CapabilityDeclaration(CapabilityId.GROUNDING_LOCATE),),
+        ),
+        grounding=locator,
+    )
+    executor.ctx.device_session = SimpleNamespace(adapter_state={"platform_extension": extension})
+
+
 def _state(tmp_path):
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -43,7 +59,8 @@ def _state(tmp_path):
 def test_a_described_coordinate_click_uses_the_service_point(tmp_path, monkeypatch):
     monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862")
     executor = _executor()
-    executor._locate_service = _FakeLocator((0.968, 0.696))
+    locator = _FakeLocator((0.968, 0.696))
+    _attach_locator(executor, locator)
 
     args, record = asyncio.run(
         executor._locate_coordinate_target(
@@ -56,33 +73,34 @@ def test_a_described_coordinate_click_uses_the_service_point(tmp_path, monkeypat
     assert args["target"] == [968, 696]
     assert record["point"] == [968, 696]
     assert record["model_point"] == [900, 800]
-    assert executor._locate_service.calls == ["关闭天天免单弹框的X"]
+    assert locator.calls == ["关闭天天免单弹框的X"]
 
 
 def test_an_index_target_is_not_relocated(tmp_path, monkeypatch):
     monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862")
     executor = _executor()
-    executor._locate_service = _FakeLocator((0.5, 0.5))
+    locator = _FakeLocator((0.5, 0.5))
+    _attach_locator(executor, locator)
     args = {"target": 3, "target_description": "搜索"}
 
     out, record = asyncio.run(executor._locate_coordinate_target("click", args, _state(tmp_path)))
 
     assert out is args
     assert record is None
-    assert executor._locate_service.calls == []
+    assert locator.calls == []
 
 
 def test_a_service_failure_keeps_the_model_point(tmp_path, monkeypatch):
     monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7862")
     executor = _executor()
-    executor._locate_service = _FakeLocator(None)
+    _attach_locator(executor, _FakeLocator(None))
     args = {"target": [900, 800], "target_description": "搜索按钮"}
 
     out, record = asyncio.run(executor._locate_coordinate_target("click", args, _state(tmp_path)))
 
     assert out is args
     assert record is not None
-    assert record["source"] == "locate-anything"
+    assert record["source"] == "grounding"
     assert record["error"]
     assert record["model_point"] == [900, 800]
 
@@ -107,7 +125,7 @@ async def test_a_timed_out_target_is_reported_to_the_model_as_unverified(tmp_pat
         def locate(self, image, prompt):
             return None
 
-    executor._locate_service = _TimedOutLocator()
+    _attach_locator(executor, _TimedOutLocator())
     session = Mock()
     session.call = AsyncMock(
         return_value=ActionResult.success("click", "Tapped at [169, 76] (normalized).")
@@ -125,3 +143,14 @@ async def test_a_timed_out_target_is_reported_to_the_model_as_unverified(tmp_pat
     assert "Tapped at [169, 76]" in result.text_summary
     assert "not verified" in result.text_summary.lower()
     assert result.metadata["target_unverified"] is True
+
+
+def test_ask_explorer_uses_the_profile_grounding_locator(tmp_path):
+    executor = _executor()
+    _attach_locator(executor, _FakeLocator((0.25, 0.75)))
+
+    text, ok = asyncio.run(executor._ask_explorer("gear icon", None, _state(tmp_path)))
+
+    assert ok is True
+    assert "normalized [250, 750]" in text
+    assert "click(target=[250, 750]" in text
