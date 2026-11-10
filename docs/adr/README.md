@@ -34,6 +34,7 @@
 | ADR-009 | [ESP32 Host-Firmware Protocol、版本协商、Capability Handshake、ACK 语义](ADR-009-firmware-protocol-handshake.md) | Phase 4.2 | **Accepted**（2026-11-10） |
 | ADR-010 | [Platform Extension、语义动作映射、Prompt Guidance、App Lifecycle、Locator 插件](ADR-010-platform-extensions-semantic-actions.md) | Phase 4.3 | **Accepted**（2026-11-10） |
 | ADR-011 | [UVC/Serial 等共享 Host Resource Lease、并发与回收策略](ADR-011-host-resource-lease.md) | Phase 1 PR-3；Phase 2 | **Accepted**（2026-11-09） |
+| ADR-012 | [macOS Desktop Vertical Slice and P9-B Activation](ADR-012-macos-desktop-vertical-slice.md) | Phase 7 实现；P9-B | **Proposed**（2026-11-10） |
 
 ## 推荐决策顺序
 
