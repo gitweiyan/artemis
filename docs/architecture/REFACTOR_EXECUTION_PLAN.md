@@ -428,7 +428,7 @@ Application Service / Agent Tool
 - [x] 将 `BaseDeviceDriver` 明确标记为 legacy compatibility façade；新 Driver 不得继续扩大其通用抽象面（`legacy_facade=True` + docstring；新增 `DriverSessionAdapter`）。
 - [x] 将 Driver 中通用能力拆成可选协议/Port：Observation、Actuation、App Lifecycle、Window/Focus、Shell/Diagnostics、Recording；不要求所有设备实现全部协议。**Observation/Actuation 复用 `PerceptionSource`/`ControlSink`；AppLifecycle/Recording 的独立 Port 留 3c/Phase 5。**
 - [x] Android/iOS Driver 先适配到这些 Port；不在同一 PR 中改变业务行为（3a `DriverSessionAdapter`；3b Android `tap/swipe/input_text/press_key` 经 Session Sink → legacy 实现，`_session_dispatch_depth` 防递归；iOS 已经由 Session 派发）。
-- [ ] `UnifiedMobileController` 保留录像、日志、旧 API 等尚未迁移的能力，但其设备动作调用逐渐代理到 `DeviceSession`。**3c 待做。**
+- [x] `UnifiedMobileController` 保留录像、日志、旧 API 等尚未迁移的能力，但其设备动作调用逐渐代理到 `DeviceSession`（Controller 动作 → Driver facade → Session Sink；无需重复 override；端到端测试证明 `tap_at` 到达 Session）。
 - [ ] 将 `mcp/observation.py` 从强依赖 `UnifiedMobileController.get_screen_data()` 改为依赖统一 Observation/Application Service，同时保留旧输出 DTO。
 - [ ] 将 `mcp/action_executor.py` 的参数解析、目标解析、动作策略与底层 Actuator 拆开；Agent Tool DSL 保持兼容，底层 dispatch 通过 Control/Action Port。
 - [ ] 审核 `mcp/actuators/adb.py`：ADB 实现属于 L4，不应由通用 Action Executor 直接选择或构造。
@@ -438,7 +438,7 @@ Application Service / Agent Tool
 **Exit Criteria（未满足，3a 完成）：** Flash/Pro 的主要观察与动作路径通过标准 Ports 运行；MCP 工具 Schema 和现有外部调用没有非预期破坏；旧 Controller 仍可服务于未迁移的录像/诊断功能。
 
 > Phase 3a/3b（2026-11-10）：`BaseDeviceDriver.legacy_facade` + `DriverSessionAdapter`；Android `tap/swipe/input_text/press_key` 经 Session Sink，Sink 用 dispatch depth 调 legacy 实现避免递归；`Long press`/multi-tap 仍走 legacy 参数路径（不改变时长/次数语义）。
-> 剩余 3c–3e：Controller 动作代理、MCP Observation/Executor 改 Ports、Actuator 选择下沉 L4、Context 旧属性 deprecation。全量单测 14 个既有失败 + 3694 passed。
+> 剩余 3d–3e：MCP Observation/Executor 改 Ports、Actuator 选择下沉 L4、Context 旧属性 deprecation。全量单测 14 个既有失败 + 3695 passed。
 
 ### Phase 4 — 抽离通用 Adapter，并把 iOS 变成一个清晰的 Platform Profile
 

@@ -120,3 +120,26 @@ def test_a_session_dispatch_uses_the_legacy_driver_instead_of_recursing():
     assert ok is True
     driver.device.shell.assert_called_with("input tap 540 1200")
     assert driver._session_dispatch_depth == 1
+
+
+def test_the_legacy_controller_now_reaches_the_session_through_the_driver():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from artemis.control.base import ActionResult
+    from artemis.controllers.unified_controller import UnifiedMobileController
+
+    driver = _driver()
+    driver._device = MagicMock()
+    ctx = SimpleNamespace(device=driver, _active_driver=driver)
+    controller = UnifiedMobileController(ctx)
+    sink = MagicMock()
+    sink.tap_abs = AsyncMock(return_value=ActionResult(True, "tap_abs"))
+
+    with patch.object(driver.session, "control_for", return_value=sink) as control_for:
+        result = asyncio.run(controller.tap_at(540, 1200))
+
+    assert result.error is None
+    control_for.assert_called_once_with(absolute=True)
+    sink.tap_abs.assert_awaited_once_with(540, 1200)
