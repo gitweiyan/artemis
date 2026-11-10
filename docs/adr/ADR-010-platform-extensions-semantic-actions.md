@@ -1,13 +1,13 @@
 # ADR-010: Platform Extensions, Semantic Actions and Locator Plugins
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-10
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 4.3（iOS Platform Extension 抽取）；Phase 7/8 的 macOS/TV 语义动作
 - **Related:** 契约 §2（L2/L3/L4）、§5.7（Action）、§5.8（Control Port）、§6.2（Platform Profile）、§11（目录）；[ADR-001](ADR-001-capability-model-evidence-fingerprint.md)（Accepted）、[ADR-003](ADR-003-device-identity-session-resource-ownership.md)（Accepted）、[ADR-004](ADR-004-action-intent-command-receipt.md)（Accepted）、[ADR-005](ADR-005-adapter-registry-profile-builder.md)（Accepted）、[ADR-006](ADR-006-driver-controller-retirement.md)（Accepted）
 - **Audit evidence:** `artemis/agents/ios_shortcuts.py:9-80`、`artemis/mcp/action_executor.py:42,303-333,865-877`、`artemis/mcp/actuators/adb.py:34,255,329-341`、`artemis/control/hid.py:38-44,220,328-347`、`artemis/perception/ios_targets.py:1-20`、`artemis/reflex/ios_apps.py:28-49`、`artemis/perception/uvc.py:58,142-144`、`artemis/reflex/locate_anything.py:31,80`
 
-> 状态说明：Proposed。批准前只允许盘点、原型和测试设计；不得合入改变平台扩展契约或 Agent 提示注入的实现。
+> 状态说明：本 ADR 于 2026-11-10 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7。
 
 ---
 
@@ -90,7 +90,7 @@ Phase 4.3 要把 iOS 变成清晰 Profile；Phase 5 的 Action/Verification 需�
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — PlatformExtension 契约
 
@@ -279,12 +279,14 @@ class PlatformExtension:
 - iOS BACK/Spotlight/pinyin/图标抬升行为保持。
 - 旧 `is_ios_device` 分支保留到 Phase 9-A。
 
-待定（不阻塞 4.3a）：
+2026-11-10 Owner 确认：
 
-1. `grounding.locate` 的正式命名与 domain（Observation vs 新 Grounding 域）。
-2. `NavigationPolicy` 是返回 Command 还是直接调用 ControlSink（建议返回 Command，保持 Action 层可审计）。
-3. PromptGuidance 的 schema/版本（纯文本 vs 结构化段落）。
-4. macOS/TV Extension 是否共用 `PermissionChecks` 还是各自实现。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | 新能力名/域 | `grounding.locate`，归 **Observation** 域；写入契约 §5.3 与 ADR-001 catalog | 4.3c |
+| 2 | `NavigationPolicy` 输出 | 返回标准 `ActionCommand`，不直接调用 ControlSink | 4.3b |
+| 3 | PromptGuidance schema | 结构化段落（id/title/body）+ version | 4.3d |
+| 4 | macOS/TV 权限 | 各自实现 `PermissionChecks`，不复用 iOS | Phase 7/8 |
 
 ---
 
@@ -293,3 +295,4 @@ class PlatformExtension:
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-10 | Proposed | Initial proposal | iOS 知识散落 L1–L3；BACK/launch/text/locator 用平台分支；Phase 4.3/7/8 需要 Extension 契约 |
+| 2026-11-10 | Accepted | 评审通过；确认 grounding.locate/Observation、Command 输出、结构化 Guidance、平台各自权限 | 四项细节由 Owner 确认；Phase 4.3 可开工 |

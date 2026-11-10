@@ -111,7 +111,7 @@ class CapabilitySet:
 
 | 域 | Capability ID |
 |---|---|
-| Observation | `frame.capture`、`ui_tree.read`、`ocr.read`、`window.inspect`、`log.read` |
+| Observation | `frame.capture`、`ui_tree.read`、`ocr.read`、`window.inspect`、`log.read`、`grounding.locate`（ADR-010 扩展） |
 | Actuation | `touch.absolute`、`pointer.relative`、`pointer.absolute`、`keyboard.key`、`text.input`、`remote.dpad`、`app.launch`、`window.focus` |
 | Transport | `usb.hid`、`serial.command`、`adb`、`ble`、`network.rpc`、`hdmi.cec` |
 | Diagnostics | `device.health`、`input.status`、`capture.health`、`firmware.info`、`shell.exec` |

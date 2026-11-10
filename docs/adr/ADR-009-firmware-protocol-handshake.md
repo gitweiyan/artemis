@@ -1,13 +1,13 @@
 # ADR-009: ESP32 Host–Firmware Protocol, Version Negotiation and Capability Handshake
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-10
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 4.2（ESP32 HID Adapter + Firmware Bridge）；Phase 4.2 固件协议版本/能力握手
 - **Related:** 契约 §6.3（ESP32/TinyUSB 边界）、§5.3（Capability）、§5.7（ACK 语义）；[ADR-001](ADR-001-capability-model-evidence-fingerprint.md)（Accepted）、[ADR-003](ADR-003-device-identity-session-resource-ownership.md)（Accepted）、[ADR-011](ADR-011-host-resource-lease.md)（Accepted）
 - **Audit evidence:** `firmware/esp32-hid/README.md:24-26,184-191`、`firmware/esp32-hid/main/cmd.c:78-120,282-330`、`firmware/esp32-hid/sdkconfig.ios.defaults:15`、`artemis/reflex/control.py:283-460,517-680`、`artemis/drivers/ios/config.py:38-44`
 
-> 状态说明：Proposed。批准前只允许盘点、原型和测试设计；不得合入改变固件协议或 Host Adapter 行为的实现。
+> 状态说明：本 ADR 于 2026-11-10 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7。
 
 ---
 
@@ -91,7 +91,7 @@ Phase 4.2 要把 `Esp32HidControl` 抽成 L4 Firmware Bridge；如果不先定�
 
 ---
 
-## 4. Decision (proposed)
+## 4. Decision (accepted)
 
 ### D1 — 版本与握手
 
@@ -259,12 +259,14 @@ OK hello proto=2 fw=<build> board=<id> mode=<ios|composite|bci> max_line=126 \
 - 行级 v2 + v1 兼容；`hello`/features/mode；可选 ID；单飞行。
 - ACK 语义与 ADR-004 对齐；能力由 handshake + evidence。
 
-待定（不阻塞 4.2a）：
+2026-11-10 Owner 确认：
 
-1. `max_line` 是否固定 126 或由 `hello` 声明（建议声明 + Host 默认 126）。
-2. `board` 用芯片 UID/MAC 还是用户配置（建议固件 UID）。
-3. 命令 ID 用单调计数器还是随机（建议单调，重启清零）。
-4. v2 固件是否默认启用（建议独立 Build，ios-smoke 验证后切换）。
+| # | 问题 | 决定 | 落地点 |
+|---|---|---|---|
+| 1 | `max_line` | 由 `hello` 声明；Host 默认 126，握手后以声明为准 | 4.2b |
+| 2 | `board` | 固件芯片 UID/MAC（不依赖用户配置） | 4.2c |
+| 3 | 命令 ID | 单调计数器，固件重启清零 | 4.2c |
+| 4 | v2 默认启用 | 先独立 Build，`ios-smoke` 验证后切换默认 | 4.2c/4.2d |
 
 ---
 
@@ -273,3 +275,4 @@ OK hello proto=2 fw=<build> board=<id> mode=<ios|composite|bci> max_line=126 \
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-10 | Proposed | Initial proposal | 三类 Build、无版本/能力/ID；Host 靠 ERR 猜 `amove`；ADR-001 指纹无法区分固件 |
+| 2026-11-10 | Accepted | 评审通过；确认 max_line 由 hello 声明、board 用芯片 UID、命令 ID 单调、v2 独立 Build | 四项细节由 Owner 确认；Phase 4.2 可开工 |

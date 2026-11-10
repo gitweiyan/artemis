@@ -286,7 +286,7 @@ requirements:
 
 长期能力至少分为：
 
-- **Observation**：`frame.capture`、`ui_tree.read`、`ocr.read`、`window.inspect`、`log.read` 等；
+- **Observation**：`frame.capture`、`ui_tree.read`、`ocr.read`、`window.inspect`、`log.read`、`grounding.locate`（ADR-010）等；
 - **Actuation**：`touch.absolute`、`pointer.relative`、`pointer.absolute`、`keyboard.key`、`text.input`、`remote.dpad`、`app.launch`、`window.focus` 等；
 - **Transport**：`usb.hid`、`serial.command`、`adb`、`ble`、`network.rpc`、`hdmi.cec` 等；
 - **Diagnostics**：`device.health`、`input.status`、`capture.health`、`firmware.info`、`shell.exec` 等。
@@ -478,7 +478,7 @@ proposed
 
 平台扩展还可声明语义动作映射与可选指导信息，例如 Back 的实现方式、文本输入编码、App Launch/Stop、窗口焦点策略、Remote Key Map 和平台权限提示。上层 Action Executor 只读取标准 Port、Capability 和结构化 Extension Result，不按 `platform == ...` 分支。LocateAnything/OCR/Visual Grounding 是可复用 L3 Locator，不应作为某一平台的专属执行流程。
 
-**允许** `drivers.factory`/Registry/Profile Builder 根据平台 ID 选择对应 Profile。**禁止** Planner/Operator/Checker/通用 Perception/Action Policy 直接根据平台字符串选择协议或假设平台能力。Platform Extension/语义动作映射见 [ADR-010](../adr/ADR-010-platform-extensions-semantic-actions.md)（Proposed）。
+**允许** `drivers.factory`/Registry/Profile Builder 根据平台 ID 选择对应 Profile。**禁止** Planner/Operator/Checker/通用 Perception/Action Policy 直接根据平台字符串选择协议或假设平台能力。Platform Extension/语义动作映射见 [ADR-010](../adr/ADR-010-platform-extensions-semantic-actions.md)（Accepted 2026-11-10）。
 
 ### 6.3 ESP32 / TinyUSB 固件边界
 
@@ -497,7 +497,7 @@ proposed
 1. `FirmwareBridge` 负责握手、协议版本、命令 ID/顺序、超时、ACK 解析、重连、固件 Variant 和能力清单。
 2. `Esp32HidAdapter` 将标准 Actuation Command 映射为固件命令；不得让 Operator 知道 `amove`、`aclick`、HID Usage Code 或 UART 行格式。
 3. ACK 只证明固件完成其协议定义的处理/提交，不证明 iOS/Android 接收或执行了输入。
-4. Host 一次只发送固件当前协议允许的命令数；未确认旧协议吞吐能力前不得改为无界并发。协议版本、握手与 ACK 语义见 [ADR-009](../adr/ADR-009-firmware-protocol-handshake.md)（Proposed）。
+4. Host 一次只发送固件当前协议允许的命令数；未确认旧协议吞吐能力前不得改为无界并发。协议版本、握手与 ACK 语义见 [ADR-009](../adr/ADR-009-firmware-protocol-handshake.md)（Accepted 2026-11-10）。
 5. Touch、Relative Mouse、Absolute Pointer、Keyboard 是不同 Capability；某一 Build Variant 不支持时要明确拒绝。
 6. 取消/超时/断连时释放按键、鼠标按钮、触点，避免卡键或持续触摸。
 7. 固件协议升级保持 Host/Device 兼容测试；旧固件需有能力降级，不允许假装支持新命令。
