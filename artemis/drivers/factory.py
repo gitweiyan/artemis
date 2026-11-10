@@ -109,7 +109,7 @@ def build_ios_profile(runtime, request, registry):
         select_composition,
     )
     from artemis.reflex.capture import UvcCapture, UvcStream
-    from artemis.reflex.control import Esp32HidControl
+    from artemis.adapters.esp32_control import Esp32BridgeControl
 
     ios = IosRuntimeConfig.from_env()
     if not ios.uvc_crop_explicit and ios.capture_mode != "stream":
@@ -189,7 +189,7 @@ def build_ios_profile(runtime, request, registry):
             crop=ios.uvc_crop,
             timeout_s=3.0 if ios.capture_mode == "stream" else 12.0,
         )
-        control = Esp32HidControl(ios.esp32_port, ack_timeout_s=3.0)
+        control = Esp32BridgeControl(ios.esp32_port, ack_timeout_s=3.0)
         # The action layer converts normalized coordinates against the *device
         # descriptor*, so the session geometry must use the same screen size or every
         # tap lands off by the ratio. The descriptor is itself derived from this config

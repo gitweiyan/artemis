@@ -45,7 +45,7 @@ from artemis.drivers.ios.evidence import record_smoke_evidence
 from artemis.drivers.ios.smoke import run_smoke
 from artemis.perception.ocr_engine import default_ocr_engine
 from artemis.reflex.capture import UvcCapture
-from artemis.reflex.control import Esp32HidControl
+from artemis.adapters.esp32_control import Esp32BridgeControl
 from artemis.runtime.host_identity import host_id as resolve_host_id
 from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError, leases_enabled
 from third_party.mobile_use.utils.logger import get_logger
@@ -130,7 +130,7 @@ def ios_smoke_command(
             crop=config.uvc_crop,
             timeout_s=12,
         )
-        control = Esp32HidControl(config.esp32_port, ack_timeout_s=3.0)
+        control = Esp32BridgeControl(config.esp32_port, ack_timeout_s=3.0)
         session = build_ios_uvc_session(
             capture,
             control,

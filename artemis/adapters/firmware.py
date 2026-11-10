@@ -113,7 +113,7 @@ class FirmwareBridge:
         except FirmwareCommandError as exc:
             if _LINE_TOO_LONG not in str(exc):
                 raise
-            self._resync()
+            self.resync()
             return self._exchange_once(command, timeout=timeout)
 
     def send(self, command: str, *, timeout: float | None = None) -> str:
@@ -159,7 +159,7 @@ class FirmwareBridge:
                 f" response={data[-300:]!r}"
             )
 
-    def _resync(self) -> None:
+    def resync(self) -> None:
         """Terminate an orphan fragment in the firmware line parser."""
 
         try:

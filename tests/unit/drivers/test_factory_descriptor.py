@@ -39,7 +39,7 @@ def test_ios_factory_attaches_a_two_endpoint_descriptor(monkeypatch):
 
     with (
         patch("artemis.reflex.capture.UvcCapture"),
-        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
         driver = create_driver(ctx)
@@ -85,7 +85,7 @@ def test_ios_factory_leases_the_uvc_and_serial_resources_until_session_close(mon
 
     with (
         patch("artemis.reflex.capture.UvcCapture"),
-        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
         driver = create_driver(ctx)
@@ -107,7 +107,7 @@ def test_ios_factory_attaches_an_evidence_registry_when_enabled(monkeypatch, tmp
 
     with (
         patch("artemis.reflex.capture.UvcCapture"),
-        patch("artemis.reflex.control.Esp32HidControl"),
+        patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
         driver = create_driver(ctx)
