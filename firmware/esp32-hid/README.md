@@ -25,6 +25,26 @@
 
 串口参数：**115200 8N1**，一行一条命令，固件在 UART0 控制台回显 `[cmd] ...` 和诊断信息。每条命令执行完回一行 `OK`；上位机必须**一次只发一条**，收到 `OK` 再发下一条（P0 的 ack 流控，防止 `home`/`move` 期间 UART 溢出）。非法/超长命令回 `ERR ...`（超长行丢弃并回 `ERR line too long`），上位机应视为失败，而不是静默成功。单行（含换行）**≤126 字节**；`type` 的长文本由上位机自动分片。
 
+### 协议握手（v2）
+
+v2 固件在连接时响应 `hello`：
+
+```text
+hello proto=2 fw=bc12c88 board=esp32s3 mode=ios max_line=126 features=usb,mouse,keyboard,abs_pointer,abs_click
+```
+
+| 字段 | 含义 |
+|---|---|
+| `proto` | 协议版本；Host 支持 `1..2` |
+| `fw` | 固件源码的 `git describe --always --dirty`，用于把证据绑定到 Build |
+| `board` | `CONFIG_IDF_TARGET`（当前 `esp32s3`） |
+| `mode` | `composite` / `ios` / `bci` |
+| `max_line` | 单行上限（含换行），当前 126 |
+| `features` | 声明能力：`usb`、`mouse`、`keyboard`、`touch`、`abs_pointer`、`abs_click`、`bci` |
+| `caps` | 可选，ADR-001 规范能力 ID 列表 |
+
+v1 固件没有 `hello`，Host 收到 `ERR unknown command` 或超时后回落 `usb`（`protocol=1`，`fw/board` 为 `unknown`，`abs_pointer`/`abs_click` 视为未知）。`OK` 只表示固件协议层接受；HID Report、目标系统接受和界面变化仍须由 Observation/Verification 证明。固件 Build Variant 与能力只有经过目标设备 Smoke 才能标记 `verified`。
+
 ## 硬件与接线
 
 适用板子：**ESP32-S3-DevKitC-1**（或其他有独立 USB-OTG 口的 ESP32-S3 板）。
@@ -152,6 +172,7 @@ kdown 40 / kup     # 按下 / 松开一个键
 type hello         # 输入字母/数字/空格/回车
 
 # 诊断
+hello              # 协议/固件 Build/能力握手
 usb                # 打印 mounted/suspended/mouse/keyboard/touch
 wake               # USB remote wakeup，然后打印同一组状态
 help
@@ -171,6 +192,7 @@ help
 | `keymod` | 带修饰键的按键 | `modifier usage` |
 | `kdown` / `kup` | 按下 / 松开一个键 | `usage` |
 | `type` | 输入 ASCII 文本 | 字母/数字/空格/换行 |
+| `hello` | 协议/固件 Build/能力握手 | — |
 | `usb` | 打印 USB HID 挂载/就绪状态 | — |
 | `wake` | USB remote wakeup 并打印状态 | — |
 | `help` | 打印命令表 | — |

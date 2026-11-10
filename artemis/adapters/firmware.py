@@ -24,14 +24,19 @@ __all__ = [
     "FirmwareInfo",
     "FirmwareLineTooLong",
     "LineTransport",
+    "MAX_PROTOCOL",
+    "MIN_PROTOCOL",
 ]
 
 MAX_LINE_BYTES = 126
 DEFAULT_ACK_TIMEOUT_S = 3.0
+MIN_PROTOCOL = 1
+MAX_PROTOCOL = 2
 _LINE_TOO_LONG = "ERR line too long"
-_USB_STATE_RE = re.compile(
-    r"usb mounted=(\d+) suspended=(\d+) mouse=(\d+) keyboard=(\d+) touch=(\d+)"
-    r"(?: bci=(\d+))?(?: mode=(\w+))?"
+_USB_STATE_RE = re.compile(r"usb mounted=(\d+) suspended=(\d+)(.*)")
+_HELLO_RE = re.compile(
+    r"hello proto=(\d+) fw=(\S+) board=(\S+) mode=(\w+) max_line=(\d+)"
+    r" features=([^\s]+)(?: caps=([^\s]+))?"
 )
 
 
@@ -67,6 +72,7 @@ class FirmwareInfo:
     mode: str = "unknown"
     max_line: int = MAX_LINE_BYTES
     features: frozenset[str] = field(default_factory=frozenset)
+    caps: frozenset[str] = field(default_factory=frozenset)
     mounted: bool = False
     suspended: bool = False
     mouse: bool = False
@@ -78,6 +84,10 @@ class FirmwareInfo:
     @property
     def variant(self) -> str:
         return self.mode
+
+    @property
+    def compatible(self) -> bool:
+        return MIN_PROTOCOL <= self.protocol <= MAX_PROTOCOL
 
 
 class FirmwareBridge:
@@ -157,6 +167,27 @@ class FirmwareBridge:
         except (OSError, RuntimeError, ValueError, AttributeError):
             return
 
+    def handshake(self, *, timeout: float | None = None) -> FirmwareInfo:
+        """Negotiate v2 ``hello``; fall back to a v1 ``usb`` probe.
+
+        Older firmware answers ``ERR unknown command`` (or stays silent), so the
+        fallback must not assume any v2-only feature. A malformed hello is treated
+        the same way: report v1 limits rather than guessing.
+        """
+
+        try:
+            text = self.exchange("hello", timeout=1.0 if timeout is None else timeout)
+        except (FirmwareCommandError, FirmwareAckTimeout):
+            text = ""
+        if text:
+            try:
+                self.info = parse_hello_info(text)
+                return self.info
+            except FirmwareCommandError:
+                pass
+        self.info = parse_usb_info(self.exchange("usb"))
+        return self.info
+
     def preflight(self) -> FirmwareInfo:
         """Read the ``usb`` state; v1 exposes features but no protocol/build/board."""
 
@@ -180,16 +211,24 @@ class FirmwareBridge:
 
 
 def parse_usb_info(text: str) -> FirmwareInfo:
-    """Parse the last ``usb mounted=...`` line into a v1 FirmwareInfo."""
+    """Parse the last ``usb mounted=...`` line into a v1 FirmwareInfo.
+
+    v1 BCI builds omit mouse/keyboard/touch, so unknown fields default to 0
+    rather than rejecting the line.
+    """
 
     match = None
     for line in str(text).splitlines():
         match = _USB_STATE_RE.search(line) or match
     if match is None:
         raise FirmwareCommandError(f"firmware did not report a usb state: {text[-200:]!r}")
-    mounted, suspended, mouse, keyboard, touch = (int(match.group(i)) for i in range(1, 6))
-    bci = int(match.group(6) or 0)
-    mode = match.group(7) or ("composite" if touch else "ios")
+    mounted, suspended = int(match.group(1)), int(match.group(2))
+    fields = {key: value for key, value in re.findall(r"(\w+)=(\w+)", match.group(3))}
+    mouse = fields.get("mouse") == "1"
+    keyboard = fields.get("keyboard") == "1"
+    touch = fields.get("touch") == "1"
+    bci = fields.get("bci") == "1"
+    mode = fields.get("mode") or ("bci" if bci else "composite" if touch else "ios")
     features: set[str] = set()
     if mounted:
         features.add("usb")
@@ -209,9 +248,35 @@ def parse_usb_info(text: str) -> FirmwareInfo:
         features=frozenset(features),
         mounted=bool(mounted),
         suspended=bool(suspended),
-        mouse=bool(mouse),
-        keyboard=bool(keyboard),
-        touch=bool(touch),
-        bci=bool(bci),
+        mouse=mouse,
+        keyboard=keyboard,
+        touch=touch,
+        bci=bci,
+        raw=text,
+    )
+
+
+def parse_hello_info(text: str) -> FirmwareInfo:
+    """Parse a v2 ``hello`` response; raise when the required fields are absent."""
+
+    match = _HELLO_RE.search(str(text))
+    if match is None:
+        raise FirmwareCommandError(f"firmware did not report a v2 hello: {text[-200:]!r}")
+    protocol = int(match.group(1))
+    features = frozenset(part for part in match.group(6).split(",") if part)
+    caps = frozenset(part for part in (match.group(7) or "").split(",") if part)
+    return FirmwareInfo(
+        protocol=protocol,
+        build=match.group(2),
+        board=match.group(3),
+        mode=match.group(4),
+        max_line=int(match.group(5)),
+        features=features,
+        caps=caps,
+        mounted="usb" in features,
+        mouse="mouse" in features,
+        keyboard="keyboard" in features,
+        touch="touch" in features,
+        bci="bci" in features,
         raw=text,
     )

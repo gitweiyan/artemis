@@ -457,13 +457,13 @@ Application Service / Agent Tool
 
 #### 4.2 ESP32 HID / Serial
 
-> Phase 4.2a/4.2b（2026-11-10）：`FirmwareBridge`（Transport seam、126 字节行限、`OK`/`ERR`、ACK 超时、resync、`usb` 解析）+ `SerialTransport`（PTY 测试）+ `Esp32HidAdapter`（move/amove/key/keymod/text/释放）。旧 `Esp32HidControl` 未改，Factory 仍走旧路径；固件 v2 未实现。
+> Phase 4.2a/4.2b/4.2c（2026-11-10）：`FirmwareBridge`（Transport seam、126 字节行限、`OK`/`ERR`、ACK 超时、resync、`usb` 解析、`hello`/v1 fallback）+ `SerialTransport`（PTY 测试）+ `Esp32HidAdapter`（move/amove/key/keymod/text/释放）。固件 v2 `hello` 已实现并通过 `build-ios` 编译；旧 `Esp32HidControl` 未改，Factory 仍走旧路径，真机烧录/smoke 与 4.2d 接线待做。
 
 - [x] 将 `Esp32HidControl` 从 `artemis/reflex/control.py` 抽为 L4 `Esp32HidAdapter` + Serial Transport；保留旧 `Control` Protocol 适配器给 Reflex（`adapters/esp32_hid.py` + `adapters/serial.py`；旧 `Esp32HidControl` 继续服务现有路径，切换留 4.2d）。
 - [x] 将串口 115200 8N1、LF/CRLF 行结束、单命令等待 ACK、单行长度、长文本分片等协议事实集中到 Firmware Bridge，不散落在业务层（新 Adapter 只经 Bridge；旧 Control 的重复实现保留到 4.2d）。
 - [x] 正式区分 Host 命令 ACK、HID Report 已提交、iOS/Android 实际响应、屏幕效果验证（Bridge/Adapter 文档与 DTO 语义；现有 Control 的 `OK` 仍只当 ACK）。
 - [x] 记录固件 Build Variant 与能力：当前固件默认有 Touch/Mouse/Keyboard；iOS-only Build 关闭 Touch，走 Mouse/Keyboard；BCI-only 是独立实验配置。能力只有经过目标设备实测才能标记 verified（`FirmwareInfo.mode/features` + 后续 smoke evidence）。
-- [ ] 设计后续协议版本/能力握手（先写 ADR 和兼容测试，再改固件）：协议版本、Report/Command 能力、最大报文、ACK 语义、超时、设备重启和状态释放。
+- [x] 设计后续协议版本/能力握手（先写 ADR 和兼容测试，再改固件）：协议版本、Report/Command 能力、最大报文、ACK 语义、超时、设备重启和状态释放（ADR-009；Host `hello`/fallback + 固件 v2 `hello`；命令 ID/重启释放仍待后续）。
 - [ ] 老固件不支持的 Host 命令（例如 `amove`）必须报 `command_unsupported`（契约 §7.2），不允许静默退化成语义不同的动作。
 
 #### 4.3 Pointer Control 与 iOS 平台策略

@@ -13,6 +13,29 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#ifndef ARTEMIS_FIRMWARE_BUILD
+#define ARTEMIS_FIRMWARE_BUILD "dev"
+#endif
+
+//: A command line may hold this many bytes (excluding the terminator). The host's
+//: MAX_ESP32_LINE is the same number; `type` splits long text to fit it.
+#define CMD_LINE_MAX 126
+
+static void print_hello(void)
+{
+    printf("hello proto=2 fw=%s board=%s mode=%s max_line=%d features=",
+           ARTEMIS_FIRMWARE_BUILD, CONFIG_IDF_TARGET, HID_MODE_NAME, CMD_LINE_MAX);
+#if CONFIG_ARTEMIS_HID_BCI_ONLY
+    printf("usb,bci\n");
+#else
+    printf("usb,mouse,keyboard");
+#if CONFIG_ARTEMIS_HID_INCLUDE_TOUCH
+    printf(",touch");
+#endif
+    printf(",abs_pointer,abs_click\n");
+#endif
+}
+
 static void print_help(void)
 {
     printf("\n");
@@ -20,6 +43,7 @@ static void print_help(void)
     printf("Commands (BCI-only spike; normalized x/y 0..1000):\n"
            "  bci   <x> <y>   # send BCI absolute pointer report (z absent)\n"
            "  bci_click       # press+release BCI button 0 (Select)\n"
+           "  hello           # protocol/build/capability handshake\n"
            "  usb             # show USB mount/BCI ready state\n"
            "  help\n\n");
     return;
@@ -45,6 +69,7 @@ static void print_help(void)
            "  keymod <modifier> <usage>      # keyboard: press with modifier (e.g. 8 11 = Cmd+H)\n"
            "  kdown <usage> / kup            # keyboard: press / release one key\n"
            "  type       <text>              # keyboard: type letters/digits/space\n"
+           "  hello                          # protocol/build/capability handshake\n"
            "  usb                            # show USB HID mount/ready state\n"
            "  wake                           # USB remote wakeup, then show state\n"
            "  help\n"
@@ -99,6 +124,8 @@ static void handle_line(char *line)
 
     if (strcmp(cmd, "help") == 0 || strcmp(cmd, "h") == 0) {
         print_help();
+    } else if (strcmp(cmd, "hello") == 0) {
+        print_hello();
     } else if (strcmp(cmd, "usb") == 0) {
 #if CONFIG_ARTEMIS_HID_BCI_ONLY
         printf("usb mounted=%d suspended=%d bci=%d mode=%s\n",
@@ -276,10 +303,6 @@ static void handle_line(char *line)
         printf("ERR unknown command: %s\n", cmd);
     }
 }
-
-//: A command line may hold this many bytes (excluding the terminator). The host's
-//: MAX_ESP32_LINE is the same number; `type` splits long text to fit it.
-#define CMD_LINE_MAX 126
 
 static void cmd_task(void *arg)
 {
