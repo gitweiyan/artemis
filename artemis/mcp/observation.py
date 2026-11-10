@@ -26,20 +26,47 @@ import time
 
 from artemis.config import get_temp_dir
 from artemis.context import ArtemisContext
-from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.mcp.action_types import ActionCode, ObserveResult
 from artemis.utils.ocr_xml_fusion import fuse_ocr_with_xml
 from artemis.utils.visualization import format_minimal_list_with_elements
 from third_party.mobile_use.utils.logger import get_logger
+from typing import Any, Protocol, runtime_checkable
 
 logger = get_logger(__name__)
 
-__all__ = ["observe"]
+__all__ = ["ControllerObservationPort", "ObservationPort", "observe"]
+
+
+@runtime_checkable
+class ObservationPort(Protocol):
+    """Minimal observation surface consumed by the agent tool layer."""
+
+    async def observe(
+        self, settle_ms: int = 400, ocr_results: list | None = None
+    ) -> tuple[ObserveResult, bytes | None]: ...
+
+
+class ControllerObservationPort:
+    """Compatibility adapter: a controller with ``get_screen_data`` as an Observation Port.
+
+    The controller is duck-typed; the tool layer no longer imports the concrete
+    controller class (ADR-006 Phase 3d). Phase 4 can add a Session-backed port
+    without changing callers.
+    """
+
+    def __init__(self, ctx: ArtemisContext, controller: Any) -> None:
+        self.ctx = ctx
+        self.controller = controller
+
+    async def observe(
+        self, settle_ms: int = 400, ocr_results: list | None = None
+    ) -> tuple[ObserveResult, bytes | None]:
+        return await observe(self.ctx, self.controller, settle_ms, ocr_results)
 
 
 async def observe(
     ctx: ArtemisContext,
-    controller: UnifiedMobileController,
+    controller: Any,
     settle_ms: int = 400,
     ocr_results: list | None = None,
 ) -> tuple[ObserveResult, bytes | None]:
