@@ -1,13 +1,13 @@
 # ADR-007: Reflex Runtime, SafetyNet 与高频闭环安全预算
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-10
 - **Owners:** ARTEMIS architecture maintainers
 - **Blocks:** Phase 3（Reflex 边界）；Phase 5（SafetyNet/验证语义）
 - **Related:** 契约 §7（Safety/Verification）、§8（数据所有权）；[ADR-004](ADR-004-action-intent-command-receipt.md)（Accepted）、[ADR-008](ADR-008-data-engine-evidence-ownership.md)（Accepted）、[ADR-010](ADR-010-platform-extensions-semantic-actions.md)（Accepted）
 - **Code evidence:** `artemis/reflex/runtime.py:1-35,68-201`、`artemis/reflex/contract.py:15-35,100-190`、`artemis/reflex/mouse.py:215-278,680-970`、`artemis/safety/pointer.py:1-75`、`artemis/safety/pixel.py:1-125`、`tests/unit/reflex/test_reflex_core.py:215-320`
 
-> 状态说明：本 ADR 当前为 **Proposed**。Phase 5 的实现只有在评审确认后才会进入 Accepted；在此之前只能做测试设计、Mock 和原型。
+> 状态说明：本 ADR 于 2026-11-10 经评审 **Accepted**；§4 是可执行契约。实现顺序见 §7。
 
 ---
 
@@ -325,3 +325,4 @@ Reflex 运行本身不写 capability evidence；只有 smoke/contract test 通�
 | Date | Status | Change | Rationale |
 |---|---|---|---|
 | 2026-11-10 | Proposed | Initial proposal | 为 Phase 5 定义 Reflex 独立安全预算、Incident 与输入释放 |
+| 2026-11-10 | Accepted | 评审确认默认预算、incident 字段、可选 release_inputs、LOST 映射与 SKILL_ERROR=None | Phase 5 解锁 |
