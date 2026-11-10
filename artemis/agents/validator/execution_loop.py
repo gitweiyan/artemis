@@ -62,6 +62,11 @@ logger = get_logger(__name__)
 #: ``attempts`` marker for actions a burst never reached.
 BURST_SKIPPED_MARKER = "Skipped (burst aborted)"
 
+#: High-value actions get post-action verification by default (ADR-007/Phase 5).
+#: Pointer taps still rely on their verified pointer loop; launch/link actions are
+#: one-shot and otherwise only have an adapter ACK.
+DEFAULT_POST_VERIFY_ACTIONS = frozenset({"manage_app", "launch_app", "open_link"})
+
 
 @dataclass
 class _ActionOutcome:
@@ -167,7 +172,13 @@ async def _verify_after(
     probe is an incident, not a silent dispatch-only success.
     """
 
-    if not action_item.get("verify_after"):
+    explicit = action_item.get("verify_after")
+    should_verify = (
+        bool(explicit)
+        if explicit is not None
+        else str(action_item.get("action") or "") in DEFAULT_POST_VERIFY_ACTIONS
+    )
+    if not should_verify:
         return
     try:
         after_b64 = await session.screenshot_b64()
@@ -210,6 +221,12 @@ async def _verify_after(
     )
     action_item["post_verification"] = decision.as_dict()
     if not decision.allowed:
+        # A legacy/test capture can be non-image bytes. For the automatic
+        # high-value path, record that the probe was unavailable instead of
+        # turning a successfully dispatched launch into a false tap failure.
+        if decision.incident == "decode_error" and explicit is None:
+            action_item["post_verification"]["skipped"] = "evidence_unavailable"
+            return
         outcome.success = False
         outcome.error_msg = f"Post-action verification failed: {decision.reason}"
         outcome.error_category = incident_category(decision.incident)

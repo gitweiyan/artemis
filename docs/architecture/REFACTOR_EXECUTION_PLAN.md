@@ -497,6 +497,7 @@ Application Service / Agent Tool
 > Phase 5f（2026-11-10）：`ValidatorActionGate` 接入 `execution_loop._run_precondition_gate`；XML-first/pixel-fallback 行为不变，Port 返回 `GateDecision`。任务式 post-action verification 与 evidence 要求仍未接入。
 > Phase 5g（2026-11-10）：`ValidatorActionGate.verify()` 用 `safety/pixel.verify_effect` 检查 before/after 证据；`execution_loop` 支持显式 `verify_after` 的动作，缺失证据为 `target_unverified`、屏幕未变为 `no_effect`。默认高价值动作分类与 evidence 要求仍待接线。
 > Phase 5h（2026-11-10）：`safety/evidence.py` 定义按动作/指针/远程输入的 evidence policy，`ValidatorActionGate` 把 policy 写入 GateDecision evidence；默认自动触发仍留给 Validator/Checker 接线。
+> Phase 5i（2026-11-10）：高价值 `launch_app`/`manage_app`/`open_link` 默认执行后置 pixel 验证（`DEFAULT_POST_VERIFY_ACTIONS`）；显式 `verify_after` 仍可覆盖。非图像测试 fixture 自动记录 `evidence_unavailable`，不伪造失败。
 
 当前已有：`safety/xml.py`、`safety/pixel.py`、`safety/pointer.py`，以及 `agents/validator` 中的 Precondition/Execution/Incident 逻辑；`reflex/mouse.py` 也调用 Pixel/Pointer 原语。
 
@@ -507,7 +508,7 @@ Application Service / Agent Tool
 - [x] 明确不同动作所需证据：绝对触控不要求 Pointer Precheck；相对指针点击必须先证明指针位置与目标一致；Remote Key 不需要像素 Pointer 校验（`safety/evidence.py`；GateDecision evidence）。
 - [x] `confidence=None` 必须表示“来源未提供置信度”，不能自动映射为 `low_confidence`；没有证据不能虚构失败原因（Pixel SafetyNet 缺失/非法 confidence 走 `pixel_bypassed`）。
 - [x] 区分 `target_disappeared`、`target_shifted`、`pointer_missing`、`stale_frame`、`no_effect`、`capability_unavailable`、`command_unsupported`、`transport_error`、`device_disconnected` 等 Incident；取值以契约 §7.2 唯一命名表为准，不得另起别名（`ValidationErrorCategory`/`safety/incidents.py`；新增取值需先改契约）。
-- [ ] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification（`verify_after` 显式动作已支持；默认高价值分类待接线）。
+- [x] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification（`launch_app`/`manage_app`/`open_link` 默认；`verify_after` 可覆盖）。
 - [x] Reflex 高频 Loop 使用自己的安全预算：最大运行时长、FPS Cap、blind frame 上限、control failure 上限、急停/取消和释放输入状态。不要默认每帧执行重量级 SafetyNet/Trace 写盘（`ReflexBudget` + `ReflexRuntime` + CLI；见 ADR-007）。
 - [x] 所有执行器在取消、断连、异常退出时释放按下的键、鼠标按钮、触点和持续动作状态（Reflex `Control.release_inputs` + `Esp32HidControl`/`PointerControl` 接线；其他执行器后续统一）。
 

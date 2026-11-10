@@ -237,3 +237,35 @@ def test_evidence_policy_reflects_pointer_and_remote_capabilities():
     assert EvidenceKind.DISPATCH_RECEIPT in remote.evidence
 
     assert evidence_policy("wait_for_delay").requires_post_verification is False
+
+
+def test_high_value_launch_verifies_by_default_and_blocks_no_effect():
+    import asyncio
+    from base64 import b64encode
+    from types import SimpleNamespace
+
+    from artemis.agents.validator.execution_loop import _ActionOutcome, _verify_after
+
+    class Gate:
+        async def check(self, request):
+            return GateDecision(True)
+
+        async def verify(self, request, result):
+            return GateDecision(False, "no_effect", "launch did not change the screen")
+
+    class Session:
+        async def screenshot_b64(self):
+            return b64encode(_png((0, 0, 0))).decode()
+
+    node = SimpleNamespace(
+        ctx=SimpleNamespace(device=SimpleNamespace(device_width=1000, device_height=1000)),
+        safety_gate=Gate(),
+    )
+    outcome = _ActionOutcome(action_item={"action": "launch_app"})
+    action = {"action": "launch_app", "app_name": "Settings"}
+    before = b64encode(_png((0, 0, 0))).decode()
+
+    asyncio.run(_verify_after(node, Session(), outcome, before, action))
+
+    assert outcome.success is False
+    assert action["post_verification"]["incident"] == "no_effect"
