@@ -36,7 +36,7 @@ from artemis.agents.explorer.constants import (
 from artemis.context import ArtemisContext
 from artemis.core.tool_declaration import ToolDeclaration
 from artemis.mcp.action_specs import tool_declaration
-from artemis.mcp.observation import observe
+from artemis.perception.observation import observe
 from artemis.graph.state import State
 from artemis.utils.notes import (
     LIST_NOTES_DOCSTRING,
@@ -171,7 +171,7 @@ async def capture_screenshot_and_parse_ui(
 ) -> tuple[str | None, bytes | None, str | None]:
     """Captures screenshot and parses fused XML tree after optional screen settling delay.
 
-    Thin adapter over :func:`artemis.mcp.observation.observe` that adds the LangGraph
+    Thin adapter over :func:`artemis.perception.observation.observe` that adds the LangGraph
     ``State`` write-back (indexed points/elements) the agents rely on.
     """
     obs, screenshot_bytes = await observe(ctx, controller, settle_ms=0 if skip_settling else 400)

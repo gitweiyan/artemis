@@ -81,6 +81,48 @@ def test_session_observation_port_prefers_the_session_source():
     assert result.width == 1080
 
 
+def test_mcp_observation_path_reexports_the_l3_service():
+    from artemis.mcp.observation import observe as legacy_observe
+    from artemis.perception.observation import observe
+
+    assert legacy_observe is observe
+
+
+def test_session_observation_carries_frame_and_source_evidence():
+    from artemis.devices.session import DeviceSession
+    from artemis.perception.base import Frame
+    from artemis.perception.observation import get_screen_data
+
+    class Source:
+        name = "uvc-evidence"
+
+        async def snapshot(self):
+            return Frame(
+                image=base64.b64decode(PNG),
+                captured_at=100.0,
+                width=449,
+                height=974,
+                source="uvc-evidence",
+                frame_id="frame-42",
+                geometry_revision="geom-7",
+            )
+
+        async def ui_tree(self):
+            return []
+
+    session = DeviceSession(perception=[Source()], control=[])
+    ctx = SimpleNamespace(device=None, data_engine=None, device_session=session)
+    data = asyncio.run(get_screen_data(ctx))
+
+    assert data.evidence is not None
+    assert data.evidence.frame_id == "frame-42"
+    assert data.evidence.captured_at == 100.0
+    assert data.evidence.source_id == "uvc-evidence"
+    assert data.evidence.geometry_revision == "geom-7"
+    assert data.evidence.health == "ok"
+    assert data.evidence.age_s >= 0
+
+
 def test_a_session_source_without_screen_data_uses_snapshot_and_ui_tree():
     import asyncio
 

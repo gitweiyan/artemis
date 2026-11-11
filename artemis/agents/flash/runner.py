@@ -87,7 +87,7 @@ from artemis.graph.perception import _check_injected_instruction_file
 from artemis.graph.state import State
 from artemis.llm.structured import ParseFailure, parse_structured
 from artemis.actions.executor import McpActionExecutor
-from artemis.mcp.observation import observe
+from artemis.perception.observation import observe
 from artemis.safety.flash import (
     evaluate_flash_precondition,
     flash_action_policy,

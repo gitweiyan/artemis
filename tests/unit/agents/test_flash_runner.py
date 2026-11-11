@@ -115,7 +115,7 @@ async def test_fallback_observation_renders_the_indexed_ui_list(mock_context, tm
     state.latest_screenshot = "old.jpg"
     exec_result = _failed_click()
 
-    with patch("artemis.mcp.observation.get_temp_dir", return_value=tmp_path):
+    with patch("artemis.perception.observation.get_temp_dir", return_value=tmp_path):
         post = await runner._capture_post_screenshot(
             exec_result, "click", frozenset({"click"}), state
         )
@@ -170,7 +170,7 @@ async def test_fallback_observation_keeps_the_executors_ui_list(mock_context, tm
         ui_elements_text="[1] Text: 'Mine' | Bounds: [0,0][10,10]",
     )
 
-    with patch("artemis.mcp.observation.get_temp_dir", return_value=tmp_path):
+    with patch("artemis.perception.observation.get_temp_dir", return_value=tmp_path):
         post = await runner._capture_post_screenshot(
             exec_result, "click", frozenset({"click"}), None
         )
