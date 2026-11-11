@@ -1,0 +1,114 @@
+"""Explicit migration debt for the Phase 9 architecture ratchet.
+
+Every entry must name an owner, an exit condition and the phase after which it
+must be removed. The test suite verifies that current imports are registered,
+new imports fail, and stale/expired entries are removed rather than being kept
+forever.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+__all__ = ["COMPLETED_PHASES", "LEGACY_IMPORTS", "LegacyImport"]
+
+
+@dataclass(frozen=True)
+class LegacyImport:
+    importer: str
+    imported: str
+    owner: str
+    exit_condition: str
+    review_after: str
+
+    def __post_init__(self) -> None:
+        for name in ("importer", "imported", "owner", "exit_condition", "review_after"):
+            if not str(getattr(self, name) or "").strip():
+                raise ValueError(f"{name} must not be empty")
+
+
+#: Phases whose exit criteria are already considered closed. An allowlist entry
+#: with one of these as review_after is expired and must be removed/migrated.
+COMPLETED_PHASES = frozenset({"Phase 0", "Phase 1", "Phase 2"})
+
+
+def _entry(importer, imported, review_after="Phase 4", owner="Phase 3R/4"):
+    return LegacyImport(
+        importer=importer,
+        imported=imported,
+        owner=owner,
+        exit_condition=(
+            "Remove after the Session-backed Port/Facade migration and the"
+            " corresponding real-device regression"
+        ),
+        review_after=review_after,
+    )
+
+
+LEGACY_IMPORTS = (
+    # agents → controller compatibility facade
+    _entry("artemis/agents/checker/checker.py", "artemis.controllers.unified_controller"),
+    _entry("artemis/agents/flash/runner.py", "artemis.controllers.unified_controller"),
+    _entry("artemis/agents/flash/runner.py", "artemis.mcp.action_executor"),
+    _entry("artemis/agents/planner/planner.py", "artemis.controllers.unified_controller"),
+    _entry(
+        "artemis/agents/validator/tool_declarations.py",
+        "artemis.controllers.unified_controller",
+    ),
+    _entry(
+        "artemis/agents/video_analyzer/video_analyzer.py",
+        "artemis.controllers.controller_factory",
+    ),
+    # graph fallback observation
+    _entry("artemis/graph/perception.py", "artemis.controllers.unified_controller"),
+    _entry("artemis/graph/perception.py", "artemis.mcp.observation"),
+    # L4 builders still use legacy capture/selector and the iOS Reflex helpers
+    _entry("artemis/drivers/factory.py", "artemis.orchestration.selector"),
+    _entry("artemis/drivers/factory.py", "artemis.reflex.capture"),
+    _entry("artemis/drivers/ios/crop.py", "artemis.reflex.capture"),
+    _entry("artemis/drivers/ios/extension.py", "artemis.reflex.ios_apps"),
+    _entry("artemis/drivers/ios/extension.py", "artemis.reflex.pinyin"),
+    _entry("artemis/drivers/ios/ios_uvc_hid_driver.py", "artemis.reflex.ios_apps"),
+    _entry(
+        "artemis/drivers/ios/ios_uvc_hid_driver.py",
+        "artemis.reflex.pointer_control",
+    ),
+    # Device profile still imports Reflex pointer/locator internals
+    _entry("artemis/devices/ios_uvc.py", "artemis.reflex.locate_anything"),
+    _entry("artemis/devices/ios_uvc.py", "artemis.reflex.mouse"),
+    # CLI entry points construct platform/reflex implementations
+    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.drivers.ios.calibration"),
+    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.drivers.ios.config"),
+    _entry(
+        "artemis/interfaces/cli/commands/ios_calibrate.py",
+        "artemis.drivers.ios.ios_uvc_hid_driver",
+    ),
+    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.drivers.ios.uvc_identity"),
+    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.reflex.capture"),
+    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.reflex.control"),
+    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.drivers.ios.config"),
+    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.drivers.ios.evidence"),
+    _entry(
+        "artemis/interfaces/cli/commands/ios_smoke.py",
+        "artemis.drivers.ios.ios_uvc_hid_driver",
+    ),
+    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.drivers.ios.smoke"),
+    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.drivers.ios.uvc_identity"),
+    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.reflex.capture"),
+    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex"),
+    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex.capture"),
+    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex.contract"),
+    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex.control"),
+    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex.runtime"),
+    # L3 source/sink code imports compatibility capability/session DTOs
+    _entry("artemis/perception/app_automation.py", "artemis.devices.capabilities", "Phase 5"),
+    _entry("artemis/perception/base.py", "artemis.devices.capabilities", "Phase 5"),
+    _entry("artemis/perception/camera.py", "artemis.devices.capabilities", "Phase 5"),
+    _entry("artemis/perception/composite.py", "artemis.devices.capabilities", "Phase 5"),
+    _entry("artemis/perception/composite.py", "artemis.devices.session", "Phase 5"),
+    _entry("artemis/perception/uvc.py", "artemis.devices.capabilities", "Phase 5"),
+    _entry("artemis/control/app_control.py", "artemis.devices.capabilities", "Phase 5"),
+    _entry("artemis/control/base.py", "artemis.devices.capabilities", "Phase 5"),
+    _entry("artemis/control/composite.py", "artemis.devices.capabilities", "Phase 5"),
+    _entry("artemis/control/hid.py", "artemis.devices.capabilities", "Phase 5"),
+)

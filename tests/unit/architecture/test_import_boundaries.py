@@ -86,78 +86,18 @@ def test_agents_do_not_import_platform_adapters_or_actuators():
     )
 
 
-#: Explicit, temporary legacy imports. Every entry has a migration owner and an
-#: exit condition; new imports in these layers fail below instead of silently
-#: becoming architecture debt.
-LEGACY_ALLOWED = {
-    "agents": {
-        "artemis/agents/checker/checker.py": {"artemis.controllers.unified_controller"},
-        "artemis/agents/flash/runner.py": {"artemis.controllers.unified_controller"},
-        "artemis/agents/planner/planner.py": {"artemis.controllers.unified_controller"},
-        "artemis/agents/validator/tool_declarations.py": {"artemis.controllers.unified_controller"},
-        "artemis/agents/video_analyzer/video_analyzer.py": {
-            "artemis.controllers.controller_factory"
-        },
-    },
-    "graph": {
-        "artemis/graph/perception.py": {"artemis.controllers.unified_controller"},
-    },
-    "drivers": {
-        "artemis/drivers/factory.py": {
-            "artemis.orchestration.selector",
-            "artemis.reflex.capture",
-        },
-        "artemis/drivers/ios/crop.py": {"artemis.reflex.capture"},
-        "artemis/drivers/ios/extension.py": {
-            "artemis.reflex.ios_apps",
-            "artemis.reflex.pinyin",
-        },
-        "artemis/drivers/ios/ios_uvc_hid_driver.py": {
-            "artemis.reflex.ios_apps",
-            "artemis.reflex.pointer_control",
-        },
-    },
-    "interfaces": {
-        "artemis/interfaces/cli/commands/ios_calibrate.py": {
-            "artemis.drivers.ios.calibration",
-            "artemis.drivers.ios.config",
-            "artemis.drivers.ios.ios_uvc_hid_driver",
-            "artemis.drivers.ios.uvc_identity",
-            "artemis.reflex.capture",
-            "artemis.reflex.control",
-        },
-        "artemis/interfaces/cli/commands/ios_smoke.py": {
-            "artemis.drivers.ios.config",
-            "artemis.drivers.ios.evidence",
-            "artemis.drivers.ios.ios_uvc_hid_driver",
-            "artemis.drivers.ios.smoke",
-            "artemis.drivers.ios.uvc_identity",
-            "artemis.reflex.capture",
-        },
-        "artemis/interfaces/cli/commands/reflex.py": {
-            "artemis.reflex",
-            "artemis.reflex.capture",
-            "artemis.reflex.contract",
-            "artemis.reflex.control",
-            "artemis.reflex.runtime",
-        },
-    },
-    "perception": {
-        "artemis/perception/app_automation.py": {"artemis.devices.capabilities"},
-        "artemis/perception/base.py": {"artemis.devices.capabilities"},
-        "artemis/perception/camera.py": {"artemis.devices.capabilities"},
-        "artemis/perception/composite.py": {
-            "artemis.devices.capabilities",
-            "artemis.devices.session",
-        },
-        "artemis/perception/uvc.py": {"artemis.devices.capabilities"},
-    },
-    "control": {
-        "artemis/control/app_control.py": {"artemis.devices.capabilities"},
-        "artemis/control/base.py": {"artemis.devices.capabilities"},
-        "artemis/control/composite.py": {"artemis.devices.capabilities"},
-        "artemis/control/hid.py": {"artemis.devices.capabilities"},
-    },
+
+from legacy_allowlist import COMPLETED_PHASES, LEGACY_IMPORTS
+
+
+LEGACY_RULES = {
+    "agents": ("artemis.controllers", "artemis.mcp.action_executor"),
+    "graph": ("artemis.controllers", "artemis.mcp"),
+    "drivers": ("artemis.reflex", "artemis.orchestration"),
+    "interfaces": ("artemis.drivers", "artemis.reflex"),
+    "perception": ("artemis.devices",),
+    "control": ("artemis.devices",),
+    "devices": ("artemis.reflex",),
 }
 
 
@@ -173,19 +113,35 @@ def _legacy_hits(layer: str, forbidden: tuple[str, ...]) -> list[tuple[str, str]
     return hits
 
 
-def test_known_legacy_imports_are_explicitly_allowlisted():
-    rules = {
-        "agents": ("artemis.controllers",),
-        "graph": ("artemis.controllers",),
-        "drivers": ("artemis.reflex", "artemis.orchestration"),
-        "interfaces": ("artemis.drivers", "artemis.reflex"),
-        "perception": ("artemis.devices",),
-        "control": ("artemis.devices",),
-    }
+def test_all_current_legacy_imports_are_registered():
+    registered = {(entry.importer, entry.imported) for entry in LEGACY_IMPORTS}
     unexpected = []
-    for layer, forbidden in rules.items():
-        allowed = LEGACY_ALLOWED.get(layer, {})
+    for layer, forbidden in LEGACY_RULES.items():
         for path, module in _legacy_hits(layer, forbidden):
-            if module not in allowed.get(path, set()):
+            if (path, module) not in registered:
                 unexpected.append(f"{path}: {module}")
     assert unexpected == []
+
+
+def test_allowlist_entries_have_owners_and_are_not_stale():
+    actual = {
+        (path, module)
+        for layer, forbidden in LEGACY_RULES.items()
+        for path, module in _legacy_hits(layer, forbidden)
+    }
+    assert all(entry.owner and entry.exit_condition for entry in LEGACY_IMPORTS)
+    stale = [
+        f"{entry.importer}: {entry.imported}"
+        for entry in LEGACY_IMPORTS
+        if (entry.importer, entry.imported) not in actual
+    ]
+    assert stale == []
+
+
+def test_expired_allowlist_entries_fail():
+    expired = [
+        f"{entry.importer}: {entry.imported} (review_after={entry.review_after})"
+        for entry in LEGACY_IMPORTS
+        if entry.review_after in COMPLETED_PHASES
+    ]
+    assert expired == []
