@@ -29,11 +29,13 @@ class AppAutomationSource:
         self.driver = driver
         self.name = name
         self.capabilities = CapabilitySet(supports_ui_tree=True)
+        self._last_data = None
 
     async def screen_data(self):
         """Raw driver observation for the Session-backed observation port."""
 
-        return await self.driver.get_screen_data()
+        self._last_data = await self.driver.get_screen_data()
+        return self._last_data
 
     async def snapshot(self) -> Frame:
         data = await self.screen_data()
@@ -49,7 +51,7 @@ class AppAutomationSource:
         )
 
     async def ui_tree(self) -> list[UIElement] | None:
-        data = await self.driver.get_screen_data()
+        data = self._last_data or await self.screen_data()
         elements = getattr(data, "ui_elements", None) or []
         tree: list[UIElement] = []
         for element in elements:

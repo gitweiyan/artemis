@@ -407,6 +407,24 @@ class ResourceLease:
         self.release()
 
 
+class _CollectCleanupErrors:
+    """Context manager that records ordinary exceptions without skipping cleanup."""
+
+    def __init__(self, errors: list[Exception]) -> None:
+        self.errors = errors
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is None:
+            return False
+        if issubclass(exc_type, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+            return False
+        self.errors.append(exc)
+        return True
+
+
 class LeaseSet:
     """Acquire several resources in a deterministic order and release in reverse."""
 
@@ -470,11 +488,10 @@ class LeaseSet:
         leases = list(self._leases)
         self._leases.clear()
         for lease in reversed(leases):
-            try:
+            with _CollectCleanupErrors(errors):
                 lease.release()
-            except (OSError, RuntimeError, ValueError) as exc:
-                errors.append(exc)
-                logger.warning(f"Releasing resource lease {lease.resource_id} failed: {exc}")
+        for exc in errors:
+            logger.warning(f"Releasing a resource lease failed: {exc}")
         if errors:
             raise errors[0]
 

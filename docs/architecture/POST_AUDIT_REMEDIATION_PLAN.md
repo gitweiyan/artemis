@@ -170,7 +170,7 @@ Tests:
 
 ## 6. Stage 3 — Canonical identity and UVC USB path (P0)
 
-> Status (2026-11-11): implemented in host-side code. `resolve_canonical_device_id`/`ctx.canonical_device_id` drives ActionEvidence and the SDK device lock; UVC identity resolver prefers USB serial, then topology port path, then explicit config hint (strict mode fails closed). Real USB probe/port-path evidence is still pending because the current capture card has no USB serial/topology record.
+> Status (2026-11-11): implemented in host-side code. Follow-up R2 (same day): Session observation now uses `session.snapshot()` before source data; arbitrary adapter cleanup exceptions are captured; the controller is not used when a real Session exists. `resolve_canonical_device_id`/`ctx.canonical_device_id` drives ActionEvidence and the SDK device lock; UVC identity resolver prefers USB serial, then topology port path, then explicit config hint (strict mode fails closed). Real USB probe/port-path evidence is still pending because the current capture card has no USB serial/topology record.
 > Real-device verification (2026-11-11): `ios-smoke --target 设置` passed all four stages; Flash `打开设置` produced action evidence with `device_id=ios-uvc`, task_id=session, latency ~7.1s and a matching `telemetry_spans.jsonl`; Pro `回到主屏` completed with Checker 2/2. UVC still resolves as `CONFIG_HINT` because the host USB probe exposes no serial/topology for this capture card.
 
 > LocateAnything (2026-11-11): service `http://127.0.0.1:7863` verified on the unlocked iPhone rig: warm-up primed in 254 ms, locate used `source=locate-anything` in 1219 ms, all four smoke stages passed.

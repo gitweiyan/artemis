@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-12 failed, 3806 passed, 5 skipped, 76 warnings in 148.38s
+12 failed, 3805 passed, 9 skipped, 76 warnings in 149.02s
 ```
 
 Known failures:
@@ -131,6 +131,7 @@ Known failures:
 - 9 `tests/unit/agents/test_explorer.py` — MagicMock LLM provider not in router whitelist;
 - 3 `tests/unit/agents/test_video_analyzer.py` — same provider mock mismatch.
 - The Admin Console display tests were made independent of the local `config/artemis.jsonc` fixture.
+- R2 progress: Session cleanup now captures arbitrary ordinary adapter exceptions via tasks; Session observation goes through `session.snapshot()` and does not fall back to the controller when a real Session exists.
 
 `uv run ruff check`: pass.
 `uv run ruff format --check .`: 14 files would be reformatted (all pre-existing; no new file after formatting our test).

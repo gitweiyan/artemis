@@ -509,7 +509,7 @@ Application Service / Agent Tool
 - [x] 明确不同动作所需证据：绝对触控不要求 Pointer Precheck；相对指针点击必须先证明指针位置与目标一致；Remote Key 不需要像素 Pointer 校验（`safety/evidence.py`；GateDecision evidence）。
 - [x] `confidence=None` 必须表示“来源未提供置信度”，不能自动映射为 `low_confidence`；没有证据不能虚构失败原因（Pixel SafetyNet 缺失/非法 confidence 走 `pixel_bypassed`）。
 - [x] 区分 `target_disappeared`、`target_shifted`、`pointer_missing`、`stale_frame`、`no_effect`、`capability_unavailable`、`command_unsupported`、`transport_error`、`device_disconnected` 等 Incident；取值以契约 §7.2 唯一命名表为准，不得另起别名（`ValidationErrorCategory`/`safety/incidents.py`；新增取值需先改契约）。
-- [x] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification（`launch_app`/`manage_app`/`open_link` 默认；`verify_after` 可覆盖）。
+- [ ] 任务式 Agent（Flash/Pro）执行高价值动作时运行 precondition / post-action verification（Pro 默认；Flash 只保留 cheap pre-frame + No-Op Guard，pixel verification 需显式 `verify_after`；Pointer Precheck/Burst 门禁仍待补齐）。
 - [x] Reflex 高频 Loop 使用自己的安全预算：最大运行时长、FPS Cap、blind frame 上限、control failure 上限、急停/取消和释放输入状态。不要默认每帧执行重量级 SafetyNet/Trace 写盘（`ReflexBudget` + `ReflexRuntime` + CLI；见 ADR-007）。
 - [x] 所有执行器在取消、断连、异常退出时释放按下的键、鼠标按钮、触点和持续动作状态（Reflex `Control.release_inputs` + `Esp32HidControl`/`PointerControl` 接线；其他执行器后续统一）。
 
@@ -538,7 +538,7 @@ Application Service / Agent Tool
 - [x] 每个 Action 记录所用 Profile、source/adapter、target evidence、coordinate space、capability decision、dispatch result、device ACK、pre/post verification、latency 和 incident（`ActionEvidence` 写入 Validator action trace）。
 - [x] 大图像/视频只存 Artifact Reference/hash/metadata，不复制进多份 JSON Trace（`ArtifactRef`；action evidence 引用 post screenshot hash）。
 - [x] Telemetry Span 可关联 Data Engine Step，但 Span 不承担完整 Step 历史；Runtime Trace Store 只管后台任务状态（Span 新增 session/device/step/action/frame 字段）。
-- [x] 增加按 Task/Device/Action/Artifact 的回放与查询测试；隐私/敏感屏幕内容遵循保留和脱敏策略（`trace actions` + `query_action_evidence`；Task 关联与脱敏策略待补）。
+- [ ] 增加按 Task/Device/Action/Artifact 的回放与查询测试；隐私/敏感屏幕内容遵循保留和脱敏策略（`trace actions` + `query_action_evidence` 已实现；隐私/脱敏方案仍未实现，见 `PRIVACY_REDACTION_RETENTION_PLAN.md`）。
 
 **Exit Criteria：** 能从一次失败动作还原“观察到什么、用哪个 Adapter、执行了什么、收到什么 ACK、屏幕如何变化、为什么判定成功/失败”。
 

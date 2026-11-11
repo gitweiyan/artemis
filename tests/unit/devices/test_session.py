@@ -297,3 +297,31 @@ def test_close_finishes_handles_and_leases_when_a_closer_is_cancelled():
     assert events == ["control-start", "perception", "leases"]
     assert session.state.value == "closed"
     assert session.leases is None
+
+
+def test_close_continues_after_an_arbitrary_adapter_exception():
+    events: list[str] = []
+
+    class TypeErrorSink(Sink):
+        def close(self):
+            raise TypeError("vendor adapter bug")
+
+    class ClosingSource(Source):
+        def close(self):
+            events.append("perception")
+
+    class Leases:
+        def release(self):
+            events.append("leases")
+
+    session = DeviceSession(
+        [ClosingSource()],
+        [TypeErrorSink(absolute=True)],
+        geometry(),
+        leases=Leases(),
+    )
+
+    asyncio.run(session.close())
+
+    assert events == ["perception", "leases"]
+    assert session.state.value == "closed"

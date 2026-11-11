@@ -197,13 +197,26 @@ class DeviceSession:
         cancelled: asyncio.CancelledError | None = None
 
         # Inputs first (control), then capture (perception), as ADR-003 requires.
+        # Each closer runs in a task so an arbitrary Exception (TypeError, a
+        # vendor exception) is captured as task.exception() and cannot stop the
+        # remaining cleanup. No broad except-handler is needed.
         for participant in [*self.control, *self.perception]:
+            task = asyncio.create_task(self._close_participant(participant))
             try:
-                await self._close_participant(participant)
+                await asyncio.wait({task})
             except asyncio.CancelledError as exc:
                 cancelled = exc
+                task.cancel()
+                await asyncio.wait({task})
+            if task.cancelled():
+                cancelled = asyncio.CancelledError()
                 self._close_errors.append(f"{type(participant).__name__}: cancelled")
                 logger.warning(f"Closing {type(participant).__name__} was cancelled; continuing")
+                continue
+            error = task.exception()
+            if error is not None:
+                self._close_errors.append(f"{type(participant).__name__}: {error}")
+                logger.warning(f"Closing {type(participant).__name__} failed: {error}")
 
         if self.leases is not None:
             try:
