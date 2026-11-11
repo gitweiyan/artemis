@@ -29,6 +29,7 @@
 - Observation 迁移后复测（2026-11-11 19:15）：`ios-smoke` 在 snapshot 阶段因黑帧失败（`uvc_no_signal`），未进入指针/点击；该失败是采集无信号，不是 Observation 服务异常。迁移后尚无新的真机观察证据。
 - Observation 迁移后复测 2（2026-11-11 20:28）：重新连接机台后 `ios-smoke --target 快捷指令` 七阶段全绿；Flash `回到主屏` 会话 `39fd9ed9-5857-48e2-9597-52afacc382a6` 成功（2 steps），action evidence `3d85695e55f...` 为 `adapter_acknowledged`，UVC/serial lease 均释放。
 - Adapter 迁移后复测（2026-11-11 20:38）：`ios-smoke` 在 connect 前因手机自动锁定失败（`suspended=1`），未产生新的真机证据；之前的 smoke/Flash 仍有效，但不能冒充 adapter 迁移后的结果。4 条新增 skip 是未连接 Android 设备时的诊断测试。
+- Adapter 迁移后复测 2（2026-11-11 20:40）：解锁后 `ios-smoke --target 快捷指令` 七阶段全绿；Flash `回到主屏` 会话 `b9cb2860-76dd-4f2d-ada7-7d1adae260ce` 成功（2 steps，8.2s），action evidence `6fdde1e03a4...` 为 `adapter_acknowledged`，UVC/serial lease 均释放。4 条 skip 是未连接 Android 设备时的诊断测试。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 
