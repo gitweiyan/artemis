@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from io import BytesIO
 import json
+import re
 import subprocess
 from typing import Any
 import urllib.error
@@ -129,9 +130,24 @@ def normalize_helper_elements(elements: Any) -> list[dict[str, Any]]:
             element["accessibilityText"] = desc
         bounds = element.get("parsed_bounds")
         if isinstance(bounds, dict):
-            element["parsed_bounds"] = {
-                side: int(bounds.get(side, 0)) for side in ("left", "top", "right", "bottom")
-            }
+            parsed = {side: int(bounds.get(side, 0)) for side in ("left", "top", "right", "bottom")}
+            element["parsed_bounds"] = parsed
+            # The XML path always carries both `bounds` and `parsed_bounds`; JSON-only
+            # helper dumps must not be a different element shape downstream.
+            if not element.get("bounds"):
+                element["bounds"] = (
+                    f"[{parsed['left']},{parsed['top']}][{parsed['right']},{parsed['bottom']}]"
+                )
+        elif isinstance(element.get("bounds"), str):
+            match = re.match(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", element["bounds"])
+            if match and "parsed_bounds" not in element:
+                left, top, right, bottom = (int(part) for part in match.groups())
+                element["parsed_bounds"] = {
+                    "left": left,
+                    "top": top,
+                    "right": right,
+                    "bottom": bottom,
+                }
         element.pop("children", None)
         normalized.append(element)
     return normalized

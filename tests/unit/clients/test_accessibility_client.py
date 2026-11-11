@@ -282,8 +282,40 @@ def test_screen_data_falls_back_to_normalized_json_without_xml(client):
             "focused": "false",
             "visible-to-user": "true",
             "parsed_bounds": {"left": 1, "top": 2, "right": 3, "bottom": 4},
+            "bounds": "[1,2][3,4]",
         }
     ]
+
+
+def test_json_helper_elements_match_the_uiautomator_xml_shape():
+    """The backend must not change the element schema downstream.
+
+    The helper's JSON fallback is normalized to the same ``bounds`` /
+    ``parsed_bounds`` / ``accessibilityText`` fields the XML parser emits, so
+    Explorer and actuators see one contract regardless of backend.
+    """
+    normalized = normalize_helper_elements(
+        [
+            {
+                "text": "OK",
+                "resource-id": "app:id/ok",
+                "content-desc": "Confirm",
+                "class": "android.widget.Button",
+                "package": "app",
+                "clickable": True,
+                "enabled": True,
+                "focused": False,
+                "visible-to-user": True,
+                "parsed_bounds": {"left": 10, "top": 20, "right": 110, "bottom": 70},
+            }
+        ]
+    )[0]
+    parsed = next(
+        element for element in parse_hierarchy_xml_to_elements(XML) if element.get("text") == "OK"
+    )
+
+    for key in ("bounds", "parsed_bounds", "accessibilityText", "clickable", "visible-to-user"):
+        assert normalized[key] == parsed[key], key
 
 
 def test_empty_hierarchy_is_an_error_not_a_blank_screen(client):

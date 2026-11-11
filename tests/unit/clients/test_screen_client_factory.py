@@ -18,7 +18,10 @@ from artemis.clients.screen_client_factory import (
     resolve_backend,
 )
 from artemis.config.constants import ENV_ARTEMIS_HIERARCHY_BACKEND
-from third_party.mobile_use.clients.ui_automator_client import UIAutomatorClient
+from third_party.mobile_use.clients.ui_automator_client import (
+    UIAutomatorClient,
+    UIAutomatorScreenData,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -112,6 +115,35 @@ def test_call_failure_falls_back_then_retries_helper_after_window(composite):
     clock["now"] = 31.0
     assert client.get_hierarchy() == "<from-helper/>"
     assert client.active_backend == "helper"
+
+
+def test_fallback_client_preserves_the_screen_data_shape_from_either_backend(composite):
+    client, helper, u2, _, _ = composite
+    helper_data = UIAutomatorScreenData(
+        base64="helper",
+        hierarchy_xml="<hierarchy/>",
+        elements=[{"text": "Settings", "bounds": "[0,0][10,10]"}],
+        width=1080,
+        height=2400,
+    )
+    u2_data = UIAutomatorScreenData(
+        base64="u2",
+        hierarchy_xml="<hierarchy/>",
+        elements=[{"text": "Settings", "bounds": "[0,0][10,10]"}],
+        width=1080,
+        height=2400,
+    )
+    helper.get_screen_data.return_value = helper_data
+    u2.get_screen_data.return_value = u2_data
+
+    first = client.get_screen_data()
+    assert first == helper_data
+    assert client.active_backend == "helper"
+
+    helper.get_screen_data.side_effect = RuntimeError("helper down")
+    second = client.get_screen_data()
+    assert second == u2_data
+    assert client.active_backend == "uiautomator"
 
 
 def test_uiautomator_failure_propagates(composite):
