@@ -35,7 +35,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - Action receipt 真机（2026-11-11 21:02）：Flash `回到主屏` 会话 `6f0175e5-d187-4720-b252-4cce4971d840` 成功，但 action evidence 为 `device_ack=adapter_acknowledged`、`action_state=adapter_acknowledged`、`goal_verified=false`；任务成功与动作验证明确分离。
 - Goal verification 真机（2026-11-11 21:07）：Pro `回到主屏` 会话 `b9e51024-0377-481e-a3c3-298350a01aca` 完成，Checker 3/3，`run_outcome.goal_verified=true`；同一会话 action evidence 仍是 `adapter_acknowledged`，证明 goal 验证只由最终 Checker 写入。
 - Effect evidence 真机（2026-11-11 21:10）：Flash `回到主屏` 会话 `38ece0b8-7f4a-4da4-ae5e-4750246588a5` 的 HOME 动作在 screen changed 后记录 `action_state=observed_effect`、`goal_verified=false`；动作效果与目标验证仍分离。
-- R3.4 iOS 验收（2026-11-11 21:38–21:41）：smoke 全绿；Flash `fc2976c3...`、Pro `d1744245...`（`goal_verified=true`）完成；取消任务 `19d39e17...` 以 cancelled 结束并释放 UVC/serial lease。Android 未连接，断连场景未执行；详见 `R3_ACCEPTANCE_REPORT.md`。
+- R3.4 双平台验收（2026-11-11 21:38–21:45）：iOS smoke/Flash/Pro/cancel/lease 全绿；Android Flash `ad0ef70a...`、Pro `4f06fa3c...`（`goal_verified=true`）、cancel `318bf58c...`、helper forward lease 释放均通过。Android helper 不可用，观察走 UIAutomator2；断连场景未执行。详见 `R3_ACCEPTANCE_REPORT.md`。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 

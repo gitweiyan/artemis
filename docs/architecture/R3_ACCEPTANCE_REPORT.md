@@ -4,23 +4,23 @@
 - **Branch:** `integration/10101205-all-fixes`
 - **Code under test:** `998a0c4` (docs commits after it do not change runtime code)
 - **Host:** macOS 26.4 (Darwin arm64)
-- **Rigs:** iPhone via UVC + ESP32-S3 HID (`/dev/cu.usbmodem5B140947461`)
-- **Android:** not connected during this run (`adb devices` was empty)
+- **Rigs:** iPhone via UVC + ESP32-S3 HID (`/dev/cu.usbmodem5B140947461`); Android `EUWSOBXCZLPFNJF6` (PEMM00, Android 13)
+- **Android observation backend:** UIAutomator2 (accessibility helper unavailable; warning recorded)
 
 ## Result matrix
 
 | Scenario | iOS | Android | Evidence |
 |---|---|---|---|
-| Session create / close | ✅ | ⏸ not run | smoke + Flash/Pro logs |
-| Screenshot / observation | ✅ | ⏸ not run | smoke `snapshot`; Flash/Pro traces |
-| Single action | ✅ | ⏸ not run | smoke `tap`; Flash action evidence |
-| Flash profile | ✅ | ⏸ not run | `fc2976c3-72e5-46ca-9f46-a9d9ba193b9f` |
-| Pro profile + Checker | ✅ | ⏸ not run | `d1744245-f6e6-47f3-afad-e46636f80e0f` |
-| Task cancellation | ✅ | ⏸ not run | `19d39e17-f149-40e4-b6e3-f57023f993a0` |
-| Lease release | ✅ | ⏸ not run | all three runs released UVC + serial |
-| ActionEvidence | ✅ | ⏸ not run | `trace actions` |
-| Controller bypass | ◐ no fallback observed | ⏸ not run | logs contain no `UnifiedMobileController` construction |
-| Device disconnect | ⏸ not performed | ⏸ not run | no safe disconnect fixture |
+| Session create / close | ✅ | ✅ | iOS smoke/Flash/Pro; Android Flash/Pro logs |
+| Screenshot / observation | ✅ | ✅ | iOS smoke; Android UIAutomator2 (`UI hierarchy source: UIAutomator2`) |
+| Single action | ✅ | ✅ | iOS smoke tap; Android Flash HOME / Pro actions |
+| Flash profile | ✅ | ✅ | `fc2976c3...`; `ad0ef70a...` |
+| Pro profile + Checker | ✅ | ✅ | `d1744245...`; `4f06fa3c...` |
+| Task cancellation | ✅ | ✅ | `19d39e17...`; `318bf58c...` |
+| Lease release | ✅ | ✅ | iOS UVC/serial; Android helper forward lease |
+| ActionEvidence | ✅ | ✅ | `trace actions` |
+| Controller bypass | ◐ no fallback observed | ◐ UIAutomator2 path observed | logs contain no `UnifiedMobileController` construction |
+| Device disconnect | ⏸ not performed | ⏸ not performed | no safe disconnect fixture |
 
 ## Evidence
 
@@ -64,12 +64,29 @@ Resource lease released: serial:...
 The archived trace is
 `traces/19d39e17-f149-40e4-b6e3-f57023f993a0_FAIL_2026-11-11T21-41-09`.
 
-### 5. Action evidence
+### 5. Android
+
+Flash session `ad0ef70a-c860-4ebb-b492-2db1fcab093f` completed; trace
+`traces/web_1794404588_ad0ef70a_PASS_2026-11-11T21-43-09`; action evidence
+`6ed7bf5...` is `observed_effect`.
+
+Pro session `4f06fa3c-305f-4360-ba95-1e819d399728` completed; trace
+`traces/web_1794404624_4f06fa3c_PASS_2026-11-11T21-43-45`;
+`run_outcome.json` has `task_status=completed`, `goal_verified=true`, and the
+helper forward lease was acquired/released. The accessibility helper was
+unavailable, so observation used UIAutomator2 (`UI hierarchy source:
+UIAutomator2`); this is a recorded warning, not a silent fallback.
+
+Cancellation session `318bf58c-512f-4987-b4fb-2c7f9a0ea68c` ended `cancelled`
+(12.3s) after an external cancel request; no action evidence was emitted because
+no action had executed yet.
+
+### 6. Action evidence
 
 `uv run artemis trace actions --session <id> --json` returned action records with:
 
 ```text
-device_id=ios-uvc
+device_id=ios-uvc | EUWSOBXCZLPFNJF6
 device_ack=adapter_acknowledged
 action_state=adapter_acknowledged | observed_effect
 goal_verified=false
@@ -88,18 +105,18 @@ ruff format --check .: 16 files would be reformatted (pre-existing)
 
 ## Gaps
 
-1. **Android is not verified** in this run: no device was attached. The same
-   Session/Flash/Pro/cancel matrix must be repeated on `EUWSOBXCZLPFNJF6` or the
-   current Android target.
-2. **Device disconnect** was not exercised; cancellation and normal close are
-   covered, but unplug/replug and adapter-failure recovery still need a dedicated
-   fault-injection run.
-3. **Controller bypass** is supported by log absence and unit/architecture tests,
+1. **Device disconnect** was not exercised on either platform; cancellation and
+   normal close are covered, but unplug/replug and adapter-failure recovery still
+   need a dedicated fault-injection run.
+2. **Controller bypass** is supported by log absence and unit/architecture tests,
    not by a deliberate controller-failure experiment.
+3. Android observation used UIAutomator2 because the accessibility helper was
+   unavailable; the helper-enabled path remains unverified on this device.
 4. `quality_ratchet` is green against an explicit debt checkpoint; it does not mean
    the 774 broad handlers were removed.
 
 ## Exit decision
 
-R3.1–R3.3 runtime code paths are exercised on iOS. R3.4 remains **partial** until
-Android and disconnect scenarios are run and the same evidence is recorded.
+R3.1–R3.3 runtime code paths are exercised on iOS and Android. R3.4 remains
+**partial** until the disconnect scenario and the helper-enabled Android path are
+verified.
