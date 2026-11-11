@@ -1,5 +1,36 @@
 # 测试与质量门禁基线（2026-11-09）
 
+## 2026-11-11 当前基线（最新）
+
+> 审计对象：`integration/10101205-all-fixes` @ `96f2e85`
+> 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
+> 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
+
+| 门禁 | 结果 |
+|---|---|
+| `uv run pytest tests/unit -q` | **14 failed, 3804 passed, 5 skipped**, 76 warnings, 148.61s |
+| `uv run ruff check` | All checks passed |
+| `uv run ruff format --check .` | **14 files would be reformatted**（既有文件；非新增） |
+| `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=20 |
+| 真实设备 | iOS smoke/Flash/Pro、Android Flash 已通过；详见 `POST_MIGRATION_ARCHITECTURE_AUDIT.md` |
+
+### 当前失败清单
+
+- `tests/unit/agents/test_explorer.py`：9 条，MagicMock provenance 与 `llm/router.py` provider 白名单不匹配（既有）；
+- `tests/unit/agents/test_video_analyzer.py`：3 条，同类 provider mock 问题（既有）；
+- `tests/unit/admin_console/test_model_service.py`：2 条，本地未提交 `config/artemis.jsonc` 的 provider=openai 引起；
+- 共 14 条，无本轮新增失败。
+
+### 真实设备证据
+
+- iOS：`ios-smoke` 四段 + LocateAnything（`source=locate-anything`）通过；Flash/Pro 任务完成；ActionEvidence/Telemetry 已产生；
+- Android：`EUWSOBXCZLPFNJF6` Flash 任务完成，ActionEvidence 可查询；
+- UVC identity：当前仍为 `CONFIG_HINT`（采集卡无可用 USB serial/topology），不得写成稳定 USB identity。
+
+> 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
+
+---
+
 > 审计对象：`integration/10101205-all-fixes` @ `a82d58e`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区状态：`config/artemis.jsonc` 存在**未提交修改**（provider 改为 `openai`），本页单独标注其影响
