@@ -307,6 +307,35 @@ def test_flash_action_evidence_never_promotes_an_ack_to_verified():
     )
 
 
+def test_pointer_precheck_receipt_requires_evidence_not_just_a_sink():
+    from types import SimpleNamespace
+
+    from artemis.agents.flash.runner import FlashRunner
+
+    precondition = SimpleNamespace(pointer_precheck="delegated")
+    success = SimpleNamespace(status="success")
+
+    verified = FlashRunner._pointer_precheck_receipt(
+        precondition, success, {"action_metrics": {"error_px": 0.0}}
+    )
+    assert verified["state"] == "verified"
+    assert verified["error_px"] == 0.0
+
+    failed = FlashRunner._pointer_precheck_receipt(
+        precondition, SimpleNamespace(status="error"), {"action_metrics": {}}
+    )
+    assert failed["state"] == "failed"
+
+    unknown = FlashRunner._pointer_precheck_receipt(precondition, success, {})
+    assert unknown["state"] == "delegated"  # ACK without alignment metrics is not verified
+    assert (
+        FlashRunner._pointer_precheck_receipt(
+            SimpleNamespace(pointer_precheck="not_required"), success, {}
+        )
+        is None
+    )
+
+
 # --- Flash burst budget is a dispatch gate, not a metadata annotation ------------
 
 

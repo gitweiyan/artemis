@@ -832,6 +832,38 @@ class FlashRunner:
             return ActionState.OBSERVED_EFFECT.value
         return ActionState.ADAPTER_ACKNOWLEDGED.value
 
+    @staticmethod
+    def _pointer_precheck_receipt(precondition, exec_result, metadata: dict) -> dict | None:
+        """Turn the delegated pointer check into a traceable result.
+
+        The precondition only proves a relative-pointer sink exists; the sink
+        performs alignment immediately before the click. Its metrics (or the
+        failure) are the actual receipt, so an ACK alone is never reported as
+        ``verified``.
+        """
+        pointer_precheck = (
+            precondition.get("pointer_precheck", "not_required")
+            if isinstance(precondition, dict)
+            else getattr(precondition, "pointer_precheck", "not_required")
+        )
+        if pointer_precheck != "delegated":
+            return None
+        metrics = metadata.get("action_metrics") or {}
+        state = "verified" if str(getattr(exec_result, "status", "")) == "success" else "failed"
+        error = metrics.get("error_px")
+        if state == "verified" and not isinstance(error, (int, float)):
+            # The sink acknowledged the action but did not report alignment.
+            # Keep the delegated state instead of turning an ACK into "verified".
+            state = "delegated"
+        if state == "verified" and isinstance(error, (int, float)) and error > 8.0:
+            state = "failed"
+        receipt = {"state": state, "delegated_to": "relative_pointer_sink"}
+        if isinstance(error, (int, float)):
+            receipt["error_px"] = float(error)
+        if "pointer_confidence" in metrics:
+            receipt["pointer_confidence"] = metrics["pointer_confidence"]
+        return receipt
+
     def _record_action_step(
         self,
         name: str,
@@ -868,6 +900,16 @@ class FlashRunner:
             metadata = getattr(exec_result, "metadata", None) or {}
             post_hash = hashlib.sha256(post_img_bytes).hexdigest() if post_img_bytes else None
             step_id = self.ctx.data_engine.current_step_id
+            pointer_receipt = self._pointer_precheck_receipt(
+                precondition=metadata.get("safety_precondition", {}),
+                exec_result=exec_result,
+                metadata=metadata,
+            )
+            # The precondition is a value object in the step record; the receipt
+            # carries the post-action result and must not overwrite it.
+            if pointer_receipt is not None:
+                metadata["pointer_precheck_receipt"] = pointer_receipt
+                action_dict["pointer_precheck_receipt"] = pointer_receipt
             if step_id is not None:
                 evidence = ActionEvidence(
                     ids=DataIds(
@@ -896,9 +938,16 @@ class FlashRunner:
                     device_ack=str(metadata.get("action_state") or "unknown"),
                     action_state=self._evidence_action_state(exec_result, metadata),
                     goal_verified=False,
-                    pre_verification=(
-                        {"target_unverified": True} if metadata.get("target_unverified") else {}
-                    ),
+                    pre_verification={
+                        **(
+                            {"target_unverified": True} if metadata.get("target_unverified") else {}
+                        ),
+                        **(
+                            {"pointer_precheck": pointer_receipt}
+                            if pointer_receipt is not None
+                            else {}
+                        ),
+                    },
                     post_verification=dict(metadata.get("post_verification") or {}),
                     latency_ms=(
                         max(0.0, (time.time() - action_started) * 1000.0)
