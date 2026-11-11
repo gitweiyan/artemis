@@ -277,6 +277,80 @@ def test_flash_runner_screenshot_pruning(mock_context):
         assert messages[2].content[1]["image_url"]["url"] == "data:image/jpeg;base64,SCREENSHOT_3"
 
 
+# --- Flash burst budget is a dispatch gate, not a metadata annotation ------------
+
+
+@pytest.mark.asyncio
+async def test_a_non_allowlisted_device_action_is_denied_before_dispatch():
+    from types import SimpleNamespace
+
+    runner = object.__new__(FlashRunner)
+    runner.executor = SimpleNamespace(action_tool_names=frozenset({"future_tap"}))
+    runner.executor.execute = AsyncMock()
+
+    state = SimpleNamespace(indexed_elements=[])
+    turn = SimpleNamespace(step_keys=[], actions=[])
+    messages: list = []
+
+    await runner._process_tool_calls(
+        [{"name": "future_tap", "args": {"target": [500, 500]}, "id": "tc-denied"}],
+        state,
+        messages,
+        "thought",
+        {},
+        b"pre",
+        ["xml"],
+        0,
+        turn,
+    )
+
+    runner.executor.execute.assert_not_awaited()
+    assert turn.actions == [
+        (
+            "future_tap",
+            "error",
+            "Flash burst policy rejected action 'future_tap' (not allowlisted); action was not dispatched.",
+        )
+    ]
+    assert messages[0].status == "error"
+    assert "not dispatched" in messages[0].content
+
+
+@pytest.mark.asyncio
+async def test_the_ninth_device_action_is_denied_even_when_it_is_allowlisted():
+    from types import SimpleNamespace
+
+    runner = object.__new__(FlashRunner)
+    runner.executor = SimpleNamespace(action_tool_names=frozenset({"manage_app"}))
+    runner._execute_and_record_action = AsyncMock(return_value=(b"pre", ["xml"], 0))
+
+    state = SimpleNamespace(indexed_elements=[])
+    turn = SimpleNamespace(step_keys=[], actions=[])
+    messages: list = []
+    calls = [
+        {"name": "manage_app", "args": {"action": "launch", "app_name": "a"}, "id": f"tc-{i}"}
+        for i in range(9)
+    ]
+
+    await runner._process_tool_calls(
+        calls,
+        state,
+        messages,
+        "thought",
+        {},
+        b"pre",
+        ["xml"],
+        0,
+        turn,
+    )
+
+    assert runner._execute_and_record_action.await_count == 8
+    assert turn.actions[-1][0] == "manage_app"
+    assert turn.actions[-1][1] == "error"
+    assert "budget exceeded" in turn.actions[-1][2]
+    assert messages[-1].status == "error"
+
+
 # --- Batch item 5: the no-op guard is wired into the action loop -------------------
 
 

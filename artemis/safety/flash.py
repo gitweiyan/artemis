@@ -64,7 +64,9 @@ def flash_action_policy(action: str, *, burst: bool = False) -> FlashActionPolic
         # Flash is latency-first: pixel verification is opt-in per action.
         requires_post_verification=name in _POST_VERIFY,
         pointer_precheck=name in {"click", "tap", "long_press"},
-        burst_allowed=name not in _SINGLE_RISK,
+        # Use the same authoritative allowlist as FlashBurstBudget; the policy
+        # and the dispatch gate must not disagree about what may enter a burst.
+        burst_allowed=name in FLASH_BURST_ACTIONS,
     )
 
 
@@ -163,9 +165,10 @@ def evaluate_flash_precondition(
 #: A Flash turn is still a bounded batch, not an unbounded model-controlled loop.
 MAX_FLASH_ACTIONS_PER_TURN = 8
 
-#: Actions that may appear more than once in a sequential Flash turn. Flash
-#: observes after each action, so this is a budgeted sequence, not Pro's unvetted
-#: fast-action burst.
+#: Actions that may appear in a budgeted sequential Flash turn. Flash observes
+#: after each action, so this is not Pro's unvetted fast-action burst. The
+#: allowlist is the single source of truth: it decides admission to a burst,
+#: while the runner separately counts and checks *every* device action.
 FLASH_BURST_ACTIONS = frozenset(
     {
         "click",

@@ -325,3 +325,64 @@ def test_close_continues_after_an_arbitrary_adapter_exception():
 
     assert events == ["perception", "leases"]
     assert session.state.value == "closed"
+
+
+def test_close_swallows_an_arbitrary_lease_exception_and_marks_closed():
+    events: list[str] = []
+
+    class ClosingSource(Source):
+        def close(self):
+            events.append("perception")
+
+    class BrokenLeases:
+        def release(self):
+            events.append("leases")
+            raise TypeError("vendor lease bug")
+
+    session = DeviceSession(
+        [ClosingSource()],
+        [],
+        geometry(),
+        leases=BrokenLeases(),
+    )
+
+    asyncio.run(session.close())
+
+    assert events == ["perception", "leases"]
+    assert session.leases is None
+    assert session.state.value == "closed"
+
+
+def test_close_finishes_cleanup_when_both_adapter_and_lease_raise():
+    events: list[str] = []
+
+    class TypeErrorSink(Sink):
+        def close(self):
+            events.append("control")
+            raise TypeError("vendor adapter bug")
+
+    class BrokenLeases:
+        def release(self):
+            events.append("leases")
+            raise TypeError("vendor lease bug")
+
+    session = DeviceSession([], [TypeErrorSink(absolute=True)], geometry(), leases=BrokenLeases())
+
+    asyncio.run(session.close())
+
+    assert events == ["control", "leases"]
+    assert session.state.value == "closed"
+
+
+def test_close_preserves_cancellation_from_a_lease_release():
+    class CancelledLeases:
+        def release(self):
+            raise asyncio.CancelledError()
+
+    session = DeviceSession([], [], geometry(), leases=CancelledLeases())
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(session.close())
+
+    assert session.leases is None
+    assert session.state.value == "closed"

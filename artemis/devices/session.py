@@ -221,7 +221,13 @@ class DeviceSession:
         if self.leases is not None:
             try:
                 self.leases.release()
-            except (OSError, RuntimeError, ValueError) as exc:
+            except asyncio.CancelledError as exc:
+                # Keep the cancellation signal, but finish the state transition
+                # and the remaining cleanup below before re-raising it.
+                cancelled = cancelled or exc
+                self._close_errors.append("leases: cancelled")
+                logger.warning("Releasing device-session leases was cancelled; closing anyway")
+            except Exception as exc:  # noqa: BLE001 - cleanup must not strand the session
                 message = f"leases: {exc}"
                 self._close_errors.append(message)
                 logger.warning(f"Releasing device-session leases failed: {exc}")

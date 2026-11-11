@@ -10,7 +10,7 @@ def test_single_pointer_actions_require_precondition_but_post_verification_is_op
     assert policy.requires_precondition is True
     assert policy.requires_post_verification is False
     assert policy.pointer_precheck is True
-    assert policy.burst_allowed is False
+    assert policy.burst_allowed is True
 
 
 def test_burst_disables_precondition_and_keeps_post_verification_opt_in():
@@ -19,7 +19,7 @@ def test_burst_disables_precondition_and_keeps_post_verification_opt_in():
     assert policy.mode is FlashMode.BURST
     assert policy.requires_precondition is False
     assert policy.requires_post_verification is False
-    assert policy.burst_allowed is False
+    assert policy.burst_allowed is True
 
 
 def test_launch_does_not_pay_for_post_verification_by_default():

@@ -89,7 +89,6 @@ from artemis.llm.structured import ParseFailure, parse_structured
 from artemis.actions.executor import McpActionExecutor
 from artemis.mcp.observation import observe
 from artemis.safety.flash import (
-    FLASH_BURST_ACTIONS,
     evaluate_flash_precondition,
     flash_action_policy,
     flash_burst_budget,
@@ -1223,13 +1222,22 @@ class FlashRunner:
             tc_id = tc.get("id") or str(uuid.uuid4())
             logger.info(f"Executing Flash tool: {name}({args})")
 
-            if name in action_names and name in FLASH_BURST_ACTIONS:
+            # Every device action consumes burst budget. The allowlist decides
+            # whether it may run, not whether it is checked: a non-allowlisted
+            # action must fail closed instead of bypassing the position limit.
+            if name in action_names:
                 burst_position += 1
                 if not burst_budget.allows(name, burst_position):
-                    message = (
-                        f"Flash burst budget exceeded at action {burst_position}"
-                        f" (max {burst_budget.max_actions}); action {name!r} was not dispatched."
-                    )
+                    if name not in burst_budget.allowed_actions:
+                        message = (
+                            f"Flash burst policy rejected action {name!r}"
+                            f" (not allowlisted); action was not dispatched."
+                        )
+                    else:
+                        message = (
+                            f"Flash burst budget exceeded at action {burst_position}"
+                            f" (max {burst_budget.max_actions}); action {name!r} was not dispatched."
+                        )
                     turn.step_keys.append(str(tc_id))
                     turn.actions.append((name, "error", message))
                     turn_replies.append(
