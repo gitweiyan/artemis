@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-12 failed, 3812 passed, 5 skipped, 76 warnings in 149.49s
+12 failed, 3813 passed, 5 skipped, 76 warnings in 149.49s
 ```
 
 Known failures:
@@ -135,6 +135,7 @@ Known failures:
 - R2 real-device (2026-11-11): iOS smoke + LocateAnything passed; Flash `回到主屏` and `打开设置` completed with 15 action records (one no_effect click was reported, task recovered); Android `EUWSOBXCZLPFNJF6` Flash completed with Session-backed observation (`3e59d67b...`).
 - P1-3 progress: Flash single-action precondition now checks frame presence, 1-based index bounds, normalized target shape, and records observation skew; pointer alignment remains the controller path. Burst policy is still declarative.
 - P1-4 progress: `LEGACY_IMPORTS` is now structured (`importer/imported/owner/exit_condition/review_after`), covers devices→reflex and graph→mcp, fails unregistered imports, stale entries and expired review phases.
+- P1-3 pointer progress (2026-11-11): Flash precondition verifies a relative-pointer sink exists when the Session requires pointer precheck and marks alignment as delegated to the sink; missing sink returns capability_unavailable. Burst behavior remains declarative.
 
 `uv run ruff check`: pass.
 `uv run ruff format --check .`: 14 files would be reformatted (all pre-existing; no new file after formatting our test).

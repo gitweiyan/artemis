@@ -72,6 +72,7 @@ class FlashPrecondition:
     incident: str | None = None
     reason: str = ""
     observation_skew_s: float | None = None
+    pointer_precheck: str = "not_required"
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -79,6 +80,7 @@ class FlashPrecondition:
             "incident": self.incident,
             "reason": self.reason,
             "observation_skew_s": self.observation_skew_s,
+            "pointer_precheck": self.pointer_precheck,
         }
 
 
@@ -128,9 +130,27 @@ def evaluate_flash_precondition(
                 False, "coordinate_space_mismatch", f"target {x},{y} is outside 0..1000"
             )
 
+    pointer_precheck = "not_required"
+    session = getattr(ctx, "device_session", None) if ctx is not None else None
+    capabilities = getattr(session, "capabilities", None) if session is not None else None
+    if getattr(capabilities, "requires_pointer_precheck", False):
+        sinks = getattr(session, "control", []) or []
+        if not any(
+            getattr(getattr(sink, "capabilities", None), "supports_relative_pointer", False)
+            for sink in sinks
+        ):
+            return FlashPrecondition(
+                False,
+                "capability_unavailable",
+                "relative pointer sink is missing; cannot satisfy pointer precheck",
+            )
+        # Alignment is performed by the relative-pointer sink immediately before
+        # the click; Flash does not duplicate that loop (latency-first).
+        pointer_precheck = "delegated"
+
     skew = None
     if ctx is not None:
         from artemis.runtime import observation_clock
 
         skew = observation_clock.skew_s(ctx)
-    return FlashPrecondition(True, observation_skew_s=skew)
+    return FlashPrecondition(True, observation_skew_s=skew, pointer_precheck=pointer_precheck)

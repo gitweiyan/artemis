@@ -82,3 +82,29 @@ def test_flash_precondition_checks_frame_target_shape_and_index():
         "click", {"target": 2}, state=state, pre_screenshot=b"frame", ctx=None
     )
     assert missing_index.incident == "target_disappeared"
+
+
+def test_flash_pointer_precheck_requires_a_relative_sink_and_delegates_alignment():
+    from types import SimpleNamespace
+    from artemis.safety.flash import evaluate_flash_precondition
+
+    class Control:
+        capabilities = SimpleNamespace(supports_relative_pointer=True)
+
+    session = SimpleNamespace(
+        capabilities=SimpleNamespace(requires_pointer_precheck=True),
+        control=[Control()],
+    )
+    ctx = SimpleNamespace(device_session=session)
+    decision = evaluate_flash_precondition(
+        "click", {"target": [500, 500]}, pre_screenshot=b"frame", ctx=ctx
+    )
+    assert decision.allowed is True
+    assert decision.pointer_precheck == "delegated"
+
+    session.control = []
+    missing = evaluate_flash_precondition(
+        "click", {"target": [500, 500]}, pre_screenshot=b"frame", ctx=ctx
+    )
+    assert missing.allowed is False
+    assert missing.incident == "capability_unavailable"
