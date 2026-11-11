@@ -330,6 +330,16 @@ def _record_action_start(ctx, step_id, action_name, action_item, parent_id, acti
         )
 
 
+def _evidence_action_state(item: dict) -> str:
+    """Raise the legacy ACK only when the post-action gate observed an effect."""
+
+    state = str(item.get("action_state") or "unknown")
+    post = item.get("post_verification") or {}
+    if state == "adapter_acknowledged" and post.get("allowed") is True and not post.get("skipped"):
+        return "observed_effect"
+    return state
+
+
 def _action_evidence(
     ctx,
     step_id,
@@ -384,6 +394,8 @@ def _action_evidence(
         capability_decision=dict(item.get("capability_decision") or {}),
         dispatch_result=dict(item.get("action_result") or {}),
         device_ack=str(item.get("action_state") or "unknown"),
+        action_state=_evidence_action_state(item),
+        goal_verified=False,
         pre_verification=dict(item.get("safety_net_evidence") or {}),
         post_verification=dict(item.get("post_verification") or {}),
         latency_ms=float(duration) * 1000.0,

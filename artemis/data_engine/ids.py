@@ -101,6 +101,10 @@ class ActionEvidence:
     capability_decision: Mapping[str, Any] = field(default_factory=dict)
     dispatch_result: Mapping[str, Any] = field(default_factory=dict)
     device_ack: str | None = None
+    #: Furthest proven action state: ack alone must never become verified.
+    action_state: str | None = None
+    #: Task-level verification owned by Checker/acceptance, not an adapter ACK.
+    goal_verified: bool = False
     pre_verification: Mapping[str, Any] = field(default_factory=dict)
     post_verification: Mapping[str, Any] = field(default_factory=dict)
     latency_ms: float | None = None
@@ -135,6 +139,8 @@ class ActionEvidence:
             "capability_decision": dict(self.capability_decision),
             "dispatch_result": dict(self.dispatch_result),
             "device_ack": self.device_ack,
+            "action_state": self.action_state,
+            "goal_verified": bool(self.goal_verified),
             "pre_verification": dict(self.pre_verification),
             "post_verification": dict(self.post_verification),
             "latency_ms": self.latency_ms,

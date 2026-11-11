@@ -277,6 +277,33 @@ def test_flash_runner_screenshot_pruning(mock_context):
         assert messages[2].content[1]["image_url"]["url"] == "data:image/jpeg;base64,SCREENSHOT_3"
 
 
+# --- Action receipt: ACK is the ceiling without observed effect -----------------
+
+
+def test_flash_action_evidence_never_promotes_an_ack_to_verified():
+    from types import SimpleNamespace
+
+    from artemis.agents.flash.runner import FlashRunner
+
+    success = SimpleNamespace(status="success")
+    assert FlashRunner._evidence_action_state(success, {}) == "adapter_acknowledged"
+    assert (
+        FlashRunner._evidence_action_state(success, {"post_verification": {"ok": True}})
+        == "observed_effect"
+    )
+    assert (
+        FlashRunner._evidence_action_state(
+            success, {"post_verification": {"ok": False, "incident": "no_effect"}}
+        )
+        == "adapter_acknowledged"
+    )
+    assert FlashRunner._evidence_action_state(SimpleNamespace(status="error"), {}) == "unknown"
+    assert (
+        FlashRunner._evidence_action_state(success, {"safety_precondition": {"allowed": False}})
+        == "rejected"
+    )
+
+
 # --- Flash burst budget is a dispatch gate, not a metadata annotation ------------
 
 

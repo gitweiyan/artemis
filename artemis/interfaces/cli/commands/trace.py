@@ -231,6 +231,7 @@ def query_actions(
     table.add_column("Device")
     table.add_column("Adapter")
     table.add_column("ACK")
+    table.add_column("State")
     table.add_column("Incident")
     table.add_column("Post verification", overflow="fold")
     for item in evidence:
@@ -241,6 +242,7 @@ def query_actions(
             str(ids.get("device_id") or "-"),
             str(item.get("adapter_id") or "-"),
             str(item.get("device_ack") or "-"),
+            str(item.get("action_state") or "-"),
             str(item.get("incident") or "none"),
             str(post.get("incident") or post.get("allowed", "n/a")),
         )

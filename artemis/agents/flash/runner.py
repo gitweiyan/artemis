@@ -809,6 +809,26 @@ class FlashRunner:
         action_dict["safety_policy"] = flash_action_policy(name).as_dict()
         return action_dict
 
+    @staticmethod
+    def _evidence_action_state(exec_result, metadata: dict) -> str:
+        """Return the furthest state this Flash action can actually prove.
+
+        An adapter ACK is the ceiling unless a post-action observation found a
+        change. Flash never writes a task-level ``verified_success`` here; the
+        model's ``report_task_status`` is a claim, not Checker evidence.
+        """
+        from artemis.core.actions import ActionState
+
+        precondition = metadata.get("safety_precondition") or {}
+        if precondition.get("allowed") is False:
+            return ActionState.REJECTED.value
+        if str(getattr(exec_result, "status", "unknown") or "unknown") != "success":
+            return ActionState.UNKNOWN.value
+        post = metadata.get("post_verification") or {}
+        if post.get("ok") is True and not post.get("skipped"):
+            return ActionState.OBSERVED_EFFECT.value
+        return ActionState.ADAPTER_ACKNOWLEDGED.value
+
     def _record_action_step(
         self,
         name: str,
@@ -871,6 +891,8 @@ class FlashRunner:
                         "message": str(getattr(exec_result, "text_summary", "") or ""),
                     },
                     device_ack=str(metadata.get("action_state") or "unknown"),
+                    action_state=self._evidence_action_state(exec_result, metadata),
+                    goal_verified=False,
                     pre_verification=(
                         {"target_unverified": True} if metadata.get("target_unverified") else {}
                     ),
