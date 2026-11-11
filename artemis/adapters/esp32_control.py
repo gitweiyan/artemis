@@ -16,7 +16,7 @@ from dataclasses import replace
 
 from artemis.adapters.firmware import FirmwareBridge, FirmwareInfo
 from artemis.adapters.serial import SerialTransport
-from artemis.reflex.control import Esp32HidControl
+from artemis.adapters.legacy_control import Esp32HidControl
 
 __all__ = ["Esp32BridgeControl"]
 

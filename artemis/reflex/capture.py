@@ -23,7 +23,7 @@ import subprocess
 import time
 from io import BytesIO
 
-from artemis.reflex.attach import AttachTimeout, attach_client
+from artemis.adapters.attach import AttachTimeout, attach_client
 from artemis.reflex.contract import Capture, CaptureError, Frame
 from artemis.adapters.uvc import (
     DEFAULT_UVC_DEVICE,

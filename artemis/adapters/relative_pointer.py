@@ -15,7 +15,7 @@ import math
 import time
 from dataclasses import dataclass, field
 
-from artemis.reflex.motion import MotionCalibration, MotionConfig, Phase, choose_phase
+from artemis.perception.motion import MotionCalibration, MotionConfig, Phase, choose_phase
 from artemis.perception.pointer_detection import (
     Pointer,
     changed,
@@ -285,7 +285,7 @@ class SessionTapController:
         #: themselves (exponential smoothing, clamped to a plausible band).
         self.adaptive_gain = bool(adaptive_gain)
         self._gain = [float(session.gain_x), float(session.gain_y)]
-        #: The phased movement policy and its per-phase gains (see artemis.reflex.motion).
+        #: The phased movement policy and its per-phase gains (see artemis.perception.motion).
         #: The calibration starts from the session's gain and is learned from observations.
         self.motion_config = motion_config or MotionConfig()
         self.motion_calibration = motion_calibration or MotionCalibration(

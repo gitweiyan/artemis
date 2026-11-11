@@ -12,7 +12,9 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
+
+from artemis.core.reflex_contract import Capture, CaptureError, Control, Frame, Gesture
 
 
 class StopReason(str, Enum):
@@ -93,57 +95,6 @@ class ReflexBudget:
             "max_move_steps": self.max_move_steps,
             "operation_timeout_s": self.operation_timeout_s,
         }
-
-
-@dataclass(frozen=True)
-class Frame:
-    """One captured screen, as the skill's perception wants it."""
-
-    #: JPEG/PNG bytes as the device produced them — never re-encoded per frame.
-    image: bytes
-    #: Device clock-free capture stamp (host monotonic seconds), for budgets.
-    captured_at: float
-    #: Monotonic seconds spent getting this frame (capture + transfer + decode).
-    capture_ms: float
-    #: Screen geometry, when the capture path knows it.
-    width: int | None = None
-    height: int | None = None
-
-
-@dataclass(frozen=True)
-class Gesture:
-    """One device interaction a skill can ask for.
-
-    Kept deliberately tiny: tap and swipe cover every mobile game and most
-    scroll-heavy flows. ``description`` is carried into the metrics so a reader
-    can see what the loop was doing without replaying the video.
-    """
-
-    kind: str  # "tap" | "swipe"
-    points: tuple[tuple[float, float], ...]
-    duration_ms: int = 120
-    description: str = ""
-
-    @staticmethod
-    def tap(x: float, y: float, *, description: str = "") -> Gesture:
-        return Gesture(kind="tap", points=((float(x), float(y)),), description=description)
-
-    @staticmethod
-    def swipe(
-        x1: float,
-        y1: float,
-        x2: float,
-        y2: float,
-        *,
-        duration_ms: int = 120,
-        description: str = "",
-    ) -> Gesture:
-        return Gesture(
-            kind="swipe",
-            points=((float(x1), float(y1)), (float(x2), float(y2))),
-            duration_ms=int(duration_ms),
-            description=description,
-        )
 
 
 @dataclass(frozen=True)
@@ -237,34 +188,6 @@ class ReflexResult:
         if self.skill_error:
             head += f" | skill error: {self.skill_error}"
         return head
-
-
-class Capture(Protocol):
-    """What the runtime needs from a frame source (device or recording)."""
-
-    def grab(self) -> Frame:
-        """Return one frame; raise :class:`CaptureError` when none is usable."""
-
-    def close(self) -> None:
-        """Release whatever the capture holds."""
-
-
-class Control(Protocol):
-    """What the runtime needs from an actuator."""
-
-    def dispatch(self, gesture: Gesture) -> float:
-        """Perform one gesture; return its latency in milliseconds."""
-
-    # Optional: release all held keys/buttons/touches. Runtime calls it on exit.
-    # Implementations without this method remain compatible (ADR-007 D9).
-
-
-class CaptureError(RuntimeError):
-    """No usable frame (device gone, decode failed, session dropped)."""
-
-    def __init__(self, message: str, *, incident: str | None = None) -> None:
-        super().__init__(message)
-        self.incident = incident
 
 
 @dataclass

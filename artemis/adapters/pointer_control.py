@@ -24,7 +24,7 @@ from __future__ import annotations
 import time
 
 from artemis.devices.geometry import ScreenGeometry
-from artemis.reflex.contract import Gesture
+from artemis.core.reflex_contract import Gesture
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)

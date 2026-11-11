@@ -61,6 +61,7 @@ def _violations(
             ),
         ),
         ("drivers", ("artemis.agents", "artemis.graph", "artemis.mcp")),
+        ("adapters", ("artemis.reflex", "artemis.agents", "artemis.graph", "artemis.mcp")),
         ("perception", ("artemis.drivers", "artemis.agents", "artemis.graph", "artemis.mcp")),
     ],
 )

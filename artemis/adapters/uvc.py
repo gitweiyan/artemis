@@ -2,7 +2,7 @@
 
 Moved out of ``artemis.reflex.capture`` in Phase 4.1 (ADR-005/006); the legacy
 module re-exports these classes so existing skill/diagnostic imports keep working.
-The classes still implement the lightweight Reflex ``Capture`` protocol.
+The classes still implement the shared ``Capture`` protocol.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import select
 import subprocess
 import time
 
-from artemis.reflex.contract import Capture, CaptureError, Frame
+from artemis.core.reflex_contract import Capture, CaptureError, Frame
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
