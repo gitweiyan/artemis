@@ -60,7 +60,6 @@ LEGACY_IMPORTS = (
         "artemis.controllers.controller_factory",
     ),
     # graph fallback observation
-    _entry("artemis/graph/perception.py", "artemis.mcp.observation"),
     # L4 builders still use legacy capture/selector and the iOS Reflex helpers
     _entry("artemis/drivers/factory.py", "artemis.orchestration.selector"),
     _entry("artemis/drivers/factory.py", "artemis.reflex.capture"),

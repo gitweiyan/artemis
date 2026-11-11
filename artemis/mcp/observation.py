@@ -26,8 +26,8 @@ import time
 
 from artemis.config import get_temp_dir
 from artemis.context import ArtemisContext
-from artemis.controllers.device_controller import ScreenDataResponse
 from artemis.mcp.action_types import ActionCode, ObserveResult
+from artemis.perception.observation import get_screen_data as _service_screen_data
 from artemis.utils.ocr_xml_fusion import fuse_ocr_with_xml
 from artemis.utils.visualization import format_minimal_list_with_elements
 from third_party.mobile_use.utils.logger import get_logger
@@ -84,58 +84,10 @@ class ControllerObservationPort:
         return await observe(self.ctx, self.controller, settle_ms, ocr_results)
 
 
-async def _session_screen_data(ctx: ArtemisContext) -> Any | None:
-    """Return raw screen data from a Session perception source, if it supports it."""
-
-    session = getattr(ctx, "device_session", None)
-    if session is None or not isinstance(getattr(session, "perception", None), (list, tuple)):
-        return None
-    # Go through the Session so FAILED/CLOSED sessions cannot bypass their state.
-    frame = await session.snapshot()
-    for source in session.perception:
-        cached = getattr(source, "_last_data", None)
-        if cached is not None:
-            return cached
-    source = session.perception[0] if session.perception else None
-    elements: list[dict] = []
-    if source is not None:
-        tree = await source.ui_tree()
-        if tree:
-            for item in tree:
-                bounds = getattr(item, "bounds", None)
-                if bounds and len(bounds) == 4:
-                    left, top, right, bottom = (int(value) for value in bounds)
-                    elements.append(
-                        {
-                            "text": getattr(item, "text", ""),
-                            "resource-id": getattr(item, "resource_id", ""),
-                            "bounds": f"[{left},{top}][{right},{bottom}]",
-                            "center": [(left + right) // 2, (top + bottom) // 2],
-                        }
-                    )
-    return ScreenDataResponse(
-        base64=base64.b64encode(frame.image).decode("ascii"),
-        elements=elements,
-        width=int(frame.width or 1080),
-        height=int(frame.height or 2400),
-        platform=str(getattr(source, "name", None) or getattr(frame, "source", None) or "unknown"),
-    )
-
-
 async def get_screen_data(ctx: ArtemisContext, controller: Any | None = None) -> Any:
-    """Prefer the Session; controller is only used when no Session exists."""
+    """Delegate to the shared screen-data service; keep the legacy name."""
 
-    session = getattr(ctx, "device_session", None)
-    has_session = session is not None and isinstance(
-        getattr(session, "perception", None), (list, tuple)
-    )
-    if has_session:
-        return await _session_screen_data(ctx)
-    if controller is None:
-        from artemis.controllers.unified_controller import UnifiedMobileController
-
-        controller = UnifiedMobileController(ctx)
-    return await controller.get_screen_data()
+    return await _service_screen_data(ctx, controller)
 
 
 async def observe(

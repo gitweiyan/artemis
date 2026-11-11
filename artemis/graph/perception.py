@@ -20,7 +20,7 @@ from pathlib import Path
 
 from artemis.context import ArtemisContext
 from artemis.data_engine.trace import trace
-from artemis.mcp.observation import get_screen_data
+from artemis.perception.observation import get_screen_data
 from artemis.graph.state import State
 from artemis.runtime import observation_clock
 from artemis.graph.visibility import strict_state
