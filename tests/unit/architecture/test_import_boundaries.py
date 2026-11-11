@@ -86,7 +86,6 @@ def test_agents_do_not_import_platform_adapters_or_actuators():
     )
 
 
-
 from legacy_allowlist import COMPLETED_PHASES, LEGACY_IMPORTS
 
 
