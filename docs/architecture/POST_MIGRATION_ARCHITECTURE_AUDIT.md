@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `1c596de` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `998a0c4` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | Core identity/capability/session DTOs | Implemented foundation; L3 DTOs now core-owned | `core/identity.py`, `core/capabilities.py`, `core/errors.py` |
 | Registry/Profile Builder | Implemented foundation; legacy factory imports remain | `devices/registry.py`, `devices/composition.py`, `drivers/factory.py` |
-| Android action path | Uses Driver facade → Session sink; controller facade remains | `agents/flash/runner.py`, `mcp/action_executor.py`, `drivers/android/adb_driver.py` |
+| Android action path | Uses Driver facade → Session sink; action contracts live in `actions` | `agents/flash/runner.py`, `actions/executor.py`, `drivers/android/adb_driver.py` |
 | Android observation path | Session-backed L3 service; controller fallback only when no Session | `perception/observation.py`, `mcp/observation.py` (shim) |
 | iOS UVC/HID | Session-owned; pointer/extension adapters | `devices/ios_uvc.py`, `adapters/*`, `control/ios_hid.py` |
 | Identity | Canonical descriptor/Session/evidence/lock; UVC hardware-first, explicit config hint only as fallback | `core/identity.py`, `drivers/ios/uvc_identity.py` |
@@ -29,7 +29,7 @@
 
 ```text
 FlashRunner / Validator
-  -> McpActionExecutor.execute
+  -> actions.executor.McpActionExecutor.execute
   -> ActionSession.call
   -> Actuator (AdbActuator)
   -> UnifiedMobileController
@@ -165,6 +165,7 @@ attach the mock client and exercise the intended native branch.
 - Goal verification (2026-11-11): `RunOutcome.goal_verified` is written only by the final Checker path (`verdicts_allow_release` and no unmet subgoals); plan completion and adapter ACKs never set it. Real Pro run `b9e51024-0377-481e-a3c3-298350a01aca` completed with Checker 3/3 and `run_outcome.goal_verified=true`, while its action evidence remained `adapter_acknowledged`.
 - Action-receipt effect evidence (2026-11-11): Flash carries the no-op guard's dHash verdict through `NoOpVerdict.changed`; a visible frame change raises the action to `observed_effect`, while no-op/failed actions stay at or below `adapter_acknowledged`. Real session `38ece0b8-7f4a-4da4-ae5e-4750246588a5` records `action_state=observed_effect` and `goal_verified=false` after a HOME action.
 - Flash burst risk budget (2026-11-11): high-risk actions (`click`/`tap`/`long_press`/text input) now have a separate ceiling of 2 per turn inside the 8-action burst budget; the third high-risk action is rejected before dispatch. Low-risk actions keep the 8-action budget. This is bounded admission, not the material's stricter "no click by default" policy.
+- R3.3 action boundary (2026-11-11): canonical `action_names`, `action_specs`, `action_manifest` and `ActionSession` moved from `artemis.mcp` to `artemis.actions`; the MCP paths are compatibility shims. No `artemis.agents.*` module imports `artemis.mcp` now, and the architecture guard checks the whole package. `actions/session.py` still owns the in-memory MCP transport as its application adapter.
 - Post-adapter real-device check (2026-11-11 20:40): after unlocking, `ios-smoke --target 快捷指令` passed all seven stages again (7 capability records). Flash `回到主屏` completed in session `b9cb2860-76dd-4f2d-ada7-7d1adae260ce` (2 steps, 8.2s), action evidence `6fdde1e03a4...` (`ios-uvc`/`press_key`/`adapter_acknowledged`), and both UVC/serial leases were released. Trace: `traces/b9cb2860-76dd-4f2d-ada7-7d1adae260ce_PASS_2026-11-11T20-40-01`.
 - Post-observation-boundary real-device attempt (2026-11-11 19:15): `ios-smoke` failed at `snapshot` with `frame health='black'` (`uvc_no_signal`) before any pointer work; no post-migration real-device claim is made.
 - Post-migration real-device rerun (2026-11-11 20:28): after reconnecting the rig, `ios-smoke --target 快捷指令` passed all seven stages (7 capability records). Flash `回到主屏` completed in session `39fd9ed9-5857-48e2-9597-52afacc382a6` (2 steps, 9.1s); action evidence `3d85695e55f...` records `ios-uvc` / `press_key` / `adapter_acknowledged`; both UVC and serial leases were released. Trace: `traces/39fd9ed9-5857-48e2-9597-52afacc382a6_PASS_2026-11-11T20-28-47`. UVC identity remains `CONFIG_HINT` (no serial/topology exposed).

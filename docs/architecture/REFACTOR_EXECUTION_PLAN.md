@@ -431,6 +431,7 @@ Application Service / Agent Tool
 - [x] `UnifiedMobileController` 保留录像、日志、旧 API 等尚未迁移的能力，但其设备动作调用逐渐代理到 `DeviceSession`（Controller 动作 → Driver facade → Session Sink；无需重复 override；端到端测试证明 `tap_at` 到达 Session）。
 - [x] 将 `mcp/observation.py` 从强依赖 `UnifiedMobileController.get_screen_data()` 改为依赖统一 Observation/Application Service，同时保留旧输出 DTO（`ObservationPort`/`ControllerObservationPort`；模块不再 import 具体 controller 类；Session-backed Port 留 Phase 4）。
 - [x] 将 `mcp/action_executor.py` 的参数解析、目标解析、动作策略与底层 Actuator 拆开；Agent Tool DSL 保持兼容，底层 dispatch 通过 Control/Action Port（Actuator 选择集中到 `mcp/actuators/factory.py`；具体 ADB 实现文件迁移留 Phase 4/9）。
+- [x] 将 Action Names/Specs/Manifest/Session 契约从 `mcp/` 迁到 `actions/`，MCP 保留兼容 shim；Agent 不再 import `artemis.mcp.*`。
 - [x] 审核 `mcp/actuators/adb.py`：ADB 实现属于 L4，不应由通用 Action Executor 直接选择或构造（Executor 只调用 factory；ADB 文件仍在 mcp 包内，迁移属 Phase 4/9）。
 - [ ] 将 `ArtemisContext` 中 Device Client、Controller、Driver、Trace、Task State 的职责逐渐拆到专门对象；暂不一次性重写 Context。**3e 仅完成 deprecation 标记（`_active_driver`/`_mobile_controller`/Controller/Tool driver 注入）；对象拆分留 Phase 4/9。**
 - [x] 所有旧公开 import/CLI/MCP/SDK 参数保留 Facade；调用方清零后另开 PR 删除（当前所有 Facade 保留，删除动作留 Phase 9-A）。
