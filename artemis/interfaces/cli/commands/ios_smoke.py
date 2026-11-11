@@ -29,6 +29,15 @@ from rich.console import Console
 import typer
 
 from artemis._version import get_version
+from artemis.actions.ios_rig import (
+    IOSUvcHidDriver,
+    IosConfigError,
+    IosRuntimeConfig,
+    UvcCapture,
+    record_smoke_evidence,
+    resolve_uvc_identity,
+    run_smoke,
+)
 from artemis.core.capability_registry import CapabilityRegistry
 from artemis.data_engine.capability_evidence import (
     SqliteCapabilityEvidenceStore,
@@ -40,13 +49,7 @@ from artemis.devices.descriptors import (
     device_alias,
 )
 from artemis.devices.ios_uvc import build_ios_uvc_session
-from artemis.drivers.ios.uvc_identity import resolve_uvc_identity
-from artemis.drivers.ios.config import IosConfigError, IosRuntimeConfig
-from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
-from artemis.drivers.ios.evidence import record_smoke_evidence
-from artemis.drivers.ios.smoke import run_smoke
 from artemis.perception.ocr_engine import default_ocr_engine
-from artemis.reflex.capture import UvcCapture
 from artemis.adapters.esp32_control import Esp32BridgeControl
 from artemis.runtime.host_identity import host_id as resolve_host_id
 from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError, leases_enabled

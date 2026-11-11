@@ -26,11 +26,17 @@ from typing import Annotated
 
 from artemis.config import settings
 from artemis.devices.descriptors import host_resource_ids
-from artemis.reflex import registry
-from artemis.reflex.capture import default_capture
-from artemis.reflex.control import AdbInputControl, Esp32HidControl, HelperControl, esp32_port
-from artemis.reflex.contract import ReflexBudget
-from artemis.reflex.runtime import DEFAULT_FPS_CAP, ReflexRuntime
+from artemis.actions.reflex_service import (
+    DEFAULT_FPS_CAP,
+    AdbInputControl,
+    Esp32HidControl,
+    HelperControl,
+    ReflexBudget,
+    ReflexRuntime,
+    default_capture,
+    esp32_port,
+    registry,
+)
 from artemis.runtime.host_identity import host_id as resolve_host_id
 from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError, leases_enabled
 from rich.console import Console

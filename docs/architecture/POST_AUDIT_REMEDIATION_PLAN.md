@@ -238,6 +238,7 @@ Tests:
  Action executor moved to `artemis.actions.executor`; 34 entries remain.
  Video analyzer moved behind `devices.video`; 33 entries remain.
  iOS Reflex helpers moved behind L3/L4 adapters; 27 entries remain (17 CLI, 10 L3 DTO).
+ CLI moved behind action facades; 10 L3 DTO entries remain.
 
 > Stage 4b (2026-11-11): Flash refuses a point action with no pre-action frame (`stale_frame`) and keeps pixel `verify_effect` opt-in via `verify_after`; Flash stays latency-first and does not pay automatic post-verification on every launch. Policy declaration remains in every action record.
 > P1-3 (2026-11-11): Flash precondition now validates the pre-action frame, 1-based index bounds, normalized target shape and records observation skew; pointer alignment remains in the controller. Burst enforcement and a true pointer gate still follow.

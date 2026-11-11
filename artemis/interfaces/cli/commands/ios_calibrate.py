@@ -27,16 +27,20 @@ from typing import Annotated
 from rich.console import Console
 import typer
 
+from artemis.actions.ios_rig import (
+    Esp32HidControl,
+    IOSUvcHidDriver,
+    IosConfigError,
+    IosRuntimeConfig,
+    UvcCapture,
+    UvcStream,
+    calibrate_pointer,
+    resolve_uvc_identity,
+)
 from artemis.devices.descriptors import build_ios_descriptor
 from artemis.devices.descriptors import device_alias
-from artemis.drivers.ios.uvc_identity import resolve_uvc_identity
 from artemis.devices.ios_uvc import build_ios_uvc_session
-from artemis.drivers.ios.calibration import calibrate_pointer
-from artemis.drivers.ios.config import IosConfigError, IosRuntimeConfig
-from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
 from artemis.perception.ocr_engine import default_ocr_engine
-from artemis.reflex.capture import UvcCapture, UvcStream
-from artemis.reflex.control import Esp32HidControl
 from artemis.runtime.host_identity import host_id as resolve_host_id
 from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError, leases_enabled
 from third_party.mobile_use.utils.logger import get_logger

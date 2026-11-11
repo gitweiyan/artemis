@@ -146,6 +146,7 @@ Known failures:
 - Relative-pointer relocation: all 3815 passing unit tests remain green; an iOS smoke retry was blocked by the phone locking (suspended=1/mouse=0/keyboard=0) before pointer work.
 - Post-cleanup real-device check: iOS Flash `回到主屏` (`e04f13f8...`) and Android Flash (`8f06e756...`) completed after the L4 composition change.
 - Post-observation-boundary real-device check (2026-11-11): iOS Flash `回到主屏` (`635ef881...`) and Android Flash (`7f6f9bb1...`) completed after the extraction.
+- P1-4 cleanup 9 (2026-11-11): CLI commands now import `actions.ios_rig`/`actions.reflex_service` facades; all 17 interface→drivers/reflex allowlist entries are removed. Only 10 L3→devices DTO entries remain.
 - Pro observation check (2026-11-11): after unlocking the iPhone, iOS Pro `回到主屏` completed (`8d362f08...`), including Checker final screen capture through the new observation service.
 - P1-3 pointer progress (2026-11-11): Flash precondition verifies a relative-pointer sink exists when the Session requires pointer precheck and marks alignment as delegated to the sink; missing sink returns capability_unavailable. Burst behavior remains declarative.
 - P1-3 burst progress (2026-11-11): Flash turns are capped at 8 device actions with an explicit action allowlist; over-budget actions return an error ToolMessage without dispatch. Alignment remains delegated to the relative-pointer sink.

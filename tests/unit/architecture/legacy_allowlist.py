@@ -50,30 +50,6 @@ LEGACY_IMPORTS = (
     # graph fallback observation
     # L4 builders still use legacy capture/selector and the iOS Reflex helpers
     # Device profile still imports Reflex pointer/locator internals
-    # CLI entry points construct platform/reflex implementations
-    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.drivers.ios.calibration"),
-    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.drivers.ios.config"),
-    _entry(
-        "artemis/interfaces/cli/commands/ios_calibrate.py",
-        "artemis.drivers.ios.ios_uvc_hid_driver",
-    ),
-    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.drivers.ios.uvc_identity"),
-    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.reflex.capture"),
-    _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.reflex.control"),
-    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.drivers.ios.config"),
-    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.drivers.ios.evidence"),
-    _entry(
-        "artemis/interfaces/cli/commands/ios_smoke.py",
-        "artemis.drivers.ios.ios_uvc_hid_driver",
-    ),
-    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.drivers.ios.smoke"),
-    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.drivers.ios.uvc_identity"),
-    _entry("artemis/interfaces/cli/commands/ios_smoke.py", "artemis.reflex.capture"),
-    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex"),
-    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex.capture"),
-    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex.contract"),
-    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex.control"),
-    _entry("artemis/interfaces/cli/commands/reflex.py", "artemis.reflex.runtime"),
     # L3 source/sink code imports compatibility capability/session DTOs
     _entry("artemis/perception/app_automation.py", "artemis.devices.capabilities", "Phase 5"),
     _entry("artemis/perception/base.py", "artemis.devices.capabilities", "Phase 5"),
