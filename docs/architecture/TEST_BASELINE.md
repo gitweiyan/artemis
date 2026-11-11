@@ -25,6 +25,7 @@
 - iOS：`ios-smoke` 四段 + LocateAnything（`source=locate-anything`）通过；Flash/Pro 任务完成；ActionEvidence/Telemetry 已产生；
 - Android：`EUWSOBXCZLPFNJF6` Flash 任务完成，ActionEvidence 可查询；
 - UVC identity：当前仍为 `CONFIG_HINT`（采集卡无可用 USB serial/topology），不得写成稳定 USB identity。
+- P0 解锁后复测（2026-11-11 19:06）：`ios-smoke --target 快捷指令` 通过全部阶段；Flash `回到主屏` 会话 `41b6d9a8-47e9-4fee-a8f8-288133e69e46` 成功（2 steps），UVC/serial lease 均已释放。该次只验证单动作 Flash 与 Session close，未触发多动作 Burst 拒绝路径。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 

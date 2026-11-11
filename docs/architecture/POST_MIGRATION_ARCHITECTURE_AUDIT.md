@@ -153,6 +153,8 @@ Known failures:
 - P1-1 Session close fix (2026-11-11): arbitrary ordinary lease-release exceptions and a lease `CancelledError` no longer strand the Session in `CLOSING`; cleanup reaches `CLOSED` and cancellation is re-raised only afterwards (`dbbfed5`).
 - UVC identity decision (2026-11-11): resolver is hardware-first (USB Serial → Port Path → explicit hint → device-name hint); explicit hints cannot mask hardware, and strict mode rejects hints (`abb494d`).
 - Current allowlist: 10 L3→devices DTO entries; CLI/drivers/devices reflex entries are gone. Adapters still import Reflex contract/motion/control and are not covered by the current matrix.
+- P0 real-device check (2026-11-11 19:06): with the phone unlocked, `ios-smoke --target 快捷指令` passed connect/snapshot/frame_fit/pointer_motion/locate/pointer_precheck/tap (7 capability records). Flash `回到主屏` completed in session `41b6d9a8-47e9-4fee-a8f8-288133e69e46` (2 steps, success) and released both UVC and serial leases; trace `traces/41b6d9a8-47e9-4fee-a8f8-288133e69e46_PASS_2026-11-11T19-07-41`.
+- P0 real-device scope: this validates the Session close path exercised by Flash and the one-action path, not a multi-action burst rejection; the burst gate remains unit-tested.
 
 `uv run ruff check`: pass.
 `uv run ruff format --check .`: 16 files would be reformatted (pre-existing baseline; not part of this fix).
