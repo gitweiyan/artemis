@@ -81,7 +81,6 @@ from artemis.config import (
     load_agent_config,
 )
 from artemis.context import ArtemisContext
-from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.data_engine.ids import ActionEvidence, ArtifactRef, DataIds
 from artemis.data_engine.trace import trace
 from artemis.graph.perception import _check_injected_instruction_file
@@ -172,10 +171,12 @@ class FlashRunner:
             self.transcript_cfg = MemoryTranscriptConfig()
             self.chunking_cfg = None
 
-        self.controller = UnifiedMobileController(ctx)
+        # The executor's actuator owns the legacy controller; Flash keeps the
+        # attribute only as a compatibility seam for observation tests.
         # ``agent_name="flash"`` makes ask_explorer follow ``explorer.flash_mode``
         # (the Flash profile knob) instead of the Pro profile's tier.
-        self.executor = McpActionExecutor(ctx, self.controller, agent_name="flash")
+        self.executor = McpActionExecutor(ctx, agent_name="flash")
+        self.controller = self.executor.controller
         # Batch item 5: Flash has no Operator similarity component. The guard
         # folds the driver's incident / crop_change and the pre/post dHash into
         # one cross-turn counter; run() turns its verdict into an ephemeral tail
