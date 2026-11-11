@@ -49,16 +49,7 @@ LEGACY_IMPORTS = (
     # agents → controller compatibility facade
     # graph fallback observation
     # L4 builders still use legacy capture/selector and the iOS Reflex helpers
-    _entry("artemis/drivers/ios/extension.py", "artemis.reflex.ios_apps"),
-    _entry("artemis/drivers/ios/extension.py", "artemis.reflex.pinyin"),
-    _entry("artemis/drivers/ios/ios_uvc_hid_driver.py", "artemis.reflex.ios_apps"),
-    _entry(
-        "artemis/drivers/ios/ios_uvc_hid_driver.py",
-        "artemis.reflex.pointer_control",
-    ),
     # Device profile still imports Reflex pointer/locator internals
-    _entry("artemis/devices/ios_uvc.py", "artemis.reflex.locate_anything"),
-    _entry("artemis/devices/ios_uvc.py", "artemis.reflex.mouse"),
     # CLI entry points construct platform/reflex implementations
     _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.drivers.ios.calibration"),
     _entry("artemis/interfaces/cli/commands/ios_calibrate.py", "artemis.drivers.ios.config"),

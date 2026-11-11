@@ -18,7 +18,7 @@ import time
 
 from artemis.reflex.attach import AttachTimeout, attach_client
 from artemis.reflex.contract import Control, Gesture
-from artemis.reflex.pinyin import to_ascii_input
+from artemis.text.pinyin import to_ascii_input
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)

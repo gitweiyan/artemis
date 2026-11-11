@@ -153,7 +153,7 @@ def test_the_ios_session_trusts_only_the_blue_ring(monkeypatch):
 
 
 def test_the_locate_anything_service_is_the_first_pointer_locator(monkeypatch):
-    from artemis.reflex.locate_anything import LocateAnythingDetector
+    from artemis.perception.locate_anything import LocateAnythingDetector
     from artemis.reflex.vision import BluePointerDetector
 
     monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7861")
@@ -165,7 +165,7 @@ def test_the_locate_anything_service_is_the_first_pointer_locator(monkeypatch):
 
 def test_the_locate_service_is_the_first_target_locator(monkeypatch):
     from artemis.perception.base import Target
-    from artemis.reflex.locate_anything import LocateAnythingDetector
+    from artemis.perception.locate_anything import LocateAnythingDetector
 
     monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7861")
     monkeypatch.setattr(LocateAnythingDetector, "locate", lambda self, image, prompt: (0.5, 0.5))
@@ -185,7 +185,7 @@ def test_building_a_session_warms_the_locator_in_the_background(monkeypatch):
     monkeypatch.setenv("ARTEMIS_IOS_LOCATE_URL", "http://127.0.0.1:7861")
     warmed = []
     monkeypatch.setattr(
-        "artemis.reflex.locate_anything.warm_up_locate_anything",
+        "artemis.perception.locate_anything.warm_up_locate_anything",
         lambda url, **kwargs: warmed.append(url),
     )
 

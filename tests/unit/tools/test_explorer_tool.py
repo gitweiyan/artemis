@@ -705,7 +705,7 @@ def test_locate_with_locate_anything_returns_the_service_point(tmp_path, monkeyp
         prompts.append(json.loads(request.data)["prompt"])
         return _Response()
 
-    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("artemis.perception.locate_anything.urllib.request.urlopen", fake_urlopen)
 
     point = locate_with_locate_anything(state, "关闭天天免单弹框的X", url="http://127.0.0.1:7861")
 

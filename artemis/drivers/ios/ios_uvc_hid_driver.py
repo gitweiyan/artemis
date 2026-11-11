@@ -17,7 +17,7 @@ from artemis.perception.incidents import (
     incident_for_error,
     incident_for_health,
 )
-from artemis.reflex.ios_apps import IOSAppLauncher, AppLaunchResult
+from artemis.drivers.ios.apps import IOSAppLauncher, AppLaunchResult
 from artemis.perception.pointer_detection import CompositePointerDetector
 from artemis.safety.pointer import check_in_box
 from third_party.mobile_use.utils.logger import get_logger
@@ -220,7 +220,7 @@ class IOSUvcHidDriver(BaseDeviceDriver):
         verified pointer path the agent uses, so a skill can run on a phone without a
         digitizer.
         """
-        from artemis.reflex.pointer_control import PointerControl
+        from artemis.adapters.pointer_control import PointerControl
 
         sink = self._relative_sink()
         return PointerControl(sink.controller, session=sink.session, geometry=self.session.geometry)

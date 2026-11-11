@@ -11,10 +11,10 @@ from artemis.control.ios_hid import IOSControlSink
 from artemis.devices.geometry import ScreenGeometry
 from artemis.devices.session import DeviceSession
 from artemis.drivers.ios.extension import IOSTargetAdjuster, build_ios_extension
-from artemis.reflex.mouse import PointerSession, SessionTapController
+from artemis.adapters.relative_pointer import PointerSession, SessionTapController
 from artemis.perception.base import Target
 from artemis.perception.uvc import UvcSource
-from artemis.reflex.locate_anything import (
+from artemis.perception.locate_anything import (
     DEFAULT_LOCATE_URL,
     LocateAnythingDetector,
 )
@@ -84,7 +84,7 @@ def build_ios_uvc_session(
             # 25.5 s here). Pay it now, in the background, instead of inside the first
             # click's 10 s budget — a cold timeout used to disable target resolution for
             # the rest of the run (2026-11-06 15:58).
-            from artemis.reflex.locate_anything import warm_up_locate_anything
+            from artemis.perception.locate_anything import warm_up_locate_anything
 
             warm_up_locate_anything(locate_url)
         detector = CompositePointerDetector(detectors)

@@ -142,6 +142,8 @@ Known failures:
 - P1-4 cleanup 5 (2026-11-11): Validator tool declarations dropped the controller type import; factory/crop now import UVC from `adapters.uvc`; factory composition uses L4 `devices.composition`. Allowlist count is 35.
 - P1-4 cleanup 6 (2026-11-11): `McpActionExecutor` moved to `artemis.actions.executor`; the MCP path is a compatibility shim and Flash no longer imports `mcp.action_executor`. Allowlist count is 34.
 - P1-4 cleanup 7 (2026-11-11): video analyzer imports the L4 `devices.video` boundary instead of `controllers.controller_factory`. Allowlist count is 33.
+- P1-4 cleanup 8 (2026-11-11): pinyin/ios_apps/locate_anything/pointer_control/mouse moved to text/drivers/perception/adapters with legacy shims; iOS device/driver imports no longer reach into reflex. Allowlist count is 27.
+- Relative-pointer relocation: all 3815 passing unit tests remain green; an iOS smoke retry was blocked by the phone locking (suspended=1/mouse=0/keyboard=0) before pointer work.
 - Post-cleanup real-device check: iOS Flash `回到主屏` (`e04f13f8...`) and Android Flash (`8f06e756...`) completed after the L4 composition change.
 - Post-observation-boundary real-device check (2026-11-11): iOS Flash `回到主屏` (`635ef881...`) and Android Flash (`7f6f9bb1...`) completed after the extraction.
 - Pro observation check (2026-11-11): after unlocking the iPhone, iOS Pro `回到主屏` completed (`8d362f08...`), including Checker final screen capture through the new observation service.

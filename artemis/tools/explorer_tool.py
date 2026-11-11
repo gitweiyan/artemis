@@ -273,7 +273,7 @@ def locate_with_locate_anything(
     This is the fast first attempt for ``ask_explorer`` on iOS; the LLM Explorer is
     still the fallback when the service is off, down or finds nothing.
     """
-    from artemis.reflex.locate_anything import DEFAULT_LOCATE_URL, LocateAnythingDetector
+    from artemis.perception.locate_anything import DEFAULT_LOCATE_URL, LocateAnythingDetector
 
     raw = url if url is not None else os.environ.get("ARTEMIS_IOS_LOCATE_URL", DEFAULT_LOCATE_URL)
     raw = (raw or "").strip()

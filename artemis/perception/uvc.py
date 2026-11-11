@@ -149,7 +149,7 @@ class UvcSource:
                 point = None
         elif self.locate_url:
             if self._locate_client is None:
-                from artemis.reflex.locate_anything import LocateAnythingDetector
+                from artemis.perception.locate_anything import LocateAnythingDetector
 
                 self._locate_client = LocateAnythingDetector(self.locate_url)
             point = await asyncio.to_thread(self._locate_client.locate, frame.image, target.label)

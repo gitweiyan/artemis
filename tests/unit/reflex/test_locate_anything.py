@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from artemis.reflex.locate_anything import LocateAnythingDetector
+from artemis.perception.locate_anything import LocateAnythingDetector
 from artemis.reflex.vision import Pointer
 
 
@@ -31,7 +31,7 @@ def test_the_service_point_is_turned_into_a_pointer(monkeypatch):
         calls.append(json.loads(request.data))
         return _Response({"point_norm": [244, 39]})
 
-    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("artemis.perception.locate_anything.urllib.request.urlopen", fake_urlopen)
     detector = LocateAnythingDetector("http://127.0.0.1:7861")
 
     pointer = detector.detect(b"\x89PNG\r\n\x1a\n" + b"x" * 10)
@@ -51,7 +51,7 @@ def test_a_jpeg_frame_is_sent_with_the_jpeg_mime(monkeypatch):
         calls.append(json.loads(request.data))
         return _Response({"point_norm": [1, 2]})
 
-    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("artemis.perception.locate_anything.urllib.request.urlopen", fake_urlopen)
 
     LocateAnythingDetector().detect(b"\xff\xd8\xff" + b"x" * 10)
 
@@ -65,7 +65,7 @@ def test_a_transport_failure_returns_none_and_the_next_attempts_are_skipped(monk
         calls.append(1)
         raise OSError("connection refused")
 
-    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", failing_urlopen)
+    monkeypatch.setattr("artemis.perception.locate_anything.urllib.request.urlopen", failing_urlopen)
     detector = LocateAnythingDetector(cooldown_s=60.0)
 
     assert detector.detect(b"png") is None
@@ -87,7 +87,7 @@ def test_a_warm_up_primes_the_service_with_a_budget_of_its_own(monkeypatch):
         calls.append((json.loads(request.data), timeout))
         return _Response({"point_norm": [500, 500]})
 
-    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("artemis.perception.locate_anything.urllib.request.urlopen", fake_urlopen)
     detector = LocateAnythingDetector("http://127.0.0.1:7861", timeout_s=10.0)
 
     assert detector.warm_up() is True
@@ -102,7 +102,7 @@ def test_a_failed_warm_up_is_swallowed_not_counted(monkeypatch):
     def boom(request, timeout=None):
         raise OSError("connection refused")
 
-    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", boom)
+    monkeypatch.setattr("artemis.perception.locate_anything.urllib.request.urlopen", boom)
     detector = LocateAnythingDetector("http://127.0.0.1:7861")
 
     assert detector.warm_up() is False
@@ -116,12 +116,12 @@ def test_repeated_failures_back_off_instead_of_disabling_the_run(monkeypatch):
     unverified model coordinates for the last 54 s of the run.
     """
     now = [1000.0]
-    monkeypatch.setattr("artemis.reflex.locate_anything.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("artemis.perception.locate_anything.time.monotonic", lambda: now[0])
 
     def boom(request, timeout=None):
         raise TimeoutError("timed out")
 
-    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", boom)
+    monkeypatch.setattr("artemis.perception.locate_anything.urllib.request.urlopen", boom)
     detector = LocateAnythingDetector(
         "http://127.0.0.1:7861", timeout_s=1.0, cooldown_s=5.0, max_cooldown_s=20.0
     )
@@ -145,6 +145,6 @@ def test_repeated_failures_back_off_instead_of_disabling_the_run(monkeypatch):
     def ok(request, timeout=None):
         return _Response({"point_norm": [10, 20]})
 
-    monkeypatch.setattr("artemis.reflex.locate_anything.urllib.request.urlopen", ok)
+    monkeypatch.setattr("artemis.perception.locate_anything.urllib.request.urlopen", ok)
     assert detector.locate(b"png", "after the backoff") == (0.01, 0.02)
     assert detector._failures == 0, "a success clears the backoff"

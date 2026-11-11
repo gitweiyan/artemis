@@ -25,8 +25,8 @@ from artemis.core.platform_extension import (
     TextInputPlan,
 )
 from artemis.perception.ios_targets import icon_above_label
-from artemis.reflex.ios_apps import IOSAppLauncher
-from artemis.reflex.pinyin import to_ascii_input
+from artemis.drivers.ios.apps import IOSAppLauncher
+from artemis.text.pinyin import to_ascii_input
 
 __all__ = [
     "IOSAppLifecycle",
