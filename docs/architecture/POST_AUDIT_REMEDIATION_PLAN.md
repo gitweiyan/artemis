@@ -133,6 +133,8 @@ Tests:
 
 > Status (2026-11-11): implemented. `build_android_profile()` returns a Session and attaches `ctx.device_session`; `AppAutomationSource.screen_data()`/`SessionObservationPort` and `get_screen_data()` prefer it; graph perception uses the Session path when present, controller only as fallback.
 
+> Real-device verification (2026-11-11): Android `EUWSOBXCZLPFNJF6` Flash `打开设置` completed; `trace actions` shows 5 actions (press_key/manage_app/swipes) with adapter ACK and no incident.
+
 ### 2.1 Session becomes the Android profile's runtime object
 
 Files: `drivers/factory.py`, `devices/app_session.py`, `devices/session.py`, `drivers/android/adb_driver.py`, tests.
@@ -170,6 +172,8 @@ Tests:
 
 > Status (2026-11-11): implemented in host-side code. `resolve_canonical_device_id`/`ctx.canonical_device_id` drives ActionEvidence and the SDK device lock; UVC identity resolver prefers USB serial, then topology port path, then explicit config hint (strict mode fails closed). Real USB probe/port-path evidence is still pending because the current capture card has no USB serial/topology record.
 > Real-device verification (2026-11-11): `ios-smoke --target 设置` passed all four stages; Flash `打开设置` produced action evidence with `device_id=ios-uvc`, task_id=session, latency ~7.1s and a matching `telemetry_spans.jsonl`; Pro `回到主屏` completed with Checker 2/2. UVC still resolves as `CONFIG_HINT` because the host USB probe exposes no serial/topology for this capture card.
+
+> LocateAnything (2026-11-11): service `http://127.0.0.1:7863` responds and warm-up primed; the later iOS smoke attempt was blocked before locate because the phone was locked and UVC returned a black frame. Unlock the phone and rerun before claiming the LocateAnything smoke path.
 
 ### 3.1 Canonical device identity
 
