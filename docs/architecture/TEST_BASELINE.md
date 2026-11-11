@@ -2,13 +2,13 @@
 
 ## 2026-11-11 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `a572304`
+> 审计对象：`integration/10101205-all-fixes` @ `5ab48e2`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3834 passed, 9 skipped**, 88 warnings, 144.29s |
+| `uv run pytest tests/unit -q` | **0 failed, 3835 passed, 9 skipped**, 88 warnings, 149.98s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=774, silent=0, type_ignore_comments=20（脚本相对 754/18 基线仍返回 1） |
@@ -34,6 +34,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - Observation freshness 真机（2026-11-11 20:57）：Flash 会话 `6dc1c787-c5a2-456b-b448-f5ba93f6dba1` 的 3 次 `click` 因 `observation is 20.6s old (max 5.0s for click)` 被 `stale_frame` 拒绝，未派发；任务随后被既有 No-Op Guard 以 failed 结束，不能记作成功。
 - Action receipt 真机（2026-11-11 21:02）：Flash `回到主屏` 会话 `6f0175e5-d187-4720-b252-4cce4971d840` 成功，但 action evidence 为 `device_ack=adapter_acknowledged`、`action_state=adapter_acknowledged`、`goal_verified=false`；任务成功与动作验证明确分离。
 - Goal verification 真机（2026-11-11 21:07）：Pro `回到主屏` 会话 `b9e51024-0377-481e-a3c3-298350a01aca` 完成，Checker 3/3，`run_outcome.goal_verified=true`；同一会话 action evidence 仍是 `adapter_acknowledged`，证明 goal 验证只由最终 Checker 写入。
+- Effect evidence 真机（2026-11-11 21:10）：Flash `回到主屏` 会话 `38ece0b8-7f4a-4da4-ae5e-4750246588a5` 的 HOME 动作在 screen changed 后记录 `action_state=observed_effect`、`goal_verified=false`；动作效果与目标验证仍分离。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 

@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `a572304` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `5ab48e2` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3834 passed, 9 skipped, 88 warnings in 144.29s
+0 failed, 3835 passed, 9 skipped, 88 warnings in 149.98s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -163,6 +163,7 @@ attach the mock client and exercise the intended native branch.
 - Action receipt slice (2026-11-11): `ActionEvidence` now serializes `action_state` and `goal_verified` alongside `device_ack`; Flash can reach `adapter_acknowledged` or `observed_effect` but never writes task-level verification, and Validator only raises ACK to `observed_effect` when its post-action gate saw an effect. `trace actions` shows State separately.
 - Action receipt real-device check (2026-11-11 21:02): Flash `回到主屏` session `6f0175e5-d187-4720-b252-4cce4971d840` completed successfully; action evidence reports `device_ack=adapter_acknowledged`, `action_state=adapter_acknowledged`, `goal_verified=false`. The task success claim therefore does not masquerade as action verification.
 - Goal verification (2026-11-11): `RunOutcome.goal_verified` is written only by the final Checker path (`verdicts_allow_release` and no unmet subgoals); plan completion and adapter ACKs never set it. Real Pro run `b9e51024-0377-481e-a3c3-298350a01aca` completed with Checker 3/3 and `run_outcome.goal_verified=true`, while its action evidence remained `adapter_acknowledged`.
+- Action-receipt effect evidence (2026-11-11): Flash carries the no-op guard's dHash verdict through `NoOpVerdict.changed`; a visible frame change raises the action to `observed_effect`, while no-op/failed actions stay at or below `adapter_acknowledged`. Real session `38ece0b8-7f4a-4da4-ae5e-4750246588a5` records `action_state=observed_effect` and `goal_verified=false` after a HOME action.
 - Post-adapter real-device check (2026-11-11 20:40): after unlocking, `ios-smoke --target 快捷指令` passed all seven stages again (7 capability records). Flash `回到主屏` completed in session `b9cb2860-76dd-4f2d-ada7-7d1adae260ce` (2 steps, 8.2s), action evidence `6fdde1e03a4...` (`ios-uvc`/`press_key`/`adapter_acknowledged`), and both UVC/serial leases were released. Trace: `traces/b9cb2860-76dd-4f2d-ada7-7d1adae260ce_PASS_2026-11-11T20-40-01`.
 - Post-observation-boundary real-device attempt (2026-11-11 19:15): `ios-smoke` failed at `snapshot` with `frame health='black'` (`uvc_no_signal`) before any pointer work; no post-migration real-device claim is made.
 - Post-migration real-device rerun (2026-11-11 20:28): after reconnecting the rig, `ios-smoke --target 快捷指令` passed all seven stages (7 capability records). Flash `回到主屏` completed in session `39fd9ed9-5857-48e2-9597-52afacc382a6` (2 steps, 9.1s); action evidence `3d85695e55f...` records `ios-uvc` / `press_key` / `adapter_acknowledged`; both UVC and serial leases were released. Trace: `traces/39fd9ed9-5857-48e2-9597-52afacc382a6_PASS_2026-11-11T20-28-47`. UVC identity remains `CONFIG_HINT` (no serial/topology exposed).
