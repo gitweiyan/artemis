@@ -232,6 +232,7 @@ Tests:
 > Stage 4b (2026-11-11): Flash refuses a point action with no pre-action frame (`stale_frame`) and keeps pixel `verify_effect` opt-in via `verify_after`; Flash stays latency-first and does not pay automatic post-verification on every launch. Policy declaration remains in every action record.
 
 > Stage 4b real-device (2026-11-11): iOS Flash `打开设置` produced manage_app action evidence with `post_verification.ok=true`; a middle `click` without a pre-action frame was correctly refused as `stale_frame` and did not block the eventual task. Android Flash on `EUWSOBXCZLPFNJF6` completed with action evidence.
+> Efficiency follow-up (2026-11-11): after making pixel verification opt-in, iOS Flash `回到主屏` completed successfully with the LocateAnything service enabled; no automatic post-verification latency was added.
 
 ### 4.1 Import Boundary Matrix with legacy allowlist
 
