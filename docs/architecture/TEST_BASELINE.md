@@ -2,13 +2,13 @@
 
 ## 2026-11-11 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `09e595f`
+> 审计对象：`integration/10101205-all-fixes` @ `f1aa129`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **12 failed, 3819 passed, 9 skipped**, 76 warnings, 146.38s |
+| `uv run pytest tests/unit -q` | **0 failed, 3831 passed, 9 skipped**, 88 warnings, 142.02s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=774, silent=0, type_ignore_comments=20（脚本相对 754/18 基线仍返回 1） |
@@ -16,9 +16,10 @@
 
 ### 当前失败清单
 
-- `tests/unit/agents/test_explorer.py`：9 条，MagicMock provenance 与 `llm/router.py` provider 白名单不匹配（既有）；
-- `tests/unit/agents/test_video_analyzer.py`：3 条，同类 provider mock 问题（既有）；
-- 共 12 条，无本轮新增失败；Admin Console 显示测试已改为不依赖开发者本地 `config/artemis.jsonc`。
+无。原 12 条 Explorer/VideoAnalyzer 失败是测试夹具问题：测试 mock 了
+`genai.Client`，但没有把 client 挂到 `ctx._genai_client`，于是 fallback 到
+universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock client，
+走预期的 native Gemini 分支。
 
 ### 真实设备证据
 
