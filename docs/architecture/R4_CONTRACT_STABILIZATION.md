@@ -18,6 +18,15 @@
 | `ActionState` / `ActionReceipt` | `core/actions.py` | action semantics tests |
 | `Observation` service | `perception/observation.py` | observation/session tests |
 
+## Public contract freeze
+
+`tests/unit/contracts/test_public_contract_freeze.py` pins the public DTO fields and
+closed enums: `ActionResult`, `ActionReceipt`, `ActionState`, `ActionEvidence`,
+`DataIds`, `ArtifactRef`, `Frame`, `Target`, `TextBox`, `UIElement`, `ScreenData`,
+`ObservationEvidence`, `CapabilitySet`, `CapabilityId`, plus the required
+`PerceptionSource` / `ControlSink` methods. Adding or reordering a public field is
+now a deliberate contract change with a test diff, not an incidental refactor.
+
 ## Adapter contract suite
 
 `tests/unit/contracts/test_adapter_contracts.py` exercises actual adapter classes, not
