@@ -132,6 +132,7 @@ Known failures:
 - 3 `tests/unit/agents/test_video_analyzer.py` — same provider mock mismatch.
 - The Admin Console display tests were made independent of the local `config/artemis.jsonc` fixture.
 - R2 progress: Session cleanup now captures arbitrary ordinary adapter exceptions via tasks; Session observation goes through `session.snapshot()` and does not fall back to the controller when a real Session exists.
+- R2 real-device (2026-11-11): iOS smoke + LocateAnything passed; Flash `回到主屏` and `打开设置` completed with 15 action records (one no_effect click was reported, task recovered); Android `EUWSOBXCZLPFNJF6` Flash completed with Session-backed observation (`3e59d67b...`).
 
 `uv run ruff check`: pass.
 `uv run ruff format --check .`: 14 files would be reformatted (all pre-existing; no new file after formatting our test).
