@@ -29,3 +29,34 @@ def test_launch_requires_post_verification_but_no_pointer_precheck():
     assert policy.requires_post_verification is True
     assert policy.pointer_precheck is False
     assert policy.burst_allowed is True
+
+
+def _png(color):
+    from io import BytesIO
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (100, 100), color).save(out, "PNG")
+    return out.getvalue()
+
+
+def test_high_value_flash_post_verification_marks_no_effect():
+    from types import SimpleNamespace
+    from artemis.agents.flash.runner import FlashRunner
+
+    runner = object.__new__(FlashRunner)
+    runner.ctx = SimpleNamespace(device=SimpleNamespace(device_width=1000, device_height=1000))
+    result = SimpleNamespace(
+        status="success",
+        text_summary="Requested launch",
+        metadata={
+            "_pre_screenshot_bytes": _png((0, 0, 0)),
+            "_post_screenshot_bytes": _png((0, 0, 0)),
+        },
+    )
+
+    FlashRunner._flash_post_verification(runner, "manage_app", {}, result)
+
+    assert result.status == "error"
+    assert result.metadata["post_verification"]["ok"] is False
+    assert result.metadata["post_verification"]["incident"] == "no_effect"

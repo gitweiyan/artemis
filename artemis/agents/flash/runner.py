@@ -70,6 +70,7 @@ from artemis.agents.validator.tool_declarations import (
     READ_NOTE_TOOL,
     REPORT_TASK_STATUS_TOOL,
     VALIDATOR_TOOLS_DECLARATION,
+    ToolExecutionResult,
     capture_screenshot_and_parse_ui,
     prune_intermediate_screenshots,
 )
@@ -629,6 +630,44 @@ class FlashRunner:
             await self.summarizer.flush()
         return final_report
 
+    def _flash_post_verification(self, name: str, args: dict, exec_result) -> None:
+        """Attach lightweight pixel evidence for high-value Flash actions."""
+
+        policy = flash_action_policy(name)
+        if not policy.requires_post_verification:
+            return
+        if name not in {"manage_app", "launch_app", "open_link"}:
+            return
+        metadata = getattr(exec_result, "metadata", None) or {}
+        pre = getattr(exec_result, "screenshot_bytes", None)
+        # The caller stores pre/post frames on the action; this helper only sees
+        # the post frame, so use the explicit fields attached by the loop.
+        pre = metadata.get("_pre_screenshot_bytes")
+        post = metadata.get("_post_screenshot_bytes")
+        if not pre or not post:
+            return
+        try:
+            from artemis.safety.pixel import verify_effect
+
+            width = int(getattr(getattr(self.ctx, "device", None), "device_width", 1080) or 1080)
+            height = int(getattr(getattr(self.ctx, "device", None), "device_height", 2400) or 2400)
+            verdict = verify_effect(pre, post, (width // 2, height // 2))
+        except (OSError, ValueError, TypeError):
+            return
+        metadata["post_verification"] = {
+            "ok": verdict.ok,
+            "incident": verdict.incident,
+            "crop_change": verdict.crop_change,
+            "frame_change": verdict.frame_change,
+        }
+        exec_result.metadata = metadata
+        if not verdict.ok:
+            exec_result.status = "error"
+            exec_result.text_summary = (
+                f"{exec_result.text_summary} Post-action verification failed:"
+                f" {verdict.incident or 'no_effect'}."
+            )
+
     async def _capture_post_screenshot(
         self, exec_result, name: str, action_names, state: State | None = None
     ):
@@ -970,14 +1009,34 @@ class FlashRunner:
         # extension tools, so extension steps are recorded like actions.
         action_names = self.executor.action_tool_names
         action_started = time.time()
+        policy = flash_action_policy(name)
         try:
-            exec_result = await self.executor.execute(
-                name, args, tc_id, state, index_elements=index_elements
-            )
+            if name in action_names and policy.requires_precondition and not pre_screenshot_bytes:
+                exec_result = ToolExecutionResult(
+                    tool_call_id=tc_id,
+                    tool_name=name,
+                    status="error",
+                    text_summary=(
+                        "Flash precondition failed: no pre-action observation;"
+                        " refusing to dispatch a blind action."
+                    ),
+                    metadata={"incident": "stale_frame"},
+                )
+            else:
+                exec_result = await self.executor.execute(
+                    name, args, tc_id, state, index_elements=index_elements
+                )
 
             post_img_bytes = await self._capture_post_screenshot(
                 exec_result, name, action_names, state
             )
+            metadata = exec_result.metadata or {}
+            metadata["_pre_screenshot_bytes"] = pre_screenshot_bytes
+            metadata["_post_screenshot_bytes"] = post_img_bytes
+            exec_result.metadata = metadata
+            self._flash_post_verification(name, args, exec_result)
+            exec_result.metadata.pop("_pre_screenshot_bytes", None)
+            exec_result.metadata.pop("_post_screenshot_bytes", None)
 
             # Batch item 5: only device actions feed the guard (helper tools such
             # as ask_explorer do not change the screen by design). The verdict is

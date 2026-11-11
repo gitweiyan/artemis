@@ -229,6 +229,8 @@ Tests:
 
 > Status (2026-11-11): architecture matrix and Flash policy metadata implemented. `LEGACY_ALLOWED` now pins every known legacy import; new violations fail. `safety/flash.py` declares single/burst pre/post-verification posture and is attached to Flash action records. Actual Flash gate enforcement and post-verification remain follow-up because they can change click/launch behavior.
 
+> Stage 4b (2026-11-11): Flash now refuses a point action with no pre-action frame (`stale_frame`) and applies lightweight `verify_effect` to high-value launch/link actions; an unchanged screen becomes `no_effect`/error with verification evidence. Policy declaration remains in every action record.
+
 ### 4.1 Import Boundary Matrix with legacy allowlist
 
 Files: `tests/unit/architecture/test_import_boundaries.py`, maybe `tests/unit/architecture/allowlist.py`.
