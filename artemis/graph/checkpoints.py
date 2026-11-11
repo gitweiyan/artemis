@@ -150,6 +150,9 @@ class RunOutcome(BaseModel):
 
     task_status: Literal["completed", "partial", "blocked"]
     tests: TestSummary
+    #: True only when the final Checker's verify criteria allow release; an
+    #: action ACK or a plan checkbox never sets this.
+    goal_verified: bool = False
 
 
 # --- Live process events --------------------------------------------------------------
@@ -1200,6 +1203,7 @@ def compute_run_outcome(
     *,
     verify_blocked: bool,
     retired: set[tuple[str, str]] | None = None,
+    goal_verified: bool = False,
 ) -> RunOutcome:
     """Assembles the machine-readable run outcome.
 
@@ -1215,7 +1219,11 @@ def compute_run_outcome(
         task_status = "completed"
     else:
         task_status = "partial"
-    return RunOutcome(task_status=task_status, tests=tests)
+    return RunOutcome(
+        task_status=task_status,
+        tests=tests,
+        goal_verified=bool(goal_verified),
+    )
 
 
 def write_run_outcome(base_dir: str | Path, outcome: RunOutcome, extra: dict | None = None) -> None:

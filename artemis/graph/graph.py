@@ -289,6 +289,7 @@ async def exit_settlement_node(state: State, ctx: ArtemisContext):
     max_attempts = int(getattr(setup, "final_check_max_attempts", 3) or 3) if setup else 3
 
     verify_blocked = False
+    goal_verified = False
     blocked_findings: list[str] = []
     if final_check_enabled(ctx):
         attempt_no = ctx.final_check_attempts + 1
@@ -393,6 +394,7 @@ async def exit_settlement_node(state: State, ctx: ArtemisContext):
                 )
 
             passed = verdicts_allow_release(report) and not report.unmet_subgoals
+            goal_verified = passed
             if not passed:
                 if user_stopped or halted or attempt_no >= max_attempts:
                     verify_blocked = True
@@ -456,6 +458,7 @@ async def exit_settlement_node(state: State, ctx: ArtemisContext):
         records,
         verify_blocked=verify_blocked,
         retired=retired if isinstance(retired, set) else None,
+        goal_verified=goal_verified,
     )
     if snapshot.all_check_items or records or verify_blocked:
         update["run_outcome"] = outcome.model_dump()

@@ -309,6 +309,7 @@ async def test_final_review_and_run_outcome_are_published(tmp_path):
     outcome = _events(ctx, "run_outcome")
     assert len(outcome) == 1
     assert outcome[0]["task_status"] == "completed"
+    assert outcome[0]["goal_verified"] is True
     assert outcome[0]["tests"]["passed"] == 1
     assert outcome[0]["tests"]["inconclusive"] == 1
     assert outcome[0]["tests"]["failed"] == 0
@@ -317,6 +318,7 @@ async def test_final_review_and_run_outcome_are_published(tmp_path):
     # Persisted mirror of the same event for the UI backfill endpoint.
     persisted = json.loads((tmp_path / "run_outcome.json").read_text(encoding="utf-8"))
     assert persisted["task_status"] == "completed"
+    assert persisted["goal_verified"] is True
     assert all(r["subgoal_text"] for r in read_ledger(tmp_path))
 
 

@@ -397,6 +397,7 @@ async def test_matrix_off_off_reports_all_unchecked(tmp_path):
     outcome = update["run_outcome"]
     assert outcome["tests"]["unchecked"] == 3
     assert outcome["tests"]["passed"] == 0
+    assert outcome["goal_verified"] is False
 
 
 @pytest.mark.asyncio
@@ -421,6 +422,7 @@ async def test_matrix_off_on_final_judges_from_state_and_history(tmp_path):
     assert outcome["tests"]["passed"] == 2
     assert outcome["tests"]["inconclusive"] == 1
     assert outcome["tests"]["failed"] == 0
+    assert outcome["goal_verified"] is True
 
 
 @pytest.mark.asyncio
