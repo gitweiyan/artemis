@@ -119,7 +119,9 @@ def test_built_extension_composes_the_ios_ports():
 def test_lifecycle_returns_failure_as_data():
     class FailingLauncher:
         def open_app(self, app, *, capture=None):
-            return SimpleNamespace(ok=False, app=app, query=app, method="spotlight", error="no_screen_change")
+            return SimpleNamespace(
+                ok=False, app=app, query=app, method="spotlight", error="no_screen_change"
+            )
 
     result = IOSAppLifecycle(FakeControl(), launcher=FailingLauncher()).launch("Settings")
 
