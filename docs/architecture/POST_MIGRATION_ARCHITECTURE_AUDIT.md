@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `3b4a3ea` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `c9cfafa` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3857 passed, 5 skipped, 88 warnings in 145.41s
+0 failed, 3858 passed, 5 skipped, 88 warnings in 144.55s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -170,6 +170,7 @@ attach the mock client and exercise the intended native branch.
 - Firmware command contract (2026-11-11): old builds that answer `ERR unknown command`/`usage:` for `amove` now surface `command_unsupported` via `FirmwareUnsupportedCommand`; the absolute pointer path returns it as a single-attempt `TapResult` instead of the generic two-attempt `absolute_unavailable` fallback. Unit coverage added.
 - R4 contract stabilization (2026-11-11): added adapter contract tests for UvcSource, AppAutomationSource, CompositePerception, CompositeControlSink, AppControlSink and HidControlSink shape; frozen interfaces and remaining macOS/TV/Android-helper gaps are recorded in `R4_CONTRACT_STABILIZATION.md`.
 - R4 public contract freeze (2026-11-11): `test_public_contract_freeze.py` pins DTO fields/enums (ActionResult, ActionReceipt, ActionEvidence, Frame, ScreenData, CapabilitySet, CapabilityId) and required PerceptionSource/ControlSink methods; contract changes now require an intentional test diff.
+- Pointer precheck receipt (2026-11-11): Flash keeps `delegated` on the precondition but records a post-action `verified`/`failed`/`delegated` receipt from sink metrics; a missing `error_px` is not promoted to verified. Receipt is stored in `ActionEvidence.pre_verification` and the action record.
 - Android observation parity (2026-11-11): helper JSON fallback now synthesizes the same `bounds` (and keeps `parsed_bounds`/`accessibilityText`) as the XML/UIAutomator parser; unit tests cover element-shape parity and fallback screen-data parity. After enabling the helper, forced-helper Flash `5eef9e4b...` and Pro `19bce48e...` used `Artemis accessibility helper v1.3.1`; stable-screen parity passed (91% recall / 95% precision). A tunnel rebuild occurred once in Pro.
 - Post-adapter real-device check (2026-11-11 20:40): after unlocking, `ios-smoke --target 快捷指令` passed all seven stages again (7 capability records). Flash `回到主屏` completed in session `b9cb2860-76dd-4f2d-ada7-7d1adae260ce` (2 steps, 8.2s), action evidence `6fdde1e03a4...` (`ios-uvc`/`press_key`/`adapter_acknowledged`), and both UVC/serial leases were released. Trace: `traces/b9cb2860-76dd-4f2d-ada7-7d1adae260ce_PASS_2026-11-11T20-40-01`.
 - Post-observation-boundary real-device attempt (2026-11-11 19:15): `ios-smoke` failed at `snapshot` with `frame health='black'` (`uvc_no_signal`) before any pointer work; no post-migration real-device claim is made.

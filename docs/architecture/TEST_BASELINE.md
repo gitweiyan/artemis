@@ -2,13 +2,13 @@
 
 ## 2026-11-11 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `3b4a3ea`
+> 审计对象：`integration/10101205-all-fixes` @ `c9cfafa`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3857 passed, 5 skipped**, 88 warnings, 145.41s |
+| `uv run pytest tests/unit -q` | **0 failed, 3858 passed, 5 skipped**, 88 warnings, 144.55s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=774, silent=0, type_ignore_comments=18（已按当前值登记 debt checkpoint；见 `QUALITY_RATCHET_DEBT.md`） |
@@ -40,6 +40,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - R4 Adapter Contract（2026-11-11）：新增 `tests/unit/contracts/test_adapter_contracts.py`，覆盖 UVC/App/Composite Source 和 App/Composite/HID Sink 的 Port 形状、DTO、能力选择与 unsupported 语义。
 - Android Observation parity（2026-11-11）：helper JSON fallback 与 XML/UIAutomator element schema 对齐（`bounds`/`parsed_bounds`/`accessibilityText`），fallback 客户端保持同一 `UIAutomatorScreenData` 形状。启用 Helper 后，强制 Helper 的 Flash `5eef9e4b...`、Pro `19bce48e...` 均成功；稳定屏幕 parity 91% recall / 95% precision。
 - R4 Public Contract Freeze（2026-11-11）：新增 `test_public_contract_freeze.py`，冻结 ActionResult/ActionReceipt/ActionEvidence/Frame/ScreenData/CapabilitySet/CapabilityId 字段与 Protocol 方法。
+- Pointer precheck receipt（2026-11-11）：Flash precondition 仍为 delegated；动作后按 sink metrics 记录 verified/failed/delegated，无 `error_px` 不升级为 verified，写入 ActionEvidence.pre_verification。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 
