@@ -752,10 +752,9 @@ async def run_checkpoint_check(
 async def _capture_final_screen(ctx: ArtemisContext) -> tuple[str | None, str]:
     """Best-effort capture of the final live screen (final entry only)."""
     try:
-        from artemis.controllers.unified_controller import UnifiedMobileController
+        from artemis.perception.observation import get_screen_data
 
-        controller = UnifiedMobileController(ctx)
-        device_data = await controller.get_screen_data()
+        device_data = await get_screen_data(ctx)
         screenshot_b64 = device_data.base64
         xml_hierarchy = device_data.elements
         width = device_data.width

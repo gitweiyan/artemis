@@ -23,7 +23,6 @@ from pydantic import BaseModel, Field
 
 from artemis.agents.ios_shortcuts import append_ios_shortcuts
 from artemis.context import ArtemisContext
-from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.data_engine.trace import CURRENT_TRACE_ID, TraceSpan, trace
 from artemis.graph.state import State
 from artemis.graph.visibility import strict_state
@@ -257,8 +256,9 @@ class PlannerNode:
         if not screenshot_b64:
             logger.info("No screenshot found in state. Taking screenshot for Initial Plan...")
             try:
-                controller = UnifiedMobileController(self.ctx)
-                screenshot_b64 = await controller.take_screenshot()
+                from artemis.perception.observation import get_screen_data
+
+                screenshot_b64 = (await get_screen_data(self.ctx)).base64
 
                 # Save to Data Engine if available to keep trace
                 if self.ctx.data_engine:

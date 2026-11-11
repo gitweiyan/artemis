@@ -47,10 +47,8 @@ def _entry(importer, imported, review_after="Phase 4", owner="Phase 3R/4"):
 
 LEGACY_IMPORTS = (
     # agents → controller compatibility facade
-    _entry("artemis/agents/checker/checker.py", "artemis.controllers.unified_controller"),
     _entry("artemis/agents/flash/runner.py", "artemis.controllers.unified_controller"),
     _entry("artemis/agents/flash/runner.py", "artemis.mcp.action_executor"),
-    _entry("artemis/agents/planner/planner.py", "artemis.controllers.unified_controller"),
     _entry(
         "artemis/agents/validator/tool_declarations.py",
         "artemis.controllers.unified_controller",
