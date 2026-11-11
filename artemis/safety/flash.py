@@ -36,6 +36,7 @@ class FlashActionPolicy:
     requires_post_verification: bool
     pointer_precheck: bool
     burst_allowed: bool
+    max_observation_age_s: float | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -45,11 +46,17 @@ class FlashActionPolicy:
             "requires_post_verification": self.requires_post_verification,
             "pointer_precheck": self.pointer_precheck,
             "burst_allowed": self.burst_allowed,
+            "max_observation_age_s": self.max_observation_age_s,
         }
 
 
 _SINGLE_RISK = frozenset({"click", "tap", "long_press", "input_text", "focus_and_input_text"})
 _POST_VERIFY = frozenset()
+
+#: A single high-risk action is planned from a frame that must still be recent.
+#: The turn's LLM call already costs seconds; 5s keeps normal Flash turns usable
+#: while refusing a frame that predates a splash/loading-screen transition.
+FLASH_MAX_OBSERVATION_AGE_S = 5.0
 
 
 def flash_action_policy(action: str, *, burst: bool = False) -> FlashActionPolicy:
@@ -67,6 +74,7 @@ def flash_action_policy(action: str, *, burst: bool = False) -> FlashActionPolic
         # Use the same authoritative allowlist as FlashBurstBudget; the policy
         # and the dispatch gate must not disagree about what may enter a burst.
         burst_allowed=name in FLASH_BURST_ACTIONS,
+        max_observation_age_s=(FLASH_MAX_OBSERVATION_AGE_S if name in _SINGLE_RISK else None),
     )
 
 
@@ -78,6 +86,7 @@ class FlashPrecondition:
     incident: str | None = None
     reason: str = ""
     observation_skew_s: float | None = None
+    max_observation_age_s: float | None = None
     pointer_precheck: str = "not_required"
 
     def as_dict(self) -> dict[str, object]:
@@ -86,6 +95,7 @@ class FlashPrecondition:
             "incident": self.incident,
             "reason": self.reason,
             "observation_skew_s": self.observation_skew_s,
+            "max_observation_age_s": self.max_observation_age_s,
             "pointer_precheck": self.pointer_precheck,
         }
 
@@ -159,7 +169,22 @@ def evaluate_flash_precondition(
         from artemis.runtime import observation_clock
 
         skew = observation_clock.skew_s(ctx)
-    return FlashPrecondition(True, observation_skew_s=skew, pointer_precheck=pointer_precheck)
+    max_age = policy.max_observation_age_s
+    if skew is not None and max_age is not None and skew > max_age:
+        return FlashPrecondition(
+            False,
+            "stale_frame",
+            f"observation is {skew:.1f}s old (max {max_age:.1f}s for {name})",
+            observation_skew_s=skew,
+            max_observation_age_s=max_age,
+            pointer_precheck=pointer_precheck,
+        )
+    return FlashPrecondition(
+        True,
+        observation_skew_s=skew,
+        max_observation_age_s=max_age,
+        pointer_precheck=pointer_precheck,
+    )
 
 
 #: A Flash turn is still a bounded batch, not an unbounded model-controlled loop.

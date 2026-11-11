@@ -88,6 +88,7 @@ from artemis.graph.state import State
 from artemis.llm.structured import ParseFailure, parse_structured
 from artemis.actions.executor import McpActionExecutor
 from artemis.perception.observation import observe
+from artemis.runtime import observation_clock
 from artemis.safety.flash import (
     evaluate_flash_precondition,
     flash_action_policy,
@@ -687,7 +688,10 @@ class FlashRunner:
         elements. Nothing is captured for non-action tools.
         """
         post_img_bytes = exec_result.screenshot_bytes
-        if post_img_bytes or name not in action_names:
+        if post_img_bytes:
+            observation_clock.stamp_capture(self.ctx)
+            return post_img_bytes
+        if name not in action_names:
             return post_img_bytes
         try:
             obs, screenshot_bytes = await observe(self.ctx, self.controller, settle_ms=0)
@@ -698,6 +702,8 @@ class FlashRunner:
             logger.warning(f"Failed to capture fallback screenshot in FlashRunner: {obs.message}")
             return post_img_bytes
         post_img_bytes = screenshot_bytes
+        if post_img_bytes:
+            observation_clock.stamp_capture(self.ctx)
         if not exec_result.ui_elements_text:
             exec_result.ui_elements_text = obs.elements_text
         if not exec_result.screenshot_path and obs.screenshot_path:
@@ -797,6 +803,9 @@ class FlashRunner:
         metrics = metadata.get("action_metrics")
         if metrics:
             action_dict["action_metrics"] = metrics
+        precondition = metadata.get("safety_precondition")
+        if precondition:
+            action_dict["safety_precondition"] = precondition
         action_dict["safety_policy"] = flash_action_policy(name).as_dict()
         return action_dict
 
@@ -1334,6 +1343,8 @@ class FlashRunner:
             self.ctx, state, self.controller, skip_settling=False
         )
         state.latest_screenshot = shot_path
+        if img_bytes:
+            observation_clock.stamp_capture(self.ctx)
         return ledger, img_bytes, xml_list
 
     @staticmethod

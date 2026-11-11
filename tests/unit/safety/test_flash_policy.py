@@ -119,3 +119,42 @@ def test_flash_burst_budget_caps_actions_and_disallows_unknown_actions():
     assert budget.allows("click", budget.max_actions) is True
     assert budget.allows("click", budget.max_actions + 1) is False
     assert budget.allows("unknown_action", 1) is False
+
+
+def test_flash_rejects_a_stale_high_risk_observation(monkeypatch):
+    from types import SimpleNamespace
+    from artemis.runtime import observation_clock
+    from artemis.safety.flash import FLASH_MAX_OBSERVATION_AGE_S, evaluate_flash_precondition
+
+    monkeypatch.setattr("artemis.runtime.observation_clock.time.monotonic", lambda: 100.0)
+    ctx = SimpleNamespace()
+    observation_clock.stamp_capture(ctx, now=100.0 - FLASH_MAX_OBSERVATION_AGE_S - 1.0)
+
+    stale = evaluate_flash_precondition(
+        "click", {"target": [500, 500]}, pre_screenshot=b"frame", ctx=ctx
+    )
+    assert stale.allowed is False
+    assert stale.incident == "stale_frame"
+    assert stale.observation_skew_s == FLASH_MAX_OBSERVATION_AGE_S + 1.0
+    assert stale.max_observation_age_s == FLASH_MAX_OBSERVATION_AGE_S
+
+    observation_clock.stamp_capture(ctx, now=100.0 - FLASH_MAX_OBSERVATION_AGE_S + 0.5)
+    fresh = evaluate_flash_precondition(
+        "click", {"target": [500, 500]}, pre_screenshot=b"frame", ctx=ctx
+    )
+    assert fresh.allowed is True
+    assert fresh.max_observation_age_s == FLASH_MAX_OBSERVATION_AGE_S
+
+
+def test_flash_does_not_apply_the_high_risk_age_cap_to_a_key_action():
+    from types import SimpleNamespace
+    from artemis.runtime import observation_clock
+    from artemis.safety.flash import evaluate_flash_precondition
+
+    ctx = SimpleNamespace()
+    observation_clock.stamp_capture(ctx, now=0.0)
+    decision = evaluate_flash_precondition(
+        "press_key", {"key": "HOME"}, pre_screenshot=b"frame", ctx=ctx
+    )
+    assert decision.allowed is True
+    assert decision.max_observation_age_s is None
