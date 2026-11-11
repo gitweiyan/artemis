@@ -5,21 +5,21 @@
 - **Code under test:** `998a0c4` (docs commits after it do not change runtime code)
 - **Host:** macOS 26.4 (Darwin arm64)
 - **Rigs:** iPhone via UVC + ESP32-S3 HID (`/dev/cu.usbmodem5B140947461`); Android `EUWSOBXCZLPFNJF6` (PEMM00, Android 13)
-- **Android observation backend:** UIAutomator2 (accessibility helper unavailable; warning recorded)
+- **Android observation backend:** Accessibility Helper v1.3.1 (protocol 3) verified in `5eef9e4b...` / `19bce48e...`; UIAutomator2 verified earlier as the fallback
 
 ## Result matrix
 
 | Scenario | iOS | Android | Evidence |
 |---|---|---|---|
 | Session create / close | ✅ | ✅ | iOS smoke/Flash/Pro; Android Flash/Pro logs |
-| Screenshot / observation | ✅ | ✅ | iOS smoke; Android UIAutomator2 (`UI hierarchy source: UIAutomator2`) |
+| Screenshot / observation | ✅ | ✅ | iOS smoke; Android Helper (`UI hierarchy source: Artemis accessibility helper`) and UIAutomator2 fallback |
 | Single action | ✅ | ✅ | iOS smoke tap; Android Flash HOME / Pro actions |
 | Flash profile | ✅ | ✅ | `fc2976c3...`; `ad0ef70a...` |
 | Pro profile + Checker | ✅ | ✅ | `d1744245...`; `4f06fa3c...` |
 | Task cancellation | ✅ | ✅ | `19d39e17...`; `318bf58c...` |
 | Lease release | ✅ | ✅ | iOS UVC/serial; Android helper forward lease |
 | ActionEvidence | ✅ | ✅ | `trace actions` |
-| Controller bypass | ◐ no fallback observed | ◐ UIAutomator2 path observed | logs contain no `UnifiedMobileController` construction |
+| Controller bypass | ◐ no fallback observed | ◐ Helper/UIAutomator2 paths observed | logs contain no `UnifiedMobileController` construction |
 | Device disconnect / reconnect | ✅ reconnect after replug; ⏸ mid-task unplug | ✅ reconnect after replug; ⏸ mid-task unplug | iOS smoke; Android Flash `9858ede3...` |
 
 ## Evidence
@@ -77,6 +77,20 @@ helper forward lease was acquired/released. The accessibility helper was
 unavailable, so observation used UIAutomator2 (`UI hierarchy source:
 UIAutomator2`); this is a recorded warning, not a silent fallback.
 
+After the Accessibility Helper was enabled, a forced-helper Flash run
+`5eef9e4b-d649-4355-b622-3b11d36081ad` completed with trace
+`traces/web_1794406583_5eef9e4b_PASS_2026-11-11T22-16-24`; logs record
+`UI hierarchy source: Artemis accessibility helper v1.3.1`. The forced-helper Pro
+run `19bce48e-27b2-4c0f-bcfe-cec64895024e` completed with `goal_verified=true`
+and trace `traces/web_1794406613_19bce48e_PASS_2026-11-11T22-16-53`; the helper
+tunnel was rebuilt once during the run, then served the hierarchy.
+
+`artemis helper parity --serial EUWSOBXCZLPFNJF6 --rounds 3` passed on the stable
+home screen (91% recall / 95% precision). A first attempt during a screen
+transition reported a foreground-package mismatch (`systemui` vs `settings`);
+that was a timing artifact of sequential backend dumps, not an element-shape
+mismatch. Parity should be run on a stable screen.
+
 Cancellation session `318bf58c-512f-4987-b4fb-2c7f9a0ea68c` ended `cancelled`
 (12.3s) after an external cancel request; no action evidence was emitted because
 no action had executed yet.
@@ -124,13 +138,14 @@ ruff format --check .: 16 files would be reformatted (pre-existing)
    adapter-failure recovery still need a dedicated fault-injection run.
 2. **Controller bypass** is supported by log absence and unit/architecture tests,
    not by a deliberate controller-failure experiment.
-3. Android observation used UIAutomator2 because the accessibility helper was
-   unavailable; the helper-enabled path remains unverified on this device.
+3. Android Helper and UIAutomator2 observation paths are both verified. A helper
+   tunnel rebuild occurred once in the Pro run; repeated instability would merit
+   a tunnel-recovery test.
 4. `quality_ratchet` is green against an explicit debt checkpoint; it does not mean
    the 774 broad handlers were removed.
 
 ## Exit decision
 
 R3.1–R3.3 runtime code paths are exercised on iOS and Android, including reconnect
-after replug. R3.4 remains **partial** until a mid-task disconnect and the
-helper-enabled Android path are verified.
+after replug and both Android observation backends. R3.4 remains **partial** only
+until a mid-task disconnect is verified.

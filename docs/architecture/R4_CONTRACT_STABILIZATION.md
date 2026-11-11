@@ -65,11 +65,11 @@ This suite deliberately uses fakes for device I/O; real-device coverage lives in
 - A macOS Adapter Contract Test is blocked by ADR-012 (Proposed); Phase 7 remains
   design-only.
 - TV/Remote semantics (D-pad, CEC, IR) are not in R4 until Phase 8.
-- The Accessibility Helper and UIAutomator2 paths now have unit parity coverage:
+- The Accessibility Helper and UIAutomator2 paths have unit parity coverage:
   helper JSON elements are normalized to the same `bounds`/`parsed_bounds`/
   `accessibilityText` shape as the XML parser, and the fallback client preserves
-  the screen-data shape. A **live helper-enabled** Android run is still missing
-  because the helper was unavailable during acceptance.
+  the screen-data shape. A live helper-enabled Android Flash/Pro run also passed
+  after the helper was enabled; see `R3_ACCEPTANCE_REPORT.md` for session IDs.
 - Physical disconnect/input-release fault injection is deferred (see R3 report).
 
 ## Exit criteria

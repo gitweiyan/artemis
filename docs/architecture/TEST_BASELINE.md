@@ -38,7 +38,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - R3.4 双平台验收（2026-11-11 21:38–21:49）：iOS smoke/Flash/Pro/cancel/lease 全绿；Android Flash `ad0ef70a...`、Pro `4f06fa3c...`（`goal_verified=true`）、cancel `318bf58c...`、helper forward lease 释放均通过。物理拔插后 iOS smoke 与 Android Flash `9858ede3...` 也通过；任务中拔线仍未执行。详见 `R3_ACCEPTANCE_REPORT.md`。
 - Firmware unsupported command（2026-11-11）：`FirmwareBridge` 将 `ERR unknown command`/`usage:` 映射为 `FirmwareUnsupportedCommand(incident=command_unsupported)`；absolute click 单次返回 `TapResult(command_unsupported)`，不重试、不降级。
 - R4 Adapter Contract（2026-11-11）：新增 `tests/unit/contracts/test_adapter_contracts.py`，覆盖 UVC/App/Composite Source 和 App/Composite/HID Sink 的 Port 形状、DTO、能力选择与 unsupported 语义。
-- Android Observation parity（2026-11-11）：helper JSON fallback 与 XML/UIAutomator element schema 对齐（`bounds`/`parsed_bounds`/`accessibilityText`），fallback 客户端保持同一 `UIAutomatorScreenData` 形状；live helper 路径仍未验证。
+- Android Observation parity（2026-11-11）：helper JSON fallback 与 XML/UIAutomator element schema 对齐（`bounds`/`parsed_bounds`/`accessibilityText`），fallback 客户端保持同一 `UIAutomatorScreenData` 形状。启用 Helper 后，强制 Helper 的 Flash `5eef9e4b...`、Pro `19bce48e...` 均成功；稳定屏幕 parity 91% recall / 95% precision。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 
