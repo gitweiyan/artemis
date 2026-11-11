@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `1a07857` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `09e595f` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-12 failed, 3822 passed, 5 skipped, 76 warnings in 146.49s
+12 failed, 3819 passed, 9 skipped, 76 warnings in 146.38s
 ```
 
 Known failures:
@@ -152,11 +152,13 @@ Known failures:
 - P1-3 burst progress (2026-11-11): every device action now consumes the burst budget; `FLASH_BURST_ACTIONS` is the single admission allowlist and an action outside it is rejected before dispatch. The 8-action cap remains; alignment is still delegated to the relative-pointer sink.
 - P1-1 Session close fix (2026-11-11): arbitrary ordinary lease-release exceptions and a lease `CancelledError` no longer strand the Session in `CLOSING`; cleanup reaches `CLOSED` and cancellation is re-raised only afterwards (`dbbfed5`).
 - UVC identity decision (2026-11-11): resolver is hardware-first (USB Serial → Port Path → explicit hint → device-name hint); explicit hints cannot mask hardware, and strict mode rejects hints (`abb494d`).
-- Current allowlist: **0 entries**. `CapabilitySet` and Session errors moved to `core`; `devices.capabilities` and L3 imports are shims/core-bound. Hidden debt remains: adapters still import Reflex contract/motion/control and are not covered by the current matrix.
+- Current allowlist: **0 entries**. `CapabilitySet` and Session errors moved to `core`; `devices.capabilities` and L3 imports are shims/core-bound.
+- Adapter/Reflex boundary (2026-11-11): adapters no longer import `artemis.reflex`; shared `Capture/Frame/Gesture/Control` moved to `core.reflex_contract`, motion to `perception.motion`, and helper attach/legacy control to `adapters`. The ratchet now also checks `adapters→reflex`.
 - P0 real-device check (2026-11-11 19:06): with the phone unlocked, `ios-smoke --target 快捷指令` passed connect/snapshot/frame_fit/pointer_motion/locate/pointer_precheck/tap (7 capability records). Flash `回到主屏` completed in session `41b6d9a8-47e9-4fee-a8f8-288133e69e46` (2 steps, success) and released both UVC and serial leases; trace `traces/41b6d9a8-47e9-4fee-a8f8-288133e69e46_PASS_2026-11-11T19-07-41`.
 - P0 real-device scope: this validates the Session close path exercised by Flash and the one-action path, not a multi-action burst rejection; the burst gate remains unit-tested.
 - R3.1b observation boundary (2026-11-11): the implementation moved to `perception/observation.py`; MCP is a shim, action result DTOs moved to `core`, and `ObservationEvidence` carries frame/source/geometry/health/age on `ScreenData`. MCP `observe_screen` schema is unchanged. Unit: 3822 passed.
 - P1-4 completion (2026-11-11): `CapabilitySet` moved to `core.capabilities`, `DeviceSessionError`/`SessionClosedError` to `core.errors`; `devices.capabilities` remains a shim and all 10 L3→devices entries are removed. Allowlist is empty, not a claim that every import boundary (especially adapters→reflex) is clean.
+- Adapter boundary completion (2026-11-11): `adapters→reflex` is now zero and guarded by the architecture test; `reflex.control`/`attach`/`motion` remain compatibility shims. A post-move iOS smoke attempt was blocked by the locked phone (`suspended=1`); the last real smoke/Flash evidence predates this move.
 - Post-observation-boundary real-device attempt (2026-11-11 19:15): `ios-smoke` failed at `snapshot` with `frame health='black'` (`uvc_no_signal`) before any pointer work; no post-migration real-device claim is made.
 - Post-migration real-device rerun (2026-11-11 20:28): after reconnecting the rig, `ios-smoke --target 快捷指令` passed all seven stages (7 capability records). Flash `回到主屏` completed in session `39fd9ed9-5857-48e2-9597-52afacc382a6` (2 steps, 9.1s); action evidence `3d85695e55f...` records `ios-uvc` / `press_key` / `adapter_acknowledged`; both UVC and serial leases were released. Trace: `traces/39fd9ed9-5857-48e2-9597-52afacc382a6_PASS_2026-11-11T20-28-47`. UVC identity remains `CONFIG_HINT` (no serial/topology exposed).
 

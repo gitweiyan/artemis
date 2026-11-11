@@ -648,9 +648,9 @@ L1 Access
 | `artemis/controllers/` | Unified Mobile Controller/旧兼容入口 | 迁移期 Facade；职责逐渐变薄 |
 | `artemis/clients/` | Accessibility/Screen Client | 按真实调用归 L4 Observation/Transport Adapter |
 | `artemis/mcp/` | Observation、Action Execution、Action Server、ADB Actuator | 混合目录；逐文件拆到 L1/L3/L4，不按目录整体归层 |
-| `artemis/reflex/contract.py`、`runtime.py`、`registry.py` | 确定性 Skill Contract/Runtime/Registry | 保留为 Reflex 执行通道 |
-| `artemis/reflex/capture.py`、`control.py` | 当前底层 Capture/Control 实现 | I/O 逐步迁到 L4 Adapters，保留 Reflex Bridge |
-| `artemis/reflex/mouse.py`、`vision.py`、`motion.py` | Pointer 追踪/运动/视觉工具 | 算法按职责拆到 L3 Perception/Safety 或 L4 Pointer Adapter；不要整体搬迁 |
+| `artemis/reflex/contract.py`、`runtime.py`、`registry.py` | 确定性 Skill Contract/Runtime/Registry；共享 Capture/Frame/Gesture/Control DTO 已移到 `core/reflex_contract.py` | 保留为 Reflex 执行通道 |
+| `artemis/reflex/capture.py`、`control.py` | 兼容 shim；底层 I/O 已迁到 L4 Adapters（`adapters/uvc.py`、`legacy_control.py`、`attach.py`） | 保留 Reflex Bridge，不在 shim 中新增实现 |
+| `artemis/reflex/mouse.py`、`vision.py`、`motion.py` | 兼容 shim；pointer 在 `adapters/relative_pointer.py`，motion 在 `perception/motion.py` | 算法按职责拆到 L3 Perception/Safety 或 L4 Pointer Adapter；不要整体搬迁 |
 | `artemis/reflex/ios_apps.py`、`artemis/agents/ios_shortcuts.py` | iOS 平台 Launcher/Guidance | L4 iOS Extension，通过 Profile 注入 |
 | `artemis/perception/ios_targets.py` | SpringBoard 图标/标签几何规则 | iOS Profile Grounding Extension |
 | `firmware/esp32-hid/` | ESP32 TinyUSB 固件 | L4 Firmware Artifact/Bridge；独立构建测试 |
