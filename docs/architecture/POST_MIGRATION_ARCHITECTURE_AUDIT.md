@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-12 failed, 3810 passed, 5 skipped, 76 warnings in 149.49s
+12 failed, 3812 passed, 5 skipped, 76 warnings in 149.49s
 ```
 
 Known failures:
