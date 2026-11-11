@@ -95,7 +95,20 @@ Cancellation session `318bf58c-512f-4987-b4fb-2c7f9a0ea68c` ended `cancelled`
 (12.3s) after an external cancel request; no action evidence was emitted because
 no action had executed yet.
 
-### 6. Replug / reconnect
+### 6. Pointer precheck receipt
+
+iOS Flash session `895239e6-89f2-4a83-b4c7-4a3f67d910e8` exercised two clicks
+against the same relative-pointer rig:
+
+- first click: `pre_verification.pointer_precheck.state=failed`;
+  incident `screen_changed`; the sink did not acknowledge alignment;
+- second click: `pre_verification.pointer_precheck.state=verified`;
+  `error_px=0.0`.
+
+The task itself ended `failed` on the No-Op Guard, so this is evidence for the
+receipt contract, not a successful task claim.
+
+### 7. Replug / reconnect
 
 After physically replugging both rigs (2026-11-11 21:49):
 
@@ -109,7 +122,7 @@ After physically replugging both rigs (2026-11-11 21:49):
 This verifies **reconnect after replug**, not a mid-task unplug. The in-flight
 disconnect path still needs a deliberate fault-injection run.
 
-### 7. Action evidence
+### 8. Action evidence
 
 `uv run artemis trace actions --session <id> --json` returned action records with:
 
