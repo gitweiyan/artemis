@@ -212,6 +212,16 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
     operator's transcript prompt path (``agent.memory.transcript.enabled``).
     Lives beside ``step_memory``; the State never carries message payloads."""
 
+    @property
+    def canonical_device_id(self) -> str:
+        """ADR-003 canonical target ID (descriptor wins; alias before it)."""
+
+        from artemis.core.identity import resolve_canonical_device_id
+
+        descriptor = self.device_descriptor
+        default = str(getattr(getattr(self, "device", None), "device_id", "") or "default")
+        return resolve_canonical_device_id(default, descriptor=descriptor)
+
     def get_telemetry_tracer(self):
         """Lazily create the session telemetry tracer beside the Data Engine."""
 

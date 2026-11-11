@@ -155,11 +155,28 @@ def build_ios_profile(runtime, request, registry):
 
     host = resolve_host_id()
     session_id = os.environ.get("ARTEMIS_SESSION_ID") or None
+    from artemis.core.identity import IdentitySource
+    from artemis.drivers.ios.uvc_identity import resolve_uvc_identity
+
+    explicit_uvc_key = (os.environ.get("ARTEMIS_UVC_IDENTITY_KEY") or "").strip() or None
+    strict_uvc = (os.environ.get("ARTEMIS_UVC_IDENTITY_STRICT") or "").strip() == "1"
+    uvc_identity = resolve_uvc_identity(
+        ios.uvc_device,
+        explicit_key=explicit_uvc_key,
+        strict=strict_uvc,
+    )
+    if uvc_identity.source is IdentitySource.CONFIG_HINT:
+        logger.warning(
+            f"UVC identity for {ios.uvc_device!r} is a config hint ({uvc_identity.key});"
+            " set a stable USB serial/port path before exclusive multi-rig use"
+        )
     descriptor = descriptor_from_device_context(
         ctx,
         host_id=host,
         alias=device_alias(),
         ios_config=ios,
+        uvc_hardware_key=uvc_identity.key,
+        uvc_identity_source=uvc_identity.source,
     )
     descriptor = replace(
         descriptor,

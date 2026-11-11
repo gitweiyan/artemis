@@ -65,6 +65,7 @@ from artemis.controllers.controller_factory import get_controller
 from artemis.data_engine.trace import DataEngineCallbackHandler
 from artemis.graph.graph import get_graph
 from artemis.graph.state import State
+from artemis.core.identity import resolve_canonical_device_id
 from artemis.runtime import DeviceExecutionLock
 from artemis.runtime.trace_export import (
     export_step_media,
@@ -487,20 +488,23 @@ class AgentBase:
                 or getattr(task, "id", None)
                 or getattr(getattr(task, "request", None), "task_name", None)
             )
-            active_owner = DeviceExecutionLock.get_active_owner(self._device_context.device_id)
+            canonical_device_id = resolve_canonical_device_id(
+                str(self._device_context.device_id or "default")
+            )
+            active_owner = DeviceExecutionLock.get_active_owner(canonical_device_id)
             already_held = (
                 active_owner is not None
                 and active_owner.pid == os.getpid()
                 and (
                     (sess_id and str(active_owner.session_id) == str(sess_id))
-                    or active_owner.token == self._device_context.device_id
+                    or active_owner.token == canonical_device_id
                 )
             )
             device_lock = (
                 None
                 if already_held
                 else DeviceExecutionLock(
-                    self._device_context.device_id,
+                    canonical_device_id,
                     description=f"{request.goal[:120]}",
                     concurrency_mode=effective_mode,
                     max_concurrency=effective_max,

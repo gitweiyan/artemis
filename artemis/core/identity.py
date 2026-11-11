@@ -34,6 +34,7 @@ __all__ = [
     "make_mock_endpoint",
     "make_serial_endpoint",
     "make_uvc_endpoint",
+    "resolve_canonical_device_id",
     "resolve_device_id",
 ]
 
@@ -244,6 +245,28 @@ def resolve_device_id(default_id: str, *, alias: str | None = None) -> str:
     if alias is not None:
         return _text(alias, field_name="ARTEMIS_DEVICE_ALIAS", max_length=96)
     return _text(default_id, field_name="device_id", max_length=96)
+
+
+def resolve_canonical_device_id(
+    default_id: str,
+    *,
+    descriptor: DeviceDescriptor | None = None,
+    alias: str | None = None,
+) -> str:
+    """The one target ID used by locks, evidence and traces.
+
+    A built descriptor is authoritative. Before it exists (early lock
+    acquisition), use the explicit alias or the physical default without
+    mutating the transport serial.
+    """
+
+    if descriptor is not None:
+        return _text(descriptor.device_id, field_name="canonical_device_id", max_length=96)
+    if alias is None:
+        import os
+
+        alias = os.environ.get("ARTEMIS_DEVICE_ALIAS")
+    return resolve_device_id(default_id, alias=alias)
 
 
 def make_adb_endpoint(

@@ -20,6 +20,7 @@ a real-device run in a script.
 """
 
 import asyncio
+import os
 from dataclasses import replace
 import json
 from typing import Annotated
@@ -39,6 +40,7 @@ from artemis.devices.descriptors import (
     device_alias,
 )
 from artemis.devices.ios_uvc import build_ios_uvc_session
+from artemis.drivers.ios.uvc_identity import resolve_uvc_identity
 from artemis.drivers.ios.config import IosConfigError, IosRuntimeConfig
 from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
 from artemis.drivers.ios.evidence import record_smoke_evidence
@@ -89,6 +91,11 @@ def ios_smoke_command(
     console.print(f"[dim]{config.describe()}[/dim]")
 
     host = resolve_host_id()
+    uvc_identity = resolve_uvc_identity(
+        config.uvc_device,
+        explicit_key=(os.environ.get("ARTEMIS_UVC_IDENTITY_KEY") or "").strip() or None,
+        strict=(os.environ.get("ARTEMIS_UVC_IDENTITY_STRICT") or "").strip() == "1",
+    )
     descriptor = build_ios_descriptor(
         device_id="ios-uvc",
         host_id=host,
@@ -96,6 +103,8 @@ def ios_smoke_command(
         uvc_device=config.uvc_device,
         esp32_port=config.esp32_port,
         alias=device_alias(),
+        uvc_hardware_key=uvc_identity.key,
+        uvc_identity_source=uvc_identity.source,
     )
     descriptor = replace(
         descriptor,

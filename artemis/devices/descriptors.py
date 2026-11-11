@@ -188,6 +188,7 @@ def descriptor_from_device_context(
     adb_host: str = "127.0.0.1",
     adb_port: int = 5037,
     uvc_hardware_key: str | None = None,
+    uvc_identity_source: IdentitySource | None = None,
 ) -> DeviceDescriptor:
     """Describe the target already present in ``ctx`` without touching hardware."""
 
@@ -222,6 +223,7 @@ def descriptor_from_device_context(
             esp32_port=ios_config.esp32_port,
             alias=alias,
             uvc_hardware_key=uvc_hardware_key,
+            uvc_identity_source=uvc_identity_source,
         )
     if platform == PlatformFamily.MOCK.value:
         return build_mock_descriptor(

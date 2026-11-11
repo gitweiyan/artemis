@@ -796,7 +796,9 @@ class FlashRunner:
                         task_id=str(getattr(self.ctx.data_engine, "current_task_id", "") or "")
                         or None,
                         device_id=str(
-                            getattr(getattr(self.ctx, "device", None), "device_id", "") or ""
+                            getattr(self.ctx, "canonical_device_id", None)
+                            or getattr(getattr(self.ctx, "device", None), "device_id", "")
+                            or ""
                         )
                         or None,
                         step_id=str(step_id),

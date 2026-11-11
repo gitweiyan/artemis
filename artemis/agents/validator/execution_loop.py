@@ -357,7 +357,12 @@ def _action_evidence(
         )
     ids = DataIds(
         session_id=str(session_id),
-        device_id=str(getattr(getattr(ctx, "device", None), "device_id", "") or "") or None,
+        device_id=str(
+            getattr(ctx, "canonical_device_id", None)
+            or getattr(getattr(ctx, "device", None), "device_id", "")
+            or ""
+        )
+        or None,
         task_id=str(getattr(engine, "current_task_id", "") or "") or None,
         step_id=str(step_id) if step_id else None,
         action_id=str(item.get("action_id") or "") or None,

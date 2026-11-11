@@ -20,13 +20,16 @@ the ratio online either way; a measured starting value simply costs fewer correc
 """
 
 import asyncio
+import os
 import json
 from typing import Annotated
 
 from rich.console import Console
 import typer
 
-from artemis.devices.descriptors import build_ios_descriptor, device_alias
+from artemis.devices.descriptors import build_ios_descriptor
+from artemis.devices.descriptors import device_alias
+from artemis.drivers.ios.uvc_identity import resolve_uvc_identity
 from artemis.devices.ios_uvc import build_ios_uvc_session
 from artemis.drivers.ios.calibration import calibrate_pointer
 from artemis.drivers.ios.config import IosConfigError, IosRuntimeConfig
@@ -57,6 +60,11 @@ def ios_calibrate_command(
         raise SystemExit(2)
 
     host = resolve_host_id()
+    uvc_identity = resolve_uvc_identity(
+        config.uvc_device,
+        explicit_key=(os.environ.get("ARTEMIS_UVC_IDENTITY_KEY") or "").strip() or None,
+        strict=(os.environ.get("ARTEMIS_UVC_IDENTITY_STRICT") or "").strip() == "1",
+    )
     descriptor = build_ios_descriptor(
         device_id="ios-uvc",
         host_id=host,
@@ -64,6 +72,8 @@ def ios_calibrate_command(
         uvc_device=config.uvc_device,
         esp32_port=config.esp32_port,
         alias=device_alias(),
+        uvc_hardware_key=uvc_identity.key,
+        uvc_identity_source=uvc_identity.source,
     )
     leases = LeaseSet(host_id=host, description="ios.calibrate")
     if leases_enabled():

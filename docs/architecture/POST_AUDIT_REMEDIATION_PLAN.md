@@ -168,6 +168,8 @@ Tests:
 
 ## 6. Stage 3 — Canonical identity and UVC USB path (P0)
 
+> Status (2026-11-11): implemented in host-side code. `resolve_canonical_device_id`/`ctx.canonical_device_id` drives ActionEvidence and the SDK device lock; UVC identity resolver prefers USB serial, then topology port path, then explicit config hint (strict mode fails closed). Real USB probe/port-path evidence is still pending because the current capture card has no USB serial/topology record.
+
 ### 3.1 Canonical device identity
 
 Files: `core/identity.py`, `devices/descriptors.py`, `drivers/factory.py`, `runtime/device_lock.py`, context/bootstrap, tests.
