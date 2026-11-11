@@ -287,10 +287,7 @@ Tests:
 
 ## 8. Stage 5 — Evidence, privacy, baseline (P2)
 
-1. Sensitive content policy:
-   - Define redaction/retention for screenshots/AX/OCR in ActionEvidence/Trace.
-   - Never store credentials/passwords/tokens; artifact references + access policy.
-   - Add tests for redaction and artifacts.
+1. Sensitive content policy (documented, not implemented): see [`PRIVACY_REDACTION_RETENTION_PLAN.md`](PRIVACY_REDACTION_RETENTION_PLAN.md). Policy/redaction/retention hooks and tests remain future work; do not claim persisted secrets are already removed.
 2. Fresh audit:
    - Generate `POST_MIGRATION_ARCHITECTURE_AUDIT.md` with call-flow/import matrix.
 3. Fresh baseline:
