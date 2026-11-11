@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from artemis.mcp.action_executor import AGENT_TOOL_NAMES, McpActionExecutor
+from artemis.actions.executor import AGENT_TOOL_NAMES, McpActionExecutor
 from artemis.tools.explorer_tool import ExplorerCandidate, ExplorerOutcome
 
 
@@ -241,7 +241,7 @@ def _history_tool_double(return_value=None, side_effect=None):
 async def test_history_tool_routes_to_the_shared_tool_with_text_result():
     executor = _make_executor()
     tool = _history_tool_double(return_value="- Step 3 (T+00:30): tap btn3 -> executed")
-    with patch("artemis.mcp.action_executor.history_tool_by_name", return_value=tool) as by_name:
+    with patch("artemis.actions.executor.history_tool_by_name", return_value=tool) as by_name:
         result = await executor.execute(
             "search_history",
             {"query": "login Error timeout", "step_range": [1, 5], "unknown_arg": 1},
@@ -267,7 +267,7 @@ async def test_history_tool_forwards_multimodal_blocks():
         {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAA"}},
     ]
     tool = _history_tool_double(return_value=blocks)
-    with patch("artemis.mcp.action_executor.history_tool_by_name", return_value=tool):
+    with patch("artemis.actions.executor.history_tool_by_name", return_value=tool):
         result = await executor.execute("get_step_screenshot", {"query": "unused"}, "tc", None)
     assert result.status == "success"
     assert result.text_summary == "Screenshot of step 4 (pre-action) is attached."
@@ -278,7 +278,7 @@ async def test_history_tool_forwards_multimodal_blocks():
 async def test_history_tool_exception_is_contained():
     executor = _make_executor()
     tool = _history_tool_double(side_effect=RuntimeError("db gone"))
-    with patch("artemis.mcp.action_executor.history_tool_by_name", return_value=tool):
+    with patch("artemis.actions.executor.history_tool_by_name", return_value=tool):
         result = await executor.execute("replay_steps", {"query": "x"}, "tc", None)
     # Contained (no exception escapes) and reported structurally: the answer
     # explains the failure and the status says it is one.
