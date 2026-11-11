@@ -28,7 +28,7 @@ from artemis.graph.state import State
 async def _run_perception(ctx, payload):
     with (
         patch("artemis.graph.perception.is_ocr_configured", return_value=False),
-        patch("artemis.graph.perception.UnifiedMobileController") as controller_cls,
+        patch("artemis.controllers.unified_controller.UnifiedMobileController") as controller_cls,
         patch("artemis.graph.perception._check_injected_instruction_file", return_value=payload),
     ):
         device_data = MagicMock()

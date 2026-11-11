@@ -149,7 +149,9 @@ async def test_perception_node_runs_smoothly_without_ocr():
     """Verify perception_node runs from start to finish with pure XML when OCR is unconfigured."""
     with (
         patch("artemis.graph.perception.is_ocr_configured", return_value=False),
-        patch("artemis.graph.perception.UnifiedMobileController") as mock_controller_cls,
+        patch(
+            "artemis.controllers.unified_controller.UnifiedMobileController"
+        ) as mock_controller_cls,
     ):
         mock_controller = MagicMock()
         mock_device_data = MagicMock()

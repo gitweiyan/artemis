@@ -214,7 +214,9 @@ async def test_perception_node_async_offloading(mock_artemis_ctx, tmp_path):
     mock_screen_data.height = 2400
 
     with (
-        patch("artemis.graph.perception.UnifiedMobileController") as mock_controller_cls,
+        patch(
+            "artemis.controllers.unified_controller.UnifiedMobileController"
+        ) as mock_controller_cls,
         patch("artemis.graph.perception.perform_ocr", new_callable=AsyncMock) as mock_ocr,
         patch("artemis.graph.perception._detect_status_bar_height", return_value=0),
         patch("artemis.graph.perception._should_skip_settling", return_value=True),
