@@ -2,13 +2,13 @@
 
 ## 2026-11-11 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `40750de`
+> 审计对象：`integration/10101205-all-fixes` @ `1bac2c5`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3833 passed, 9 skipped**, 88 warnings, 143.63s |
+| `uv run pytest tests/unit -q` | **0 failed, 3834 passed, 9 skipped**, 88 warnings, 144.29s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=774, silent=0, type_ignore_comments=20（脚本相对 754/18 基线仍返回 1） |
@@ -32,6 +32,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - Adapter 迁移后复测（2026-11-11 20:38）：`ios-smoke` 在 connect 前因手机自动锁定失败（`suspended=1`），未产生新的真机证据；之前的 smoke/Flash 仍有效，但不能冒充 adapter 迁移后的结果。4 条新增 skip 是未连接 Android 设备时的诊断测试。
 - Adapter 迁移后复测 2（2026-11-11 20:40）：解锁后 `ios-smoke --target 快捷指令` 七阶段全绿；Flash `回到主屏` 会话 `b9cb2860-76dd-4f2d-ada7-7d1adae260ce` 成功（2 steps，8.2s），action evidence `6fdde1e03a4...` 为 `adapter_acknowledged`，UVC/serial lease 均释放。4 条 skip 是未连接 Android 设备时的诊断测试。
 - Observation freshness 真机（2026-11-11 20:57）：Flash 会话 `6dc1c787-c5a2-456b-b448-f5ba93f6dba1` 的 3 次 `click` 因 `observation is 20.6s old (max 5.0s for click)` 被 `stale_frame` 拒绝，未派发；任务随后被既有 No-Op Guard 以 failed 结束，不能记作成功。
+- Action receipt 真机（2026-11-11 21:02）：Flash `回到主屏` 会话 `6f0175e5-d187-4720-b252-4cce4971d840` 成功，但 action evidence 为 `device_ack=adapter_acknowledged`、`action_state=adapter_acknowledged`、`goal_verified=false`；任务成功与动作验证明确分离。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 

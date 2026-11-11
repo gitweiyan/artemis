@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `40750de` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `1bac2c5` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3833 passed, 9 skipped, 88 warnings in 143.63s
+0 failed, 3834 passed, 9 skipped, 88 warnings in 144.29s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -160,6 +160,8 @@ attach the mock client and exercise the intended native branch.
 - Adapter boundary completion (2026-11-11): `adapters→reflex` is now zero and guarded by the architecture test; `reflex.control`/`attach`/`motion` remain compatibility shims. A post-move iOS smoke attempt was blocked by the locked phone (`suspended=1`); the last real smoke/Flash evidence predates this move.
 - Test baseline cleanup (2026-11-11): the 12 existing Explorer/VideoAnalyzer failures are fixed by attaching the mocked native client; full unit is now **0 failed / 3831 passed / 9 skipped** (`f1aa129`). The quality ratchet (774 broad handlers vs its 754 baseline) remains separate debt.
 - Observation freshness real-device check (2026-11-11 20:57): Flash session `6dc1c787-c5a2-456b-b448-f5ba93f6dba1` rejected three `click` actions with `stale_frame`; evidence showed `observation is 20.6s old (max 5.0s for click)` and `safety_precondition.allowed=false`, so the actions were not dispatched. The task then stopped on the existing No-Op Guard (failed, not a false success).
+- Action receipt slice (2026-11-11): `ActionEvidence` now serializes `action_state` and `goal_verified` alongside `device_ack`; Flash can reach `adapter_acknowledged` or `observed_effect` but never writes task-level verification, and Validator only raises ACK to `observed_effect` when its post-action gate saw an effect. `trace actions` shows State separately.
+- Action receipt real-device check (2026-11-11 21:02): Flash `回到主屏` session `6f0175e5-d187-4720-b252-4cce4971d840` completed successfully; action evidence reports `device_ack=adapter_acknowledged`, `action_state=adapter_acknowledged`, `goal_verified=false`. The task success claim therefore does not masquerade as action verification.
 - Post-adapter real-device check (2026-11-11 20:40): after unlocking, `ios-smoke --target 快捷指令` passed all seven stages again (7 capability records). Flash `回到主屏` completed in session `b9cb2860-76dd-4f2d-ada7-7d1adae260ce` (2 steps, 8.2s), action evidence `6fdde1e03a4...` (`ios-uvc`/`press_key`/`adapter_acknowledged`), and both UVC/serial leases were released. Trace: `traces/b9cb2860-76dd-4f2d-ada7-7d1adae260ce_PASS_2026-11-11T20-40-01`.
 - Post-observation-boundary real-device attempt (2026-11-11 19:15): `ios-smoke` failed at `snapshot` with `frame health='black'` (`uvc_no_signal`) before any pointer work; no post-migration real-device claim is made.
 - Post-migration real-device rerun (2026-11-11 20:28): after reconnecting the rig, `ios-smoke --target 快捷指令` passed all seven stages (7 capability records). Flash `回到主屏` completed in session `39fd9ed9-5857-48e2-9597-52afacc382a6` (2 steps, 9.1s); action evidence `3d85695e55f...` records `ios-uvc` / `press_key` / `adapter_acknowledged`; both UVC and serial leases were released. Trace: `traces/39fd9ed9-5857-48e2-9597-52afacc382a6_PASS_2026-11-11T20-28-47`. UVC identity remains `CONFIG_HINT` (no serial/topology exposed).
