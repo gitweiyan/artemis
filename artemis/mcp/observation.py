@@ -34,7 +34,13 @@ from typing import Any, Protocol, runtime_checkable
 
 logger = get_logger(__name__)
 
-__all__ = ["ControllerObservationPort", "ObservationPort", "observe"]
+__all__ = [
+    "ControllerObservationPort",
+    "ObservationPort",
+    "SessionObservationPort",
+    "get_screen_data",
+    "observe",
+]
 
 
 @runtime_checkable
@@ -44,6 +50,19 @@ class ObservationPort(Protocol):
     async def observe(
         self, settle_ms: int = 400, ocr_results: list | None = None
     ) -> tuple[ObserveResult, bytes | None]: ...
+
+
+class SessionObservationPort:
+    """Observation through DeviceSession, with the controller path as fallback."""
+
+    def __init__(self, ctx: ArtemisContext, controller: Any | None = None) -> None:
+        self.ctx = ctx
+        self.controller = controller
+
+    async def observe(
+        self, settle_ms: int = 400, ocr_results: list | None = None
+    ) -> tuple[ObserveResult, bytes | None]:
+        return await observe(self.ctx, self.controller, settle_ms, ocr_results)
 
 
 class ControllerObservationPort:
@@ -64,9 +83,35 @@ class ControllerObservationPort:
         return await observe(self.ctx, self.controller, settle_ms, ocr_results)
 
 
+async def _session_screen_data(ctx: ArtemisContext) -> Any | None:
+    """Return raw screen data from a Session perception source, if it supports it."""
+
+    session = getattr(ctx, "device_session", None)
+    if session is None or not isinstance(getattr(session, "perception", None), (list, tuple)):
+        return None
+    for source in session.perception:
+        reader = getattr(source, "screen_data", None)
+        if callable(reader):
+            return await reader()
+    return None
+
+
+async def get_screen_data(ctx: ArtemisContext, controller: Any | None = None) -> Any:
+    """Prefer the Session's perception source; controller is the legacy fallback."""
+
+    data = await _session_screen_data(ctx)
+    if data is not None:
+        return data
+    if controller is None:
+        from artemis.controllers.unified_controller import UnifiedMobileController
+
+        controller = UnifiedMobileController(ctx)
+    return await controller.get_screen_data()
+
+
 async def observe(
     ctx: ArtemisContext,
-    controller: Any,
+    controller: Any | None,
     settle_ms: int = 400,
     ocr_results: list | None = None,
 ) -> tuple[ObserveResult, bytes | None]:
@@ -87,8 +132,10 @@ async def observe(
             await asyncio.sleep(settle_ms / 1000.0)
         else:
             logger.info("Retrieving screen data directly (skip settling)...")
-        device_data = await controller.get_screen_data()
-        screenshot_bytes = base64.b64decode(device_data.base64)
+        device_data = await get_screen_data(ctx, controller)
+        screenshot_bytes = base64.b64decode(
+            getattr(device_data, "base64", None) or getattr(device_data, "screenshot_base64", "")
+        )
     except Exception as e:
         logger.error(f"Failed to capture screen state: {e}")
         return (
@@ -107,7 +154,9 @@ async def observe(
     hierarchy_ok = True
     width = height = None
     try:
-        xml_hierarchy = device_data.elements
+        xml_hierarchy = getattr(device_data, "elements", None)
+        if xml_hierarchy is None:
+            xml_hierarchy = getattr(device_data, "ui_elements", []) or []
         width = device_data.width or 1080
         height = device_data.height or 2400
         if ctx.device:

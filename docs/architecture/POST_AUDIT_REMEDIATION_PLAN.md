@@ -131,6 +131,8 @@ Tests:
 
 ## 5. Stage 2 — Android Session/observation ownership (P0)
 
+> Status (2026-11-11): implemented. `build_android_profile()` returns a Session and attaches `ctx.device_session`; `AppAutomationSource.screen_data()`/`SessionObservationPort` and `get_screen_data()` prefer it; graph perception uses the Session path when present, controller only as fallback.
+
 ### 2.1 Session becomes the Android profile's runtime object
 
 Files: `drivers/factory.py`, `devices/app_session.py`, `devices/session.py`, `drivers/android/adb_driver.py`, tests.

@@ -30,9 +30,14 @@ class AppAutomationSource:
         self.name = name
         self.capabilities = CapabilitySet(supports_ui_tree=True)
 
+    async def screen_data(self):
+        """Raw driver observation for the Session-backed observation port."""
+
+        return await self.driver.get_screen_data()
+
     async def snapshot(self) -> Frame:
-        data = await self.driver.get_screen_data()
-        image = getattr(data, "screenshot_bytes", b"") or b""
+        data = await self.screen_data()
+        image = getattr(data, "screenshot_bytes", b"") or ""
         return Frame(
             image=image,
             captured_at=float(getattr(data, "timestamp", 0.0) or 0.0),

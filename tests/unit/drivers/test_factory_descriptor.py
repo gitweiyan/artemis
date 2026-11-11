@@ -116,3 +116,15 @@ def test_ios_factory_attaches_an_evidence_registry_when_enabled(monkeypatch, tmp
     assert driver.session.descriptor is not None
     assert driver.session.descriptor.fingerprint["adapter_id"] == "esp32_hid"
     asyncio.run(driver.session.close())
+
+
+def test_android_factory_attaches_a_runtime_owned_session():
+    from artemis.devices.session import DeviceSession
+
+    ctx = _ctx("android", "emulator-5554")
+    ctx.adb_client = MagicMock()
+
+    driver = create_driver(ctx)
+
+    assert isinstance(ctx.device_session, DeviceSession)
+    assert driver.session is ctx.device_session

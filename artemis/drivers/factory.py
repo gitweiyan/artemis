@@ -280,13 +280,18 @@ def build_android_profile(runtime, request, registry):
             host=settings.ADB_HOST or "localhost", port=settings.ADB_PORT or 5037
         )
 
+    width = getattr(ctx.device, "device_width", 1080)
+    height = getattr(ctx.device, "device_height", 2400)
+    width = int(width) if isinstance(width, (int, float)) and width > 0 else 1080
+    height = int(height) if isinstance(height, (int, float)) and height > 0 else 2400
     driver = AndroidAdbDriver(
         device_id=ctx.device.device_id,
         adb_client=ctx.adb_client,
         ui_adb_client=getattr(ctx, "ui_adb_client", None),
-        width=ctx.device.device_width,
-        height=ctx.device.device_height,
+        width=width,
+        height=height,
     )
+    from artemis.devices.app_session import build_app_session
     from artemis.orchestration.selector import DeviceProfile, select_composition
 
     composition = select_composition(
@@ -298,6 +303,11 @@ def build_android_profile(runtime, request, registry):
         )
     )
     logger.info(f"Composition: {composition.kind} — {composition.reason}")
+    session = build_app_session(driver)
+    # The driver facade and the Session share the same adapters; the Session is
+    # the runtime-owned observation/action surface (ADR-003/Phase 3R).
+    driver._session_cache = session
+    ctx.device_session = session
     _attach_descriptor(
         ctx,
         descriptor_from_device_context(
@@ -308,7 +318,7 @@ def build_android_profile(runtime, request, registry):
             adb_port=settings.ADB_PORT or 5037,
         ),
     )
-    return ProfileBuild(profile_id="android.app", driver=driver)
+    return ProfileBuild(profile_id="android.app", session=session, driver=driver)
 
 
 def _composition_request(ctx: "ArtemisContext") -> CompositionRequest:

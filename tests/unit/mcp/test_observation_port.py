@@ -49,3 +49,22 @@ def test_capture_failures_keep_the_historical_observe_result():
     assert result.ok is False
     assert image is None
     assert "Failed to capture screen state" in result.message
+
+
+def test_session_observation_port_prefers_the_session_source():
+    from artemis.mcp.observation import SessionObservationPort
+    from artemis.devices.session import DeviceSession
+
+    class Source:
+        async def screen_data(self):
+            return SimpleNamespace(base64=PNG, elements=[], width=1080, height=2400)
+
+    session = DeviceSession(perception=[Source()], control=[])
+    ctx = SimpleNamespace(device=None, data_engine=None, device_session=session)
+    port = SessionObservationPort(ctx)
+
+    result, image = asyncio.run(port.observe(settle_ms=0))
+
+    assert result.ok is True
+    assert image is not None
+    assert result.width == 1080

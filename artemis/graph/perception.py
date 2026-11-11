@@ -21,6 +21,7 @@ from pathlib import Path
 from artemis.context import ArtemisContext
 from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.data_engine.trace import trace
+from artemis.mcp.observation import get_screen_data
 from artemis.graph.state import State
 from artemis.runtime import observation_clock
 from artemis.graph.visibility import strict_state
@@ -147,20 +148,34 @@ async def perception_node(state: State, ctx: ArtemisContext) -> dict:
                 # this moment stay protected until the next instruction.
                 _unprotect_current_check_lines(ctx)
 
-    controller = UnifiedMobileController(ctx)
+    # A Session-backed source is preferred; the controller is the explicit
+    # compatibility fallback for profiles that do not own a Session yet.
+    session = getattr(ctx, "device_session", None)
+    has_session = session is not None and isinstance(
+        getattr(session, "perception", None), (list, tuple)
+    )
+    controller = None if has_session else UnifiedMobileController(ctx)
 
     # 1. Capture screenshot with hybrid settling strategy
     if _should_skip_settling(state):
         logger.info("Skipping settling. Retrieving screen data directly...")
-        device_data = await controller.get_screen_data()
-        latest_screenshot_b64 = device_data.base64
-        xml_hierarchy = device_data.elements
+        device_data = await get_screen_data(ctx, controller)
+        latest_screenshot_b64 = getattr(device_data, "base64", None) or getattr(
+            device_data, "screenshot_base64", ""
+        )
+        xml_hierarchy = getattr(device_data, "elements", None)
+        if xml_hierarchy is None:
+            xml_hierarchy = getattr(device_data, "ui_elements", []) or []
     else:
         logger.info("Screen settling required. Delaying 0.4s and capturing screen data...")
         await asyncio.sleep(0.4)
-        device_data = await controller.get_screen_data()
-        latest_screenshot_b64 = device_data.base64
-        xml_hierarchy = device_data.elements
+        device_data = await get_screen_data(ctx, controller)
+        latest_screenshot_b64 = getattr(device_data, "base64", None) or getattr(
+            device_data, "screenshot_base64", ""
+        )
+        xml_hierarchy = getattr(device_data, "elements", None)
+        if xml_hierarchy is None:
+            xml_hierarchy = getattr(device_data, "ui_elements", []) or []
 
     # The screen behind this turn is now in hand; every action planned from it is
     # dispatched against an observation that is already this old (I5).
