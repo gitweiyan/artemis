@@ -36,6 +36,18 @@ def _observe(
     )
 
 
+def test_the_guard_carries_the_dhash_change_for_effect_evidence():
+    tracker = NoOpTracker()
+
+    changed = _observe(tracker, unchanged=False)
+    unchanged = _observe(tracker, incident="no_effect", unchanged=True)
+
+    assert changed.changed is True
+    assert changed.is_no_op is False
+    assert unchanged.changed is False
+    assert unchanged.is_no_op is True
+
+
 def test_a_single_no_effect_does_not_nag_the_model():
     tracker = NoOpTracker()
 

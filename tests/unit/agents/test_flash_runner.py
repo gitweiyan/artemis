@@ -292,6 +292,9 @@ def test_flash_action_evidence_never_promotes_an_ack_to_verified():
         == "observed_effect"
     )
     assert (
+        FlashRunner._evidence_action_state(success, {"effect_observed": True}) == "observed_effect"
+    )
+    assert (
         FlashRunner._evidence_action_state(
             success, {"post_verification": {"ok": False, "incident": "no_effect"}}
         )

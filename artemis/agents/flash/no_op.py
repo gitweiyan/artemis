@@ -78,6 +78,13 @@ class NoOpVerdict:
     action: str
     reason: str = ""
     notice: str | None = None
+    #: The pre/post dHash verdict carried through for effect evidence.
+    changed: bool | None = None
+
+
+def _changed(unchanged: bool | None) -> bool | None:
+    """Translate the dHash verdict (identical) into "the frame changed"."""
+    return None if unchanged is None else not unchanged
 
 
 class NoOpTracker:
@@ -114,12 +121,12 @@ class NoOpTracker:
         ``False`` changed, ``None`` unknown (no frame, no Pillow, no hash).
         """
         if action in WAIT_ACTIONS:
-            return NoOpVerdict(False, self._consecutive, "none")
+            return NoOpVerdict(False, self._consecutive, "none", changed=_changed(unchanged))
 
         is_no_op, reason = self._classify(status, incident, metrics, unchanged)
         if not is_no_op:
             self._consecutive = 0
-            return NoOpVerdict(False, 0, "none")
+            return NoOpVerdict(False, 0, "none", changed=_changed(unchanged))
 
         self._consecutive += 1
         if self._consecutive >= self.abort_after:
@@ -129,6 +136,7 @@ class NoOpTracker:
                 "abort",
                 reason,
                 _ABORT_NOTICE.format(n=self._consecutive),
+                changed=_changed(unchanged),
             )
         if self._consecutive >= self.warn_after:
             return NoOpVerdict(
@@ -137,8 +145,9 @@ class NoOpTracker:
                 "warn",
                 reason,
                 _WARN_NOTICE.format(n=self._consecutive, reason=reason or "unknown"),
+                changed=_changed(unchanged),
             )
-        return NoOpVerdict(True, self._consecutive, "none", reason)
+        return NoOpVerdict(True, self._consecutive, "none", reason, changed=_changed(unchanged))
 
     def _classify(
         self,

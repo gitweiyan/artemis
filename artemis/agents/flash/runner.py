@@ -824,6 +824,8 @@ class FlashRunner:
             return ActionState.REJECTED.value
         if str(getattr(exec_result, "status", "unknown") or "unknown") != "success":
             return ActionState.UNKNOWN.value
+        if metadata.get("effect_observed") is True:
+            return ActionState.OBSERVED_EFFECT.value
         post = metadata.get("post_verification") or {}
         if post.get("ok") is True and not post.get("skipped"):
             return ActionState.OBSERVED_EFFECT.value
@@ -1102,6 +1104,9 @@ class FlashRunner:
                     self._no_op_abort = verdict.notice
                 elif verdict.notice:
                     self._no_op_notice = verdict.notice
+                if verdict.changed is True and not verdict.is_no_op:
+                    # A visible whole-frame change proves an effect, not the goal.
+                    metadata["effect_observed"] = True
 
             # One record shape for the DataEngine step and the visual lens.
             action_dict = (
