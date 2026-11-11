@@ -464,9 +464,19 @@ class LeaseSet:
         return self
 
     def release(self) -> None:
-        for lease in reversed(self._leases):
-            lease.release()
+        """Release every lease even if one owner fails; surface the first error after."""
+
+        errors: list[Exception] = []
+        leases = list(self._leases)
         self._leases.clear()
+        for lease in reversed(leases):
+            try:
+                lease.release()
+            except (OSError, RuntimeError, ValueError) as exc:
+                errors.append(exc)
+                logger.warning(f"Releasing resource lease {lease.resource_id} failed: {exc}")
+        if errors:
+            raise errors[0]
 
     def __enter__(self) -> LeaseSet:
         return self

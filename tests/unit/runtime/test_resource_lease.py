@@ -237,3 +237,28 @@ def test_active_and_stale_leases_are_visible_and_cleaned(tmp_path):
     _write_owner(lease.path, pid=999_999, created_at=1.0)
     assert cleanup_stale(tmp_path) == 1
     assert not lease.path.exists()
+
+
+def test_lease_set_releases_later_leases_after_one_release_error(tmp_path):
+    class FakeLease:
+        def __init__(self, resource_id, error=None):
+            self.resource_id = resource_id
+            self.error = error
+            self.released = 0
+
+        def release(self):
+            self.released += 1
+            if self.error is not None:
+                raise self.error
+
+    broken = FakeLease(RESOURCE, RuntimeError("broken"))
+    healthy = FakeLease(OTHER)
+    leases = LeaseSet(host_id="host-a", session_id="worker", lease_dir=tmp_path)
+    leases._leases = [broken, healthy]
+
+    with pytest.raises(RuntimeError, match="broken"):
+        leases.release()
+
+    assert broken.released == 1
+    assert healthy.released == 1
+    assert leases.resource_ids == ()

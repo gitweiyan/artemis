@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
+import asyncio
 import inspect
 from typing import TYPE_CHECKING, Any
 
@@ -114,6 +115,10 @@ class DeviceSession:
     def open(self) -> DeviceSession:
         """Mark the session usable; idempotent. Handles are opened by the composition root."""
 
+        if self._state is SessionState.FAILED:
+            raise DeviceSessionError(
+                "a failed device session is terminal; create a new session instead"
+            )
         if self._state in (SessionState.CLOSING, SessionState.CLOSED):
             raise SessionClosedError("cannot open a closing/closed device session")
         if self._state in (SessionState.READY, SessionState.DEGRADED):
@@ -135,6 +140,8 @@ class DeviceSession:
         return self._state
 
     def _ensure_usable(self) -> None:
+        if self._state is SessionState.FAILED:
+            raise DeviceSessionError("device session is failed and cannot serve requests")
         if self._state in (SessionState.CLOSING, SessionState.CLOSED):
             raise SessionClosedError("device session is closed")
         if self._state is SessionState.NEW:
@@ -143,6 +150,7 @@ class DeviceSession:
     async def probe_capabilities(self) -> dict[str, Any]:
         """Ask each adapter for a non-destructive availability probe (ADR-001)."""
 
+        self._ensure_usable()
         probes: dict[str, Any] = {}
         for participant in [*self.perception, *self.control]:
             prober = getattr(participant, "probe_capabilities", None)
@@ -175,16 +183,27 @@ class DeviceSession:
             logger.warning(f"Closing {name} failed: {exc}")
 
     async def close(self) -> None:
-        """Release inputs, handles, then leases. Idempotent; never raises on cleanup."""
+        """Release inputs, handles, then leases. Idempotent; never raises on cleanup.
+
+        Cancellation is special: a cancelled ``aclose`` must not strand later
+        participants or the host leases. We remember it, finish the cleanup, then
+        re-raise so the caller still observes cancellation.
+        """
 
         if self._state in (SessionState.CLOSING, SessionState.CLOSED):
             return
         self._state = SessionState.CLOSING
         self._close_errors.clear()
+        cancelled: asyncio.CancelledError | None = None
 
         # Inputs first (control), then capture (perception), as ADR-003 requires.
         for participant in [*self.control, *self.perception]:
-            await self._close_participant(participant)
+            try:
+                await self._close_participant(participant)
+            except asyncio.CancelledError as exc:
+                cancelled = exc
+                self._close_errors.append(f"{type(participant).__name__}: cancelled")
+                logger.warning(f"Closing {type(participant).__name__} was cancelled; continuing")
 
         if self.leases is not None:
             try:
@@ -202,6 +221,8 @@ class DeviceSession:
                 f"Device session closed with {len(self._close_errors)} cleanup failure(s): "
                 f"{'; '.join(self._close_errors)}"
             )
+        if cancelled is not None:
+            raise cancelled
 
     async def snapshot(self) -> Frame:
         self._ensure_usable()

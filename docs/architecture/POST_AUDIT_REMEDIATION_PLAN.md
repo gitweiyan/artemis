@@ -87,6 +87,8 @@ Create `POST_MIGRATION_ARCHITECTURE_AUDIT.md` after Stage 1–4 with a fresh sca
 
 ## 4. Stage 1 — Session lifecycle correctness (P0)
 
+> Status (2026-11-11): implemented. `FAILED` is terminal; close finishes cleanup under cancellation and re-raises; `LeaseSet.release()` attempts every lease. Tests: failed-session terminal, cancelled closer, lease release isolation.
+
 ### 1.1 FAILED is terminal
 
 Files: `artemis/devices/session.py`, `tests/unit/devices/test_session.py` (new/extend).

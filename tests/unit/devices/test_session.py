@@ -242,3 +242,58 @@ def test_a_target_from_another_frame_is_rejected_as_stale():
     assert session.validate_target(fresh) is fresh
     with pytest.raises(DeviceSessionError, match="stale_frame"):
         session.validate_target(stale)
+
+
+def test_a_failed_session_is_terminal_and_cannot_serve_requests():
+    from artemis.devices.session import SessionState
+
+    session = DeviceSession([Source()], [Sink(absolute=True)], geometry())
+    session.mark_failed("adapter lost")
+
+    assert session.state is SessionState.FAILED
+    with pytest.raises(DeviceSessionError, match="terminal"):
+        session.open()
+    with pytest.raises(DeviceSessionError, match="failed"):
+        asyncio.run(session.snapshot())
+    with pytest.raises(DeviceSessionError, match="failed"):
+        session.control_for(absolute=True)
+    with pytest.raises(DeviceSessionError, match="failed"):
+        asyncio.run(session.probe_capabilities())
+
+
+def test_close_finishes_handles_and_leases_when_a_closer_is_cancelled():
+    events: list[str] = []
+
+    class HangingSink(Sink):
+        async def aclose(self):
+            events.append("control-start")
+            await asyncio.Event().wait()
+
+    class ClosingSource(Source):
+        async def aclose(self):
+            events.append("perception")
+
+    class Leases:
+        def release(self):
+            events.append("leases")
+
+    session = DeviceSession(
+        [ClosingSource()],
+        [HangingSink(absolute=True)],
+        geometry(),
+        leases=Leases(),
+    )
+
+    async def scenario():
+        task = asyncio.create_task(session.close())
+        while "control-start" not in events:
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    assert events == ["control-start", "perception", "leases"]
+    assert session.state.value == "closed"
+    assert session.leases is None
