@@ -230,6 +230,7 @@ Tests:
 
 > Status (2026-11-11): architecture matrix and Flash policy metadata implemented. `LEGACY_ALLOWED` now pins every known legacy import; new violations fail. `safety/flash.py` declares single/burst pre/post-verification posture and is attached to Flash action records. Actual Flash gate enforcement and post-verification remain follow-up because they can change click/launch behavior.
 > Observation follow-up (2026-11-11): `perception/observation.py` is now the implementation; `mcp/observation.py` is a compatibility shim, Flash/Validator import the L3 service, and `ObservationEvidence` is attached to `ScreenData`. MCP output schema remains unchanged. Burst gate now checks every device action; `FLASH_BURST_ACTIONS` remains the admission allowlist (click still admitted, pending the separate risk-policy decision).
+> DTO follow-up (2026-11-11): `CapabilitySet`/session errors moved to `core`; the Phase 5 allowlist is empty. Adapters→Reflex contract/motion/control remains a hidden boundary not yet represented in the matrix.
 
 > P1-4 (2026-11-11): allowlist converted to structured `LegacyImport` entries with owner/exit/review_after; tests fail on unregistered, stale or expired entries. Remaining Flash pointer/burst enforcement is tracked separately.
  Cleanup started: graph→controllers removed (43 entries remain); graph still uses the Session-aware observation service, while its legacy controller fallback is outside L2.
