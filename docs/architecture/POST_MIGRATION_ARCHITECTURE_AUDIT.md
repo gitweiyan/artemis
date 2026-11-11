@@ -139,6 +139,7 @@ Known failures:
 - P1-4 cleanup 2 (2026-11-11): graph now imports `perception.observation.get_screen_data`; the MCP observation module re-exports/delegates to it. `graph → mcp.observation` and `graph → controllers` are both removed. Allowlist count is 42.
 - P1-4 cleanup 3 (2026-11-11): Checker final-screen capture and Planner initial-screen fallback now use the same `perception.observation` service, removing both `agents → controllers` entries. Allowlist count is 40.
 - Post-observation-boundary real-device check (2026-11-11): iOS Flash `回到主屏` (`635ef881...`) and Android Flash (`7f6f9bb1...`) completed after the extraction.
+- Pro observation check (2026-11-11): after unlocking the iPhone, iOS Pro `回到主屏` completed (`8d362f08...`), including Checker final screen capture through the new observation service.
 - P1-3 pointer progress (2026-11-11): Flash precondition verifies a relative-pointer sink exists when the Session requires pointer precheck and marks alignment as delegated to the sink; missing sink returns capability_unavailable. Burst behavior remains declarative.
 - P1-3 burst progress (2026-11-11): Flash turns are capped at 8 device actions with an explicit action allowlist; over-budget actions return an error ToolMessage without dispatch. Alignment remains delegated to the relative-pointer sink.
 
