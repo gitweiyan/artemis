@@ -20,7 +20,7 @@
 | Lease release | ✅ | ✅ | iOS UVC/serial; Android helper forward lease |
 | ActionEvidence | ✅ | ✅ | `trace actions` |
 | Controller bypass | ◐ no fallback observed | ◐ UIAutomator2 path observed | logs contain no `UnifiedMobileController` construction |
-| Device disconnect | ⏸ not performed | ⏸ not performed | no safe disconnect fixture |
+| Device disconnect / reconnect | ✅ reconnect after replug; ⏸ mid-task unplug | ✅ reconnect after replug; ⏸ mid-task unplug | iOS smoke; Android Flash `9858ede3...` |
 
 ## Evidence
 
@@ -81,7 +81,21 @@ Cancellation session `318bf58c-512f-4987-b4fb-2c7f9a0ea68c` ended `cancelled`
 (12.3s) after an external cancel request; no action evidence was emitted because
 no action had executed yet.
 
-### 6. Action evidence
+### 6. Replug / reconnect
+
+After physically replugging both rigs (2026-11-11 21:49):
+
+- iOS `ios-smoke --target 快捷指令` passed all seven stages again; UVC and
+  serial leases were re-acquired and released.
+- Android Flash `回到主屏` completed in session
+  `9858ede3-ccf6-492e-8c18-a17e847cf344`; action evidence is
+  `observed_effect`, and the trace is
+  `traces/web_1794404992_9858ede3_PASS_2026-11-11T21-49-54`.
+
+This verifies **reconnect after replug**, not a mid-task unplug. The in-flight
+disconnect path still needs a deliberate fault-injection run.
+
+### 7. Action evidence
 
 `uv run artemis trace actions --session <id> --json` returned action records with:
 
@@ -105,9 +119,9 @@ ruff format --check .: 16 files would be reformatted (pre-existing)
 
 ## Gaps
 
-1. **Device disconnect** was not exercised on either platform; cancellation and
-   normal close are covered, but unplug/replug and adapter-failure recovery still
-   need a dedicated fault-injection run.
+1. **Mid-task device disconnect** was not exercised on either platform; normal
+   reconnect after replug is verified, but unplug during a running task and
+   adapter-failure recovery still need a dedicated fault-injection run.
 2. **Controller bypass** is supported by log absence and unit/architecture tests,
    not by a deliberate controller-failure experiment.
 3. Android observation used UIAutomator2 because the accessibility helper was
@@ -117,6 +131,6 @@ ruff format --check .: 16 files would be reformatted (pre-existing)
 
 ## Exit decision
 
-R3.1–R3.3 runtime code paths are exercised on iOS and Android. R3.4 remains
-**partial** until the disconnect scenario and the helper-enabled Android path are
-verified.
+R3.1–R3.3 runtime code paths are exercised on iOS and Android, including reconnect
+after replug. R3.4 remains **partial** until a mid-task disconnect and the
+helper-enabled Android path are verified.
