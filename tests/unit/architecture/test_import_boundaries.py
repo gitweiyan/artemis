@@ -80,8 +80,7 @@ def test_agents_do_not_import_platform_adapters_or_actuators():
                 "artemis.drivers.ios",
                 "artemis.drivers.android",
                 "artemis.adapters",
-                "artemis.mcp.actuators",
-                "artemis.mcp.observation",
+                "artemis.mcp",
             ),
         )
         == []

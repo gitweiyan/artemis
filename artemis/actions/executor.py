@@ -44,9 +44,9 @@ from artemis.core.tool_failure import ToolFailure, is_tool_failure
 from artemis.context import ArtemisContext
 from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.data_engine.trace import TraceSpan
-from artemis.mcp.action_manifest import OPTIONAL_ACTIONS, REQUIRED_ACTIONS
-from artemis.mcp.action_specs import exception_prefix
-from artemis.mcp.action_session import ActionSession, get_action_session
+from artemis.actions.manifest import OPTIONAL_ACTIONS, REQUIRED_ACTIONS
+from artemis.actions.specs import exception_prefix
+from artemis.actions.session import ActionSession, get_action_session
 from artemis.mcp.action_types import ActionCode, ActionResult
 from artemis.mcp.actuators.factory import build_actuator
 from artemis.agents.validator.tool_declarations import (

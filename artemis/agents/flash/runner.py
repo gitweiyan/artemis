@@ -239,7 +239,7 @@ class FlashRunner:
         # one, the full historical declaration set is kept.
         actuator = getattr(self.ctx, "actuator", None)
         if actuator is not None:
-            from artemis.mcp.action_manifest import filter_declarations
+            from artemis.actions.manifest import filter_declarations
 
             tools = filter_declarations(tools, actuator, "flash")
         return tools

@@ -29,7 +29,7 @@ from artemis.data_engine.trace import (
 from artemis.graph.state import State
 from artemis.graph.visibility import strict_state
 from artemis.runtime import degradations
-from artemis.mcp.action_specs import OPERATOR_SHELL_ORDER, operator_shell_tool
+from artemis.actions.specs import OPERATOR_SHELL_ORDER, operator_shell_tool
 from artemis.llm.google import usage_from_message
 from artemis.services.llm import acomplete, get_llm, invoke_llm_with_timeout_message
 from artemis.tools.command_tool import (
@@ -168,7 +168,7 @@ class OperatorNode:
         default AdbActuator implements everything), so behavior is unchanged until a
         partial backend is actually installed.
         """
-        from artemis.mcp.action_manifest import (
+        from artemis.actions.manifest import (
             OPTIONAL_ACTIONS,
             REQUIRED_ACTIONS,
             available_device_actions,

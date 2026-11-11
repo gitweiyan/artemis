@@ -40,7 +40,7 @@ logger = get_logger(__name__)
 
 from artemis.agents.ios_shortcuts import append_ios_shortcuts
 from artemis.agents.prompt_assembly import render_tool_enum, resolve_available
-from artemis.mcp.action_specs import OPERATOR_SHELL_ORDER
+from artemis.actions.specs import OPERATOR_SHELL_ORDER
 
 
 @lru_cache(maxsize=1)
@@ -220,7 +220,7 @@ def resolve_operator_prompt_tools(ctx: ArtemisContext) -> frozenset[str]:
     actuator = getattr(ctx, "actuator", None)
     if actuator is not None and callable(getattr(actuator, "capabilities", None)):
         try:
-            from artemis.mcp.action_manifest import (
+            from artemis.actions.manifest import (
                 DEVICE_ACTIONS,
                 available_device_actions,
             )

@@ -14,7 +14,7 @@
 
 """Universal Tool Declarations and Execution Results for Artemis.
 
-Execution itself lives in :class:`artemis.mcp.action_executor.McpActionExecutor`
+Execution itself lives in :class:`artemis.actions.executor.McpActionExecutor`
 (Flash) and the Validator's action session (Pro); this module keeps the shared
 result envelope, the observation helpers both use, and the tool declarations.
 """
@@ -35,7 +35,7 @@ from artemis.agents.explorer.constants import (
 )
 from artemis.context import ArtemisContext
 from artemis.core.tool_declaration import ToolDeclaration
-from artemis.mcp.action_specs import tool_declaration
+from artemis.actions.specs import tool_declaration
 from artemis.perception.observation import observe
 from artemis.graph.state import State
 from artemis.utils.notes import (

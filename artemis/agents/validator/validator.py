@@ -53,7 +53,7 @@ from artemis.context import ArtemisContext
 from artemis.data_engine.trace import trace
 from artemis.graph.state import State
 from artemis.graph.visibility import strict_state
-from artemis.mcp.action_session import ActionSession, get_action_session
+from artemis.actions.session import ActionSession, get_action_session
 from artemis.services.llm import acomplete_structured, get_llm  # noqa: F401
 from third_party.mobile_use.utils.decorators import agent_lifecycle_logging
 from third_party.mobile_use.utils.logger import get_logger
