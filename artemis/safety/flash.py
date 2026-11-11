@@ -115,9 +115,7 @@ def evaluate_flash_precondition(
         if elements is None and state is not None:
             elements = getattr(state, "indexed_elements", None)
         if isinstance(elements, (list, tuple)) and (index < 1 or index > len(elements)):
-            return FlashPrecondition(
-                False, "target_disappeared", f"Invalid target index {index}"
-            )
+            return FlashPrecondition(False, "target_disappeared", f"Invalid target index {index}")
     elif isinstance(target, (list, tuple)):
         if len(target) != 2:
             return FlashPrecondition(False, "coordinate_space_mismatch", "target is not a point")
