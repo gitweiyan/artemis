@@ -633,10 +633,11 @@ class FlashRunner:
     def _flash_post_verification(self, name: str, args: dict, exec_result) -> None:
         """Attach lightweight pixel evidence for high-value Flash actions."""
 
+        explicit = bool(args.get("verify_after"))
         policy = flash_action_policy(name)
-        if not policy.requires_post_verification:
+        if not explicit and not policy.requires_post_verification:
             return
-        if name not in {"manage_app", "launch_app", "open_link"}:
+        if name not in {"manage_app", "launch_app", "open_link", "click", "tap", "long_press"}:
             return
         metadata = getattr(exec_result, "metadata", None) or {}
         pre = getattr(exec_result, "screenshot_bytes", None)

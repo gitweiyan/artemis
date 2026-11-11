@@ -39,18 +39,7 @@ class FlashActionPolicy:
 
 
 _SINGLE_RISK = frozenset({"click", "tap", "long_press", "input_text", "focus_and_input_text"})
-_POST_VERIFY = frozenset(
-    {
-        "click",
-        "tap",
-        "long_press",
-        "click_sequence",
-        "swipe",
-        "manage_app",
-        "launch_app",
-        "open_link",
-    }
-)
+_POST_VERIFY = frozenset()
 
 
 def flash_action_policy(action: str, *, burst: bool = False) -> FlashActionPolicy:
@@ -62,6 +51,7 @@ def flash_action_policy(action: str, *, burst: bool = False) -> FlashActionPolic
         action=name,
         mode=mode,
         requires_precondition=name in _SINGLE_RISK and not burst,
+        # Flash is latency-first: pixel verification is opt-in per action.
         requires_post_verification=name in _POST_VERIFY,
         pointer_precheck=name in {"click", "tap", "long_press"},
         burst_allowed=name not in _SINGLE_RISK,

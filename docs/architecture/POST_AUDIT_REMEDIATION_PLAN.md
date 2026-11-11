@@ -229,7 +229,7 @@ Tests:
 
 > Status (2026-11-11): architecture matrix and Flash policy metadata implemented. `LEGACY_ALLOWED` now pins every known legacy import; new violations fail. `safety/flash.py` declares single/burst pre/post-verification posture and is attached to Flash action records. Actual Flash gate enforcement and post-verification remain follow-up because they can change click/launch behavior.
 
-> Stage 4b (2026-11-11): Flash now refuses a point action with no pre-action frame (`stale_frame`) and applies lightweight `verify_effect` to high-value launch/link actions; an unchanged screen becomes `no_effect`/error with verification evidence. Policy declaration remains in every action record.
+> Stage 4b (2026-11-11): Flash refuses a point action with no pre-action frame (`stale_frame`) and keeps pixel `verify_effect` opt-in via `verify_after`; Flash stays latency-first and does not pay automatic post-verification on every launch. Policy declaration remains in every action record.
 
 > Stage 4b real-device (2026-11-11): iOS Flash `打开设置` produced manage_app action evidence with `post_verification.ok=true`; a middle `click` without a pre-action frame was correctly refused as `stale_frame` and did not block the eventual task. Android Flash on `EUWSOBXCZLPFNJF6` completed with action evidence.
 
