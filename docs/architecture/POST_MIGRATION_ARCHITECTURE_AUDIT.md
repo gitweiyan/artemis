@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `b3c260c` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `b6c3a3c` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3841 passed, 5 skipped, 88 warnings in 149.81s
+0 failed, 3850 passed, 5 skipped, 88 warnings in 148.38s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
