@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `96f2e85` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `dbbfed5` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -15,9 +15,9 @@
 | Android action path | Uses Driver facade → Session sink; controller facade remains | `agents/flash/runner.py`, `mcp/action_executor.py`, `drivers/android/adb_driver.py` |
 | Android observation path | Session-backed when a Session exists; controller fallback | `graph/perception.py`, `mcp/observation.py` |
 | iOS UVC/HID | Session-owned; pointer/extension adapters | `devices/ios_uvc.py`, `adapters/*`, `control/ios_hid.py` |
-| Identity | Canonical descriptor/Session/evidence/lock; UVC fallback config hint | `core/identity.py`, `drivers/ios/uvc_identity.py` |
+| Identity | Canonical descriptor/Session/evidence/lock; UVC hardware-first, explicit config hint only as fallback | `core/identity.py`, `drivers/ios/uvc_identity.py` |
 | Reflex | Independent budget/release/incident mapping | `reflex/runtime.py`, `reflex/contract.py` |
-| Flash safety | Cheap pre-frame guard + No-Op Guard; pixel verification is explicit opt-in | `safety/flash.py`, `agents/flash/runner.py` |
+| Flash safety | Cheap pre-frame guard + No-Op Guard + all-action burst gate; pixel verification is explicit opt-in | `safety/flash.py`, `agents/flash/runner.py` |
 | Data/Telemetry | ActionEvidence/Task ID/DEVICE_ACTION spans/CLI query | `data_engine/ids.py`, `telemetry/`, `trace actions` |
 | Privacy/retention | **Documented only** | `PRIVACY_REDACTION_RETENTION_PLAN.md` |
 | macOS/TV | Design-only/not started | `MACOS_PROFILE_DESIGN.md`, ADR-012 Proposed |
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-12 failed, 3815 passed, 5 skipped, 76 warnings in 149.49s
+12 failed, 3820 passed, 5 skipped, 76 warnings in 147.49s
 ```
 
 Known failures:
@@ -149,11 +149,14 @@ Known failures:
 - P1-4 cleanup 9 (2026-11-11): CLI commands now import `actions.ios_rig`/`actions.reflex_service` facades; all 17 interface→drivers/reflex allowlist entries are removed. Only 10 L3→devices DTO entries remain.
 - Pro observation check (2026-11-11): after unlocking the iPhone, iOS Pro `回到主屏` completed (`8d362f08...`), including Checker final screen capture through the new observation service.
 - P1-3 pointer progress (2026-11-11): Flash precondition verifies a relative-pointer sink exists when the Session requires pointer precheck and marks alignment as delegated to the sink; missing sink returns capability_unavailable. Burst behavior remains declarative.
-- P1-3 burst progress (2026-11-11): Flash turns are capped at 8 device actions with an explicit action allowlist; over-budget actions return an error ToolMessage without dispatch. Alignment remains delegated to the relative-pointer sink.
+- P1-3 burst progress (2026-11-11): every device action now consumes the burst budget; `FLASH_BURST_ACTIONS` is the single admission allowlist and an action outside it is rejected before dispatch. The 8-action cap remains; alignment is still delegated to the relative-pointer sink.
+- P1-1 Session close fix (2026-11-11): arbitrary ordinary lease-release exceptions and a lease `CancelledError` no longer strand the Session in `CLOSING`; cleanup reaches `CLOSED` and cancellation is re-raised only afterwards (`dbbfed5`).
+- UVC identity decision (2026-11-11): resolver is hardware-first (USB Serial → Port Path → explicit hint → device-name hint); explicit hints cannot mask hardware, and strict mode rejects hints (`abb494d`).
+- Current allowlist: 10 L3→devices DTO entries; CLI/drivers/devices reflex entries are gone. Adapters still import Reflex contract/motion/control and are not covered by the current matrix.
 
 `uv run ruff check`: pass.
-`uv run ruff format --check .`: 14 files would be reformatted (all pre-existing; no new file after formatting our test).
-`quality_ratchet`: `broad_exception_handlers=773`, `silent_broad_exception_handlers=0`, `type_ignore_comments=20`.
+`uv run ruff format --check .`: 16 files would be reformatted (pre-existing baseline; not part of this fix).
+`quality_ratchet`: `broad_exception_handlers=774`, `silent_broad_exception_handlers=0`, `type_ignore_comments=20`; the script still exits 1 against its stored 754/18 baseline.
 
 Real-device evidence available:
 
