@@ -8,7 +8,7 @@
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **14 failed, 3804 passed, 5 skipped**, 76 warnings, 148.61s |
+| `uv run pytest tests/unit -q` | **12 failed, 3806 passed, 5 skipped**, 76 warnings, 148.38s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **14 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=20 |
@@ -18,8 +18,7 @@
 
 - `tests/unit/agents/test_explorer.py`：9 条，MagicMock provenance 与 `llm/router.py` provider 白名单不匹配（既有）；
 - `tests/unit/agents/test_video_analyzer.py`：3 条，同类 provider mock 问题（既有）；
-- `tests/unit/admin_console/test_model_service.py`：2 条，本地未提交 `config/artemis.jsonc` 的 provider=openai 引起；
-- 共 14 条，无本轮新增失败。
+- 共 12 条，无本轮新增失败；Admin Console 显示测试已改为不依赖开发者本地 `config/artemis.jsonc`。
 
 ### 真实设备证据
 

@@ -20,6 +20,17 @@ import pytest
 from apps.admin_console.services.model_service import ModelService
 
 
+@pytest.fixture(autouse=True)
+def _clean_model_config(monkeypatch):
+    """Display tests must not depend on the developer's local artemis.jsonc."""
+    ModelService._llm_info_cache = None
+    monkeypatch.setattr(
+        ModelService,
+        "_get_llm_provider_and_model",
+        classmethod(lambda cls: ("google", "gemini-3.7-flash")),
+    )
+
+
 def test_get_active_model_info_pro_architecture():
     """Verify that pro profile returns Pro architecture while keeping real LLM model."""
     info = ModelService.get_active_model_info("pro")

@@ -123,14 +123,14 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-14 failed, 3804 passed, 5 skipped, 76 warnings in 148.61s
+12 failed, 3806 passed, 5 skipped, 76 warnings in 148.38s
 ```
 
 Known failures:
 
 - 9 `tests/unit/agents/test_explorer.py` — MagicMock LLM provider not in router whitelist;
-- 3 `tests/unit/agents/test_video_analyzer.py` — same provider mock mismatch;
-- 2 `tests/unit/admin_console/test_model_service.py` — local uncommitted `config/artemis.jsonc` uses `openai`.
+- 3 `tests/unit/agents/test_video_analyzer.py` — same provider mock mismatch.
+- The Admin Console display tests were made independent of the local `config/artemis.jsonc` fixture.
 
 `uv run ruff check`: pass.
 `uv run ruff format --check .`: 14 files would be reformatted (all pre-existing; no new file after formatting our test).
