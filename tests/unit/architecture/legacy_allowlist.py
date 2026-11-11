@@ -47,10 +47,6 @@ def _entry(importer, imported, review_after="Phase 4", owner="Phase 3R/4"):
 
 LEGACY_IMPORTS = (
     # agents → controller compatibility facade
-    _entry(
-        "artemis/agents/video_analyzer/video_analyzer.py",
-        "artemis.controllers.controller_factory",
-    ),
     # graph fallback observation
     # L4 builders still use legacy capture/selector and the iOS Reflex helpers
     _entry("artemis/drivers/ios/extension.py", "artemis.reflex.ios_apps"),

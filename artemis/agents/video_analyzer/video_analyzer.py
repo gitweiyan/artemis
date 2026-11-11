@@ -66,7 +66,7 @@ from artemis.agents.video_analyzer.universal_tools import (
 from artemis.config import get_temp_dir, settings
 from artemis.constants import SAFETY_SETTINGS_BLOCK_NONE
 from artemis.context import ArtemisContext
-from artemis.controllers.controller_factory import get_controller
+from artemis.devices.video import get_controller
 from artemis.data_engine.trace import CURRENT_TRACE_ID, TraceSpan, trace
 from artemis.llm.google import (
     is_gemini_model,
