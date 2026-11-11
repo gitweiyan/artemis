@@ -42,7 +42,7 @@ def detect_uvc_crop(
     caller falls back to its configured crop and logs the reason.
     """
     if grab is None:
-        from artemis.reflex.capture import UvcCapture
+        from artemis.adapters.uvc import UvcCapture
 
         capture = UvcCapture(
             device,

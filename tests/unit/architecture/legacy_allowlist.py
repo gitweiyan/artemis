@@ -49,18 +49,11 @@ LEGACY_IMPORTS = (
     # agents → controller compatibility facade
     _entry("artemis/agents/flash/runner.py", "artemis.mcp.action_executor"),
     _entry(
-        "artemis/agents/validator/tool_declarations.py",
-        "artemis.controllers.unified_controller",
-    ),
-    _entry(
         "artemis/agents/video_analyzer/video_analyzer.py",
         "artemis.controllers.controller_factory",
     ),
     # graph fallback observation
     # L4 builders still use legacy capture/selector and the iOS Reflex helpers
-    _entry("artemis/drivers/factory.py", "artemis.orchestration.selector"),
-    _entry("artemis/drivers/factory.py", "artemis.reflex.capture"),
-    _entry("artemis/drivers/ios/crop.py", "artemis.reflex.capture"),
     _entry("artemis/drivers/ios/extension.py", "artemis.reflex.ios_apps"),
     _entry("artemis/drivers/ios/extension.py", "artemis.reflex.pinyin"),
     _entry("artemis/drivers/ios/ios_uvc_hid_driver.py", "artemis.reflex.ios_apps"),

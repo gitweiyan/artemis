@@ -103,12 +103,12 @@ def build_ios_profile(runtime, request, registry):
     from artemis.devices.ios_uvc import build_ios_uvc_session
     from artemis.drivers.ios.config import IosRuntimeConfig
     from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
-    from artemis.orchestration.selector import (
+    from artemis.devices.composition import (
         CompositionError,
-        DeviceProfile,
+        CompositionRequest,
         select_composition,
     )
-    from artemis.reflex.capture import UvcCapture, UvcStream
+    from artemis.adapters.uvc import UvcCapture, UvcStream
     from artemis.adapters.esp32_control import Esp32BridgeControl
 
     ios = IosRuntimeConfig.from_env()
@@ -136,7 +136,7 @@ def build_ios_profile(runtime, request, registry):
             " artemis ios-smoke to measure it"
         )
     composition = select_composition(
-        DeviceProfile(
+        CompositionRequest(
             platform="ios",
             device_id=getattr(ctx.device, "device_id", "ios-uvc"),
             capabilities=IOSUvcHidDriver.capabilities,
@@ -309,10 +309,10 @@ def build_android_profile(runtime, request, registry):
         height=height,
     )
     from artemis.devices.app_session import build_app_session
-    from artemis.orchestration.selector import DeviceProfile, select_composition
+    from artemis.devices.composition import select_composition
 
     composition = select_composition(
-        DeviceProfile(
+        CompositionRequest(
             platform="android",
             device_id=driver.device_id,
             capabilities=driver.capabilities,

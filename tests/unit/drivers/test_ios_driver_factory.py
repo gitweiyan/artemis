@@ -43,7 +43,7 @@ def test_ios_platform_builds_the_uvc_hid_driver(monkeypatch):
     monkeypatch.delenv("ARTEMIS_IOS_SCREEN_SIZE", raising=False)
 
     with (
-        patch("artemis.reflex.capture.UvcCapture") as capture,
+        patch("artemis.adapters.uvc.UvcCapture") as capture,
         patch("artemis.adapters.esp32_control.Esp32BridgeControl") as control,
         patch("artemis.drivers.factory.default_ocr_engine") as ocr,
     ):
@@ -79,7 +79,7 @@ def test_the_descriptor_screen_size_wins_over_the_config(monkeypatch):
     monkeypatch.setenv("ARTEMIS_IOS_SCREEN_SIZE", "1170x2532")
 
     with (
-        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.adapters.uvc.UvcCapture"),
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
@@ -93,7 +93,7 @@ def test_a_bare_descriptor_falls_back_to_the_configured_screen_size(monkeypatch)
     monkeypatch.setenv("ARTEMIS_IOS_SCREEN_SIZE", "1170x2532")
 
     with (
-        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.adapters.uvc.UvcCapture"),
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
@@ -106,7 +106,7 @@ def test_the_factory_logs_the_driver_and_its_capabilities(monkeypatch, caplog):
     monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
 
     with (
-        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.adapters.uvc.UvcCapture"),
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
         caplog.at_level(logging.INFO),
@@ -124,7 +124,7 @@ def test_the_driver_instance_reports_the_rigs_real_capabilities(monkeypatch):
     monkeypatch.setenv("ARTEMIS_IOS_OCR", "0")
 
     with (
-        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.adapters.uvc.UvcCapture"),
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
@@ -142,8 +142,8 @@ def test_the_default_capture_is_one_live_frame_per_grab(monkeypatch):
     monkeypatch.delenv("ARTEMIS_IOS_CAPTURE", raising=False)
 
     with (
-        patch("artemis.reflex.capture.UvcStream") as stream,
-        patch("artemis.reflex.capture.UvcCapture") as single,
+        patch("artemis.adapters.uvc.UvcStream") as stream,
+        patch("artemis.adapters.uvc.UvcCapture") as single,
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
@@ -158,8 +158,8 @@ def test_the_capture_mode_can_be_pinned_to_a_persistent_stream(monkeypatch):
     monkeypatch.setenv("ARTEMIS_IOS_CAPTURE", "stream")
 
     with (
-        patch("artemis.reflex.capture.UvcStream") as stream,
-        patch("artemis.reflex.capture.UvcCapture") as single,
+        patch("artemis.adapters.uvc.UvcStream") as stream,
+        patch("artemis.adapters.uvc.UvcCapture") as single,
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
@@ -173,7 +173,7 @@ def test_the_factory_logs_the_selected_composition(monkeypatch, caplog):
     monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
 
     with (
-        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.adapters.uvc.UvcCapture"),
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
         caplog.at_level(logging.INFO),
@@ -193,7 +193,7 @@ def test_a_camera_only_rig_fails_loudly_today(monkeypatch):
     monkeypatch.setenv("ARTEMIS_IOS_CAMERA", "1")
 
     with (
-        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.adapters.uvc.UvcCapture"),
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
     ):
@@ -207,7 +207,7 @@ def test_an_unset_crop_is_measured_before_the_session_is_built(monkeypatch):
     monkeypatch.delenv("ARTEMIS_UVC_CROP", raising=False)
 
     with (
-        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.adapters.uvc.UvcCapture"),
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
         patch(
@@ -227,7 +227,7 @@ def test_a_configured_crop_is_left_alone(monkeypatch):
     monkeypatch.setenv("ARTEMIS_UVC_CROP", "736,53,1185,1027")
 
     with (
-        patch("artemis.reflex.capture.UvcCapture"),
+        patch("artemis.adapters.uvc.UvcCapture"),
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
         patch("artemis.drivers.ios.crop.detect_uvc_crop") as detect,
@@ -245,8 +245,8 @@ def test_stream_mode_does_not_grab_a_frame_just_to_measure_the_crop(monkeypatch)
     monkeypatch.delenv("ARTEMIS_UVC_CROP", raising=False)
 
     with (
-        patch("artemis.reflex.capture.UvcCapture") as single,
-        patch("artemis.reflex.capture.UvcStream") as stream,
+        patch("artemis.adapters.uvc.UvcCapture") as single,
+        patch("artemis.adapters.uvc.UvcStream") as stream,
         patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
         patch("artemis.drivers.factory.default_ocr_engine"),
         patch("artemis.drivers.ios.crop.detect_uvc_crop") as detect,

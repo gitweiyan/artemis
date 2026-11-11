@@ -34,7 +34,6 @@ from artemis.agents.explorer.constants import (
     ASK_EXPLORER_TOOL_NAME,
 )
 from artemis.context import ArtemisContext
-from artemis.controllers.unified_controller import UnifiedMobileController
 from artemis.core.tool_declaration import ToolDeclaration
 from artemis.mcp.action_specs import tool_declaration
 from artemis.mcp.observation import observe
@@ -167,7 +166,7 @@ def prune_intermediate_screenshots(messages: list[Any]) -> None:
 async def capture_screenshot_and_parse_ui(
     ctx: ArtemisContext,
     state: State,
-    controller: UnifiedMobileController,
+    controller: Any,
     skip_settling: bool = False,
 ) -> tuple[str | None, bytes | None, str | None]:
     """Captures screenshot and parses fused XML tree after optional screen settling delay.
