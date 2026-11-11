@@ -90,6 +90,7 @@ from artemis.actions.executor import McpActionExecutor
 from artemis.perception.observation import observe
 from artemis.runtime import observation_clock
 from artemis.safety.flash import (
+    FLASH_HIGH_RISK_ACTIONS,
     evaluate_flash_precondition,
     flash_action_policy,
     flash_burst_budget,
@@ -1248,6 +1249,7 @@ class FlashRunner:
         index_elements = self._turn_index_snapshot(state)
         burst_budget = flash_burst_budget()
         burst_position = 0
+        high_risk_position = 0
         # The turn's tool-result messages are collected and emitted together:
         # emitting them per call would interleave an image carrier between two
         # tool messages, which OpenAI-compatible providers reject outright.
@@ -1263,11 +1265,26 @@ class FlashRunner:
             # action must fail closed instead of bypassing the position limit.
             if name in action_names:
                 burst_position += 1
-                if not burst_budget.allows(name, burst_position):
+                if name in FLASH_HIGH_RISK_ACTIONS:
+                    high_risk_position += 1
+                if not burst_budget.allows(
+                    name,
+                    burst_position,
+                    high_risk_position=high_risk_position,
+                ):
                     if name not in burst_budget.allowed_actions:
                         message = (
                             f"Flash burst policy rejected action {name!r}"
                             f" (not allowlisted); action was not dispatched."
+                        )
+                    elif (
+                        name in FLASH_HIGH_RISK_ACTIONS
+                        and high_risk_position > burst_budget.max_high_risk_actions
+                    ):
+                        message = (
+                            f"Flash high-risk burst budget exceeded at action"
+                            f" {high_risk_position} (max {burst_budget.max_high_risk_actions}"
+                            f" high-risk actions); action {name!r} was not dispatched."
                         )
                     else:
                         message = (

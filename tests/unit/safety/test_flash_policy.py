@@ -116,6 +116,9 @@ def test_flash_burst_budget_caps_actions_and_disallows_unknown_actions():
     budget = flash_burst_budget()
 
     assert budget.allows("click", 1) is True
+    assert budget.allows("click", 1, high_risk_position=1) is True
+    assert budget.allows("click", 1, high_risk_position=budget.max_high_risk_actions) is True
+    assert budget.allows("click", 1, high_risk_position=budget.max_high_risk_actions + 1) is False
     assert budget.allows("click", budget.max_actions) is True
     assert budget.allows("click", budget.max_actions + 1) is False
     assert budget.allows("unknown_action", 1) is False

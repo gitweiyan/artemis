@@ -16,7 +16,9 @@ __all__ = [
     "FLASH_BURST_ACTIONS",
     "FlashBurstBudget",
     "FlashPrecondition",
+    "FLASH_HIGH_RISK_ACTIONS",
     "MAX_FLASH_ACTIONS_PER_TURN",
+    "MAX_FLASH_HIGH_RISK_ACTIONS_PER_TURN",
     "evaluate_flash_precondition",
     "flash_action_policy",
     "flash_burst_budget",
@@ -36,6 +38,7 @@ class FlashActionPolicy:
     requires_post_verification: bool
     pointer_precheck: bool
     burst_allowed: bool
+    high_risk: bool = False
     max_observation_age_s: float | None = None
 
     def as_dict(self) -> dict[str, object]:
@@ -46,11 +49,15 @@ class FlashActionPolicy:
             "requires_post_verification": self.requires_post_verification,
             "pointer_precheck": self.pointer_precheck,
             "burst_allowed": self.burst_allowed,
+            "high_risk": self.high_risk,
             "max_observation_age_s": self.max_observation_age_s,
         }
 
 
 _SINGLE_RISK = frozenset({"click", "tap", "long_press", "input_text", "focus_and_input_text"})
+#: Actions that can have an irreversible or hard-to-recover effect. They remain
+#: admissible in a burst, but only up to a small explicit high-risk budget.
+FLASH_HIGH_RISK_ACTIONS = _SINGLE_RISK
 _POST_VERIFY = frozenset()
 
 #: A single high-risk action is planned from a frame that must still be recent.
@@ -74,6 +81,7 @@ def flash_action_policy(action: str, *, burst: bool = False) -> FlashActionPolic
         # Use the same authoritative allowlist as FlashBurstBudget; the policy
         # and the dispatch gate must not disagree about what may enter a burst.
         burst_allowed=name in FLASH_BURST_ACTIONS,
+        high_risk=name in FLASH_HIGH_RISK_ACTIONS,
         max_observation_age_s=(FLASH_MAX_OBSERVATION_AGE_S if name in _SINGLE_RISK else None),
     )
 
@@ -189,6 +197,8 @@ def evaluate_flash_precondition(
 
 #: A Flash turn is still a bounded batch, not an unbounded model-controlled loop.
 MAX_FLASH_ACTIONS_PER_TURN = 8
+#: High-risk actions get their own, smaller ceiling inside the turn budget.
+MAX_FLASH_HIGH_RISK_ACTIONS_PER_TURN = 2
 
 #: Actions that may appear in a budgeted sequential Flash turn. Flash observes
 #: after each action, so this is not Pro's unvetted fast-action burst. The
@@ -217,14 +227,28 @@ FLASH_BURST_ACTIONS = frozenset(
 @dataclass(frozen=True)
 class FlashBurstBudget:
     max_actions: int = MAX_FLASH_ACTIONS_PER_TURN
+    max_high_risk_actions: int = MAX_FLASH_HIGH_RISK_ACTIONS_PER_TURN
     allowed_actions: frozenset[str] = FLASH_BURST_ACTIONS
 
-    def allows(self, action: str, position: int) -> bool:
-        """Whether the ``position``-th device action may run in this turn."""
+    def allows(
+        self,
+        action: str,
+        position: int,
+        *,
+        high_risk_position: int = 1,
+    ) -> bool:
+        """Whether this action may run at these turn/high-risk positions."""
 
-        return str(action) in self.allowed_actions and 1 <= int(position) <= max(
-            1, int(self.max_actions)
-        )
+        name = str(action)
+        if name not in self.allowed_actions:
+            return False
+        if not 1 <= int(position) <= max(1, int(self.max_actions)):
+            return False
+        if name in FLASH_HIGH_RISK_ACTIONS and int(high_risk_position) > max(
+            1, int(self.max_high_risk_actions)
+        ):
+            return False
+        return True
 
 
 def flash_burst_budget() -> FlashBurstBudget:
