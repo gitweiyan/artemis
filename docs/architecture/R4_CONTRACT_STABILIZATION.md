@@ -56,14 +56,20 @@ This suite deliberately uses fakes for device I/O; real-device coverage lives in
   declared/available/verified capability semantics.
 - `tests/unit/control/test_control_contracts.py`,
   `tests/unit/perception/test_perception_contracts.py`: minimal protocol guards.
+- `tests/unit/clients/test_accessibility_client.py` and
+  `test_screen_client_factory.py`: helper/XML element-shape parity and
+  helper/UIAutomator fallback screen-data parity.
 
 ## Not yet frozen
 
 - A macOS Adapter Contract Test is blocked by ADR-012 (Proposed); Phase 7 remains
   design-only.
 - TV/Remote semantics (D-pad, CEC, IR) are not in R4 until Phase 8.
-- The Accessibility Helper and UIAutomator2 paths share observation behavior but
-  their contract parity still needs a dedicated Android test.
+- The Accessibility Helper and UIAutomator2 paths now have unit parity coverage:
+  helper JSON elements are normalized to the same `bounds`/`parsed_bounds`/
+  `accessibilityText` shape as the XML parser, and the fallback client preserves
+  the screen-data shape. A **live helper-enabled** Android run is still missing
+  because the helper was unavailable during acceptance.
 - Physical disconnect/input-release fault injection is deferred (see R3 report).
 
 ## Exit criteria

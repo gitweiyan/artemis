@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `b6c3a3c` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `322c0ae` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3850 passed, 5 skipped, 88 warnings in 148.38s
+0 failed, 3852 passed, 5 skipped, 88 warnings in 146.21s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -169,6 +169,7 @@ attach the mock client and exercise the intended native branch.
 - R3.4 acceptance (2026-11-11): iOS smoke/Flash/Pro/cancel/lease all passed; Android Flash `ad0ef70a...`, Pro `4f06fa3c...` (`goal_verified=true`), cancel `318bf58c...`, and helper lease release also passed (UIAutomator2 backend, helper unavailable warning). After physical replug, iOS smoke and Android Flash `9858ede3...` passed again; mid-task unplug remains unverified. See `R3_ACCEPTANCE_REPORT.md`.
 - Firmware command contract (2026-11-11): old builds that answer `ERR unknown command`/`usage:` for `amove` now surface `command_unsupported` via `FirmwareUnsupportedCommand`; the absolute pointer path returns it as a single-attempt `TapResult` instead of the generic two-attempt `absolute_unavailable` fallback. Unit coverage added.
 - R4 contract stabilization (2026-11-11): added adapter contract tests for UvcSource, AppAutomationSource, CompositePerception, CompositeControlSink, AppControlSink and HidControlSink shape; frozen interfaces and remaining macOS/TV/Android-helper gaps are recorded in `R4_CONTRACT_STABILIZATION.md`.
+- Android observation parity (2026-11-11): helper JSON fallback now synthesizes the same `bounds` (and keeps `parsed_bounds`/`accessibilityText`) as the XML/UIAutomator parser; unit tests cover element-shape parity and fallback screen-data parity. Live helper-enabled Android verification is still pending.
 - Post-adapter real-device check (2026-11-11 20:40): after unlocking, `ios-smoke --target 快捷指令` passed all seven stages again (7 capability records). Flash `回到主屏` completed in session `b9cb2860-76dd-4f2d-ada7-7d1adae260ce` (2 steps, 8.2s), action evidence `6fdde1e03a4...` (`ios-uvc`/`press_key`/`adapter_acknowledged`), and both UVC/serial leases were released. Trace: `traces/b9cb2860-76dd-4f2d-ada7-7d1adae260ce_PASS_2026-11-11T20-40-01`.
 - Post-observation-boundary real-device attempt (2026-11-11 19:15): `ios-smoke` failed at `snapshot` with `frame health='black'` (`uvc_no_signal`) before any pointer work; no post-migration real-device claim is made.
 - Post-migration real-device rerun (2026-11-11 20:28): after reconnecting the rig, `ios-smoke --target 快捷指令` passed all seven stages (7 capability records). Flash `回到主屏` completed in session `39fd9ed9-5857-48e2-9597-52afacc382a6` (2 steps, 9.1s); action evidence `3d85695e55f...` records `ios-uvc` / `press_key` / `adapter_acknowledged`; both UVC and serial leases were released. Trace: `traces/39fd9ed9-5857-48e2-9597-52afacc382a6_PASS_2026-11-11T20-28-47`. UVC identity remains `CONFIG_HINT` (no serial/topology exposed).
