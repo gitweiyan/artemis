@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `f1aa129` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `40750de` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3831 passed, 9 skipped, 88 warnings in 142.02s
+0 failed, 3833 passed, 9 skipped, 88 warnings in 143.63s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -132,7 +132,7 @@ fell back to the universal LangChain path and resolved a MagicMock provider. The
 attach the mock client and exercise the intended native branch.
 - R2 progress: Session cleanup now captures arbitrary ordinary adapter exceptions via tasks; Session observation goes through `session.snapshot()` and does not fall back to the controller when a real Session exists.
 - R2 real-device (2026-11-11): iOS smoke + LocateAnything passed; Flash `回到主屏` and `打开设置` completed with 15 action records (one no_effect click was reported, task recovered); Android `EUWSOBXCZLPFNJF6` Flash completed with Session-backed observation (`3e59d67b...`).
-- P1-3 progress: Flash single-action precondition now checks frame presence, 1-based index bounds, normalized target shape, and records observation skew; pointer alignment remains the controller path. Burst policy is still declarative.
+- P1-3 progress: Flash single-action precondition checks frame presence, 1-based index bounds, normalized target shape, and now rejects observations older than 5s for high-risk actions (`click`/`tap`/`long_press`/text input). Flash stamps the clock after initial and post-action captures; the action record carries the actual age and threshold. Pointer alignment remains delegated to the relative-pointer sink.
 - P1-4 progress: `LEGACY_IMPORTS` is now structured (`importer/imported/owner/exit_condition/review_after`), covers devices→reflex and graph→mcp, fails unregistered imports, stale entries and expired review phases.
 - P1-4 cleanup (2026-11-11): removed `graph/perception.py → controllers.unified_controller`; graph now calls the Session-aware `get_screen_data()` service and its L2 controller fallback lives outside the graph. Allowlist count is 43; remaining debt is listed in `legacy_allowlist.py`.
 - P1-4 cleanup 2 (2026-11-11): graph now imports `perception.observation.get_screen_data`; the MCP observation module re-exports/delegates to it. `graph → mcp.observation` and `graph → controllers` are both removed. Allowlist count is 42.
@@ -159,6 +159,7 @@ attach the mock client and exercise the intended native branch.
 - P1-4 completion (2026-11-11): `CapabilitySet` moved to `core.capabilities`, `DeviceSessionError`/`SessionClosedError` to `core.errors`; `devices.capabilities` remains a shim and all 10 L3→devices entries are removed. Allowlist is empty, not a claim that every import boundary (especially adapters→reflex) is clean.
 - Adapter boundary completion (2026-11-11): `adapters→reflex` is now zero and guarded by the architecture test; `reflex.control`/`attach`/`motion` remain compatibility shims. A post-move iOS smoke attempt was blocked by the locked phone (`suspended=1`); the last real smoke/Flash evidence predates this move.
 - Test baseline cleanup (2026-11-11): the 12 existing Explorer/VideoAnalyzer failures are fixed by attaching the mocked native client; full unit is now **0 failed / 3831 passed / 9 skipped** (`f1aa129`). The quality ratchet (774 broad handlers vs its 754 baseline) remains separate debt.
+- Observation freshness real-device check (2026-11-11 20:57): Flash session `6dc1c787-c5a2-456b-b448-f5ba93f6dba1` rejected three `click` actions with `stale_frame`; evidence showed `observation is 20.6s old (max 5.0s for click)` and `safety_precondition.allowed=false`, so the actions were not dispatched. The task then stopped on the existing No-Op Guard (failed, not a false success).
 - Post-adapter real-device check (2026-11-11 20:40): after unlocking, `ios-smoke --target 快捷指令` passed all seven stages again (7 capability records). Flash `回到主屏` completed in session `b9cb2860-76dd-4f2d-ada7-7d1adae260ce` (2 steps, 8.2s), action evidence `6fdde1e03a4...` (`ios-uvc`/`press_key`/`adapter_acknowledged`), and both UVC/serial leases were released. Trace: `traces/b9cb2860-76dd-4f2d-ada7-7d1adae260ce_PASS_2026-11-11T20-40-01`.
 - Post-observation-boundary real-device attempt (2026-11-11 19:15): `ios-smoke` failed at `snapshot` with `frame health='black'` (`uvc_no_signal`) before any pointer work; no post-migration real-device claim is made.
 - Post-migration real-device rerun (2026-11-11 20:28): after reconnecting the rig, `ios-smoke --target 快捷指令` passed all seven stages (7 capability records). Flash `回到主屏` completed in session `39fd9ed9-5857-48e2-9597-52afacc382a6` (2 steps, 9.1s); action evidence `3d85695e55f...` records `ios-uvc` / `press_key` / `adapter_acknowledged`; both UVC and serial leases were released. Trace: `traces/39fd9ed9-5857-48e2-9597-52afacc382a6_PASS_2026-11-11T20-28-47`. UVC identity remains `CONFIG_HINT` (no serial/topology exposed).
