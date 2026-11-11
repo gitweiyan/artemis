@@ -108,3 +108,14 @@ def test_flash_pointer_precheck_requires_a_relative_sink_and_delegates_alignment
     )
     assert missing.allowed is False
     assert missing.incident == "capability_unavailable"
+
+
+def test_flash_burst_budget_caps_actions_and_disallows_unknown_actions():
+    from artemis.safety.flash import flash_burst_budget
+
+    budget = flash_burst_budget()
+
+    assert budget.allows("click", 1) is True
+    assert budget.allows("click", budget.max_actions) is True
+    assert budget.allows("click", budget.max_actions + 1) is False
+    assert budget.allows("unknown_action", 1) is False

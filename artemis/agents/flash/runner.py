@@ -89,7 +89,12 @@ from artemis.graph.state import State
 from artemis.llm.structured import ParseFailure, parse_structured
 from artemis.mcp.action_executor import McpActionExecutor
 from artemis.mcp.observation import observe
-from artemis.safety.flash import evaluate_flash_precondition, flash_action_policy
+from artemis.safety.flash import (
+    FLASH_BURST_ACTIONS,
+    evaluate_flash_precondition,
+    flash_action_policy,
+    flash_burst_budget,
+)
 from artemis.memory.transcript import PRO_UI_LIST_MARKER, TranscriptLedger, mark_ephemeral
 from artemis.services.llm import (
     RobustChatModelWrapper,
@@ -1205,6 +1210,8 @@ class FlashRunner:
         """
         action_names = self.executor.action_tool_names
         index_elements = self._turn_index_snapshot(state)
+        burst_budget = flash_burst_budget()
+        burst_position = 0
         # The turn's tool-result messages are collected and emitted together:
         # emitting them per call would interleave an image carrier between two
         # tool messages, which OpenAI-compatible providers reject outright.
@@ -1214,6 +1221,25 @@ class FlashRunner:
             args = tc.get("args") or {}
             tc_id = tc.get("id") or str(uuid.uuid4())
             logger.info(f"Executing Flash tool: {name}({args})")
+
+            if name in action_names and name in FLASH_BURST_ACTIONS:
+                burst_position += 1
+                if not burst_budget.allows(name, burst_position):
+                    message = (
+                        f"Flash burst budget exceeded at action {burst_position}"
+                        f" (max {burst_budget.max_actions}); action {name!r} was not dispatched."
+                    )
+                    turn.step_keys.append(str(tc_id))
+                    turn.actions.append((name, "error", message))
+                    turn_replies.append(
+                        ToolMessage(
+                            tool_call_id=tc_id,
+                            name=name,
+                            content=message,
+                            status="error",
+                        )
+                    )
+                    continue
 
             if name == "report_task_status":
                 final_report = await self._finalize_task_report(

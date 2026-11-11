@@ -13,9 +13,13 @@ from enum import StrEnum
 __all__ = [
     "FlashActionPolicy",
     "FlashMode",
+    "FLASH_BURST_ACTIONS",
+    "FlashBurstBudget",
     "FlashPrecondition",
+    "MAX_FLASH_ACTIONS_PER_TURN",
     "evaluate_flash_precondition",
     "flash_action_policy",
+    "flash_burst_budget",
 ]
 
 
@@ -154,3 +158,46 @@ def evaluate_flash_precondition(
 
         skew = observation_clock.skew_s(ctx)
     return FlashPrecondition(True, observation_skew_s=skew, pointer_precheck=pointer_precheck)
+
+
+#: A Flash turn is still a bounded batch, not an unbounded model-controlled loop.
+MAX_FLASH_ACTIONS_PER_TURN = 8
+
+#: Actions that may appear more than once in a sequential Flash turn. Flash
+#: observes after each action, so this is a budgeted sequence, not Pro's unvetted
+#: fast-action burst.
+FLASH_BURST_ACTIONS = frozenset(
+    {
+        "click",
+        "click_sequence",
+        "long_press",
+        "input_text",
+        "focus_and_input_text",
+        "swipe",
+        "press_key",
+        "manage_app",
+        "open_link",
+        "wait_for_delay",
+        "wait_for_text",
+        "erase_one_char",
+        "clear_text",
+        "focus_and_clear_text",
+    }
+)
+
+
+@dataclass(frozen=True)
+class FlashBurstBudget:
+    max_actions: int = MAX_FLASH_ACTIONS_PER_TURN
+    allowed_actions: frozenset[str] = FLASH_BURST_ACTIONS
+
+    def allows(self, action: str, position: int) -> bool:
+        """Whether the ``position``-th device action may run in this turn."""
+
+        return str(action) in self.allowed_actions and 1 <= int(position) <= max(
+            1, int(self.max_actions)
+        )
+
+
+def flash_burst_budget() -> FlashBurstBudget:
+    return FlashBurstBudget()

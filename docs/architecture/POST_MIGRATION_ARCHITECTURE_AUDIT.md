@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-12 failed, 3813 passed, 5 skipped, 76 warnings in 149.49s
+12 failed, 3815 passed, 5 skipped, 76 warnings in 149.49s
 ```
 
 Known failures:
@@ -136,6 +136,7 @@ Known failures:
 - P1-3 progress: Flash single-action precondition now checks frame presence, 1-based index bounds, normalized target shape, and records observation skew; pointer alignment remains the controller path. Burst policy is still declarative.
 - P1-4 progress: `LEGACY_IMPORTS` is now structured (`importer/imported/owner/exit_condition/review_after`), covers devices→reflex and graph→mcp, fails unregistered imports, stale entries and expired review phases.
 - P1-3 pointer progress (2026-11-11): Flash precondition verifies a relative-pointer sink exists when the Session requires pointer precheck and marks alignment as delegated to the sink; missing sink returns capability_unavailable. Burst behavior remains declarative.
+- P1-3 burst progress (2026-11-11): Flash turns are capped at 8 device actions with an explicit action allowlist; over-budget actions return an error ToolMessage without dispatch. Alignment remains delegated to the relative-pointer sink.
 
 `uv run ruff check`: pass.
 `uv run ruff format --check .`: 14 files would be reformatted (all pre-existing; no new file after formatting our test).

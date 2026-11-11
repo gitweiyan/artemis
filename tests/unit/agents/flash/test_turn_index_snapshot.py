@@ -300,3 +300,29 @@ async def test_explorer_after_an_action_moves_the_snapshot_to_the_list_it_number
 
     session = runner.executor._session
     assert [args["target"] for _, args in session.calls] == [[500, 417], [185, 833]]
+
+
+@pytest.mark.asyncio
+async def test_a_turn_cannot_dispatch_more_than_the_flash_burst_budget(mock_context):
+    from artemis.safety.flash import MAX_FLASH_ACTIONS_PER_TURN
+
+    runner = _runner(mock_context, observations=[])
+    state = _state(ORIGINAL)
+    turn = _TurnRecord()
+    calls = [_click(1, f"tc-{index}") for index in range(MAX_FLASH_ACTIONS_PER_TURN + 1)]
+
+    await runner._process_tool_calls(
+        calls,
+        state,
+        [],
+        "thought",
+        {},
+        b"pre",
+        "xml",
+        0,
+        turn,
+    )
+
+    assert len(runner.executor._session.calls) == MAX_FLASH_ACTIONS_PER_TURN
+    assert turn.actions[-1][1] == "error"
+    assert "burst budget" in turn.actions[-1][2].lower()
