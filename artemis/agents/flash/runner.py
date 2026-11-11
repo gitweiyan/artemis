@@ -88,6 +88,7 @@ from artemis.graph.state import State
 from artemis.llm.structured import ParseFailure, parse_structured
 from artemis.mcp.action_executor import McpActionExecutor
 from artemis.mcp.observation import observe
+from artemis.safety.flash import flash_action_policy
 from artemis.memory.transcript import PRO_UI_LIST_MARKER, TranscriptLedger, mark_ephemeral
 from artemis.services.llm import (
     RobustChatModelWrapper,
@@ -751,6 +752,7 @@ class FlashRunner:
         metrics = metadata.get("action_metrics")
         if metrics:
             action_dict["action_metrics"] = metrics
+        action_dict["safety_policy"] = flash_action_policy(name).as_dict()
         return action_dict
 
     def _record_action_step(
