@@ -158,6 +158,7 @@ Known failures:
 - R3.1b observation boundary (2026-11-11): the implementation moved to `perception/observation.py`; MCP is a shim, action result DTOs moved to `core`, and `ObservationEvidence` carries frame/source/geometry/health/age on `ScreenData`. MCP `observe_screen` schema is unchanged. Unit: 3822 passed.
 - P1-4 completion (2026-11-11): `CapabilitySet` moved to `core.capabilities`, `DeviceSessionError`/`SessionClosedError` to `core.errors`; `devices.capabilities` remains a shim and all 10 L3→devices entries are removed. Allowlist is empty, not a claim that every import boundary (especially adapters→reflex) is clean.
 - Post-observation-boundary real-device attempt (2026-11-11 19:15): `ios-smoke` failed at `snapshot` with `frame health='black'` (`uvc_no_signal`) before any pointer work; no post-migration real-device claim is made.
+- Post-migration real-device rerun (2026-11-11 20:28): after reconnecting the rig, `ios-smoke --target 快捷指令` passed all seven stages (7 capability records). Flash `回到主屏` completed in session `39fd9ed9-5857-48e2-9597-52afacc382a6` (2 steps, 9.1s); action evidence `3d85695e55f...` records `ios-uvc` / `press_key` / `adapter_acknowledged`; both UVC and serial leases were released. Trace: `traces/39fd9ed9-5857-48e2-9597-52afacc382a6_PASS_2026-11-11T20-28-47`. UVC identity remains `CONFIG_HINT` (no serial/topology exposed).
 
 `uv run ruff check`: pass.
 `uv run ruff format --check .`: 16 files would be reformatted (pre-existing baseline; not part of this fix).

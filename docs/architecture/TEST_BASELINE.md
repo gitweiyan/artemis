@@ -27,6 +27,7 @@
 - UVC identity：当前仍为 `CONFIG_HINT`（采集卡无可用 USB serial/topology），不得写成稳定 USB identity。
 - P0 解锁后复测（2026-11-11 19:06）：`ios-smoke --target 快捷指令` 通过全部阶段；Flash `回到主屏` 会话 `41b6d9a8-47e9-4fee-a8f8-288133e69e46` 成功（2 steps），UVC/serial lease 均已释放。该次只验证单动作 Flash 与 Session close，未触发多动作 Burst 拒绝路径。
 - Observation 迁移后复测（2026-11-11 19:15）：`ios-smoke` 在 snapshot 阶段因黑帧失败（`uvc_no_signal`），未进入指针/点击；该失败是采集无信号，不是 Observation 服务异常。迁移后尚无新的真机观察证据。
+- Observation 迁移后复测 2（2026-11-11 20:28）：重新连接机台后 `ios-smoke --target 快捷指令` 七阶段全绿；Flash `回到主屏` 会话 `39fd9ed9-5857-48e2-9597-52afacc382a6` 成功（2 steps），action evidence `3d85695e55f...` 为 `adapter_acknowledged`，UVC/serial lease 均释放。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 
