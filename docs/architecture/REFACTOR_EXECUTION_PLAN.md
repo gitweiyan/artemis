@@ -465,7 +465,7 @@ Application Service / Agent Tool
 - [x] 正式区分 Host 命令 ACK、HID Report 已提交、iOS/Android 实际响应、屏幕效果验证（Bridge/Adapter 文档与 DTO 语义；现有 Control 的 `OK` 仍只当 ACK）。
 - [x] 记录固件 Build Variant 与能力：当前固件默认有 Touch/Mouse/Keyboard；iOS-only Build 关闭 Touch，走 Mouse/Keyboard；BCI-only 是独立实验配置。能力只有经过目标设备实测才能标记 verified（`FirmwareInfo.mode/features` + 后续 smoke evidence）。
 - [x] 设计后续协议版本/能力握手（先写 ADR 和兼容测试，再改固件）：协议版本、Report/Command 能力、最大报文、ACK 语义、超时、设备重启和状态释放（ADR-009；Host `hello`/fallback + 固件 v2 `hello`；命令 ID/重启释放仍待后续）。
-- [ ] 老固件不支持的 Host 命令（例如 `amove`）必须报 `command_unsupported`（契约 §7.2），不允许静默退化成语义不同的动作。
+- [x] 老固件不支持的 Host 命令（例如 `amove`）必须报 `command_unsupported`（契约 §7.2），不允许静默退化成语义不同的动作（`FirmwareUnsupportedCommand` → `TapResult.incident=command_unsupported`；未重试）。
 
 #### 4.3 Pointer Control 与 iOS 平台策略
 
