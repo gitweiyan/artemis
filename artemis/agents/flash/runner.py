@@ -89,7 +89,7 @@ from artemis.graph.state import State
 from artemis.llm.structured import ParseFailure, parse_structured
 from artemis.mcp.action_executor import McpActionExecutor
 from artemis.mcp.observation import observe
-from artemis.safety.flash import flash_action_policy
+from artemis.safety.flash import evaluate_flash_precondition, flash_action_policy
 from artemis.memory.transcript import PRO_UI_LIST_MARKER, TranscriptLedger, mark_ephemeral
 from artemis.services.llm import (
     RobustChatModelWrapper,
@@ -1011,17 +1011,29 @@ class FlashRunner:
         action_names = self.executor.action_tool_names
         action_started = time.time()
         policy = flash_action_policy(name)
+        precondition = evaluate_flash_precondition(
+            name,
+            args,
+            state=state,
+            index_elements=index_elements,
+            pre_screenshot=pre_screenshot_bytes,
+            ctx=self.ctx,
+        )
         try:
-            if name in action_names and policy.requires_precondition and not pre_screenshot_bytes:
+            if name in action_names and not precondition.allowed:
                 exec_result = ToolExecutionResult(
                     tool_call_id=tc_id,
                     tool_name=name,
                     status="error",
                     text_summary=(
-                        "Flash precondition failed: no pre-action observation;"
-                        " refusing to dispatch a blind action."
+                        "Flash precondition failed:"
+                        f" {precondition.reason or precondition.incident or 'unknown'};"
+                        " refusing to dispatch."
                     ),
-                    metadata={"incident": "stale_frame"},
+                    metadata={
+                        "incident": precondition.incident,
+                        "safety_precondition": precondition.as_dict(),
+                    },
                 )
             else:
                 exec_result = await self.executor.execute(
@@ -1032,6 +1044,7 @@ class FlashRunner:
                 exec_result, name, action_names, state
             )
             metadata = exec_result.metadata or {}
+            metadata["safety_precondition"] = precondition.as_dict()
             metadata["_pre_screenshot_bytes"] = pre_screenshot_bytes
             metadata["_post_screenshot_bytes"] = post_img_bytes
             exec_result.metadata = metadata

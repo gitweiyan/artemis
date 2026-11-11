@@ -10,7 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-__all__ = ["FlashActionPolicy", "FlashMode", "flash_action_policy"]
+__all__ = [
+    "FlashActionPolicy",
+    "FlashMode",
+    "FlashPrecondition",
+    "evaluate_flash_precondition",
+    "flash_action_policy",
+]
 
 
 class FlashMode(StrEnum):
@@ -56,3 +62,77 @@ def flash_action_policy(action: str, *, burst: bool = False) -> FlashActionPolic
         pointer_precheck=name in {"click", "tap", "long_press"},
         burst_allowed=name not in _SINGLE_RISK,
     )
+
+
+@dataclass(frozen=True)
+class FlashPrecondition:
+    """The cheap precondition verdict for one Flash action."""
+
+    allowed: bool
+    incident: str | None = None
+    reason: str = ""
+    observation_skew_s: float | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "allowed": self.allowed,
+            "incident": self.incident,
+            "reason": self.reason,
+            "observation_skew_s": self.observation_skew_s,
+        }
+
+
+def evaluate_flash_precondition(
+    action: str,
+    args: dict,
+    *,
+    state=None,
+    index_elements=None,
+    pre_screenshot: bytes | None,
+    ctx=None,
+) -> FlashPrecondition:
+    """Validate cheap, available evidence without importing the Pro gate.
+
+    Pointer alignment itself remains the controller's responsibility; this check
+    only verifies that the action has a usable observation, a valid target shape,
+    and an existing indexed element. It is deliberately latency-free.
+    """
+
+    name = str(action or "").strip()
+    policy = flash_action_policy(name)
+    if not policy.requires_precondition:
+        return FlashPrecondition(True)
+
+    if not pre_screenshot:
+        return FlashPrecondition(False, "stale_frame", "no pre-action observation")
+
+    target = args.get("target") if isinstance(args, dict) else None
+    if target is None and isinstance(args, dict):
+        target = args.get("coordinates")
+    if isinstance(target, int) or (isinstance(target, str) and target.strip().isdigit()):
+        index = int(target)
+        elements = index_elements
+        if elements is None and state is not None:
+            elements = getattr(state, "indexed_elements", None)
+        if isinstance(elements, (list, tuple)) and (index < 1 or index > len(elements)):
+            return FlashPrecondition(
+                False, "target_disappeared", f"Invalid target index {index}"
+            )
+    elif isinstance(target, (list, tuple)):
+        if len(target) != 2:
+            return FlashPrecondition(False, "coordinate_space_mismatch", "target is not a point")
+        try:
+            x, y = int(target[0]), int(target[1])
+        except (TypeError, ValueError):
+            return FlashPrecondition(False, "coordinate_space_mismatch", "target point is invalid")
+        if not (0 <= x <= 1000 and 0 <= y <= 1000):
+            return FlashPrecondition(
+                False, "coordinate_space_mismatch", f"target {x},{y} is outside 0..1000"
+            )
+
+    skew = None
+    if ctx is not None:
+        from artemis.runtime import observation_clock
+
+        skew = observation_clock.skew_s(ctx)
+    return FlashPrecondition(True, observation_skew_s=skew)

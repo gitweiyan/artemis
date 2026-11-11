@@ -60,3 +60,25 @@ def test_high_value_flash_post_verification_marks_no_effect():
     assert result.status == "error"
     assert result.metadata["post_verification"]["ok"] is False
     assert result.metadata["post_verification"]["incident"] == "no_effect"
+
+
+def test_flash_precondition_checks_frame_target_shape_and_index():
+    from types import SimpleNamespace
+    from artemis.safety.flash import evaluate_flash_precondition
+
+    assert evaluate_flash_precondition(
+        "click", {"target": [500, 500]}, pre_screenshot=b"frame", ctx=None
+    ).allowed
+    missing = evaluate_flash_precondition(
+        "click", {"target": [500, 500]}, pre_screenshot=None, ctx=None
+    )
+    assert missing.incident == "stale_frame"
+    outside = evaluate_flash_precondition(
+        "click", {"target": [1200, 500]}, pre_screenshot=b"frame", ctx=None
+    )
+    assert outside.incident == "coordinate_space_mismatch"
+    state = SimpleNamespace(indexed_elements=[{"center": [1, 2]}])
+    missing_index = evaluate_flash_precondition(
+        "click", {"target": 2}, state=state, pre_screenshot=b"frame", ctx=None
+    )
+    assert missing_index.incident == "target_disappeared"
