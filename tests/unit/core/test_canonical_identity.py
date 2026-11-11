@@ -28,19 +28,32 @@ def test_a_built_descriptor_wins_over_the_physical_serial():
     assert resolve_canonical_device_id("emulator-5554", descriptor=descriptor) == "lab-phone"
 
 
-def test_uvc_identity_prefers_serial_then_port_path_then_explicit_hint():
+def test_uvc_identity_prefers_hardware_then_explicit_hint():
     serial = UVCIdentity("SERIAL-1", IdentitySource.HARDWARE_SERIAL)
     assert resolve_uvc_identity("USB Video", probe=lambda _: serial) == serial
 
     port = UVCIdentity("usb-1-2.3", IdentitySource.USB_PORT_PATH)
     assert resolve_uvc_identity("USB Video", probe=lambda _: port) == port
 
-    hint = resolve_uvc_identity("USB Video", explicit_key="rig-camera", probe=lambda _: serial)
+    # An explicit key is a fallback hint; it must not mask a usable hardware id.
+    assert (
+        resolve_uvc_identity("USB Video", explicit_key="rig-camera", probe=lambda _: serial)
+        == serial
+    )
+    assert (
+        resolve_uvc_identity("USB Video", explicit_key="rig-camera", probe=lambda _: port) == port
+    )
+
+    hint = resolve_uvc_identity("USB Video", explicit_key="rig-camera", probe=lambda _: None)
     assert hint.key == "rig-camera"
     assert hint.source is IdentitySource.CONFIG_HINT
 
     with pytest.raises(ValueError, match="stable USB identity"):
         resolve_uvc_identity("USB Video", probe=lambda _: None, strict=True)
+    with pytest.raises(ValueError, match="explicit config hints are not hardware identity"):
+        resolve_uvc_identity(
+            "USB Video", explicit_key="rig-camera", probe=lambda _: None, strict=True
+        )
 
 
 def test_a_config_hint_is_visible_in_the_uvc_endpoint_source():

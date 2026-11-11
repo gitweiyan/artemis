@@ -96,15 +96,30 @@ def resolve_uvc_identity(
     strict: bool = False,
     probe: Callable[[str], UVCIdentity | None] = probe_usb_identity,
 ) -> UVCIdentity:
-    """Resolve a UVC key; config hint is explicit, and strict mode fails closed."""
+    """Resolve a UVC key in hardware-first order.
 
-    if explicit_key and derive_hardware_key(explicit_key):
-        return UVCIdentity(derive_hardware_key(explicit_key), IdentitySource.CONFIG_HINT)
+    Priority is hardware serial, USB topology/port path, explicit config hint,
+    then the AVFoundation device name as a last-resort hint. An explicit key is
+    deliberately not allowed to mask a usable hardware identity; it only fills
+    the gap when the probe cannot identify the device. ``strict`` requires real
+    hardware identity and fails closed before accepting either hint.
+    """
+
     found = probe(device_name)
     if found is not None:
         return found
+
+    explicit = derive_hardware_key(explicit_key) if explicit_key else ""
+    if strict:
+        raise ValueError(
+            f"no stable USB identity for UVC {device_name!r}; connect a device with a"
+            " USB serial/topology path (explicit config hints are not hardware identity)"
+        )
+    if explicit:
+        return UVCIdentity(explicit, IdentitySource.CONFIG_HINT)
+
     hint = derive_hardware_key(device_name)
-    if strict or not hint:
+    if not hint:
         raise ValueError(
             f"no stable USB identity for UVC {device_name!r}; set an explicit identity"
             " key or connect a device with a USB serial/topology path"

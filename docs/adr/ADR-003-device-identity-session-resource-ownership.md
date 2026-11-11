@@ -109,6 +109,7 @@ Phase 1 PR-3 要求“Session 生命周期 + 资源 Lease”，而 Phase 2 的 R
 1. 一个 `device_id` 可以拥有 0..N 个 `endpoint_id`；新增 Endpoint **不得**改变 `device_id`。
 2. `device_id` 不得由端点路径派生；现有取值保持不变（Android serial、`ios-uvc`、`cloud_device`、`mock-device`）。同一 Host 接多台同类机台时，必须为每台配置稳定别名：优先级为显式 `ARTEMIS_DEVICE_ALIAS` → 平台默认（Android serial、`ios-uvc`、`cloud_device`）；默认 `ios-uvc` 只适用于单机台。
 3. `endpoint_id` 必须包含 `host_id` 或端点稳定硬件标识，避免多机/多卡冲突；优先使用 USB 硬件序列号。
+3a. UVC/Grabber 身份解析顺序固定为：**USB Serial → USB Port Path → explicit config hint → device-name hint**。`explicit_key` 不得静默覆盖可用硬件身份；`strict` 模式只接受真实硬件身份，缺少 Serial/Port Path 时 fail closed。该顺序以真实机台测试为准，不能因为配置了 `ARTEMIS_UVC_IDENTITY_KEY` 就把 `CONFIG_HINT` 写成硬件身份。
 4. `resource_id` 必须与访问模式绑定（`capture` / `command` / `control`）；UVC/Camera 等无硬件序列号的端点使用 **`host_id` + USB port path**（例如 `uvc:host-7f3a:usb-1-2.3/capture`），禁止使用会变化的 `/dev/videoN` 序号作为唯一身份。
 5. 禁止把 `platform_family` 编入 `device_id` 再做字符串解析；平台是独立字段（`ios-uvc` 只是历史别名）。
 6. `DeviceDescriptor` 是**纯数据**，不得持有 ADB/UVC/Serial 句柄；句柄只存在于 Session/Adapter。
@@ -313,6 +314,7 @@ new/ready/... --close()--> closing --(released)--> closed
 |---|---|---|---|
 | 2026-11-09 | Proposed | Initial proposal | Phase 0 审计确认：Session 无生命周期、UVC/串口无 Owner、reflex/smoke 绕过设备锁；需要先定身份/所有权再实施 PR-1/PR-3 |
 | 2026-11-09 | Accepted | 评审通过；确定 `ARTEMIS_DEVICE_ALIAS`、UVC port-path 身份、PR-1 引入 `surface_id`、Helper forward 独立 lease | 5 项开放问题已由 Owner 答复，PR-1/PR-3 可进入实现 |
+| 2026-11-11 | Accepted (clarification) | 固定 UVC 身份顺序为 Serial → Port Path → explicit hint；explicit hint 仅为兜底，strict 只接受硬件身份 | 审计发现实现把 explicit_key 放在 probe 前，与文档/安全预期不一致；Owner 明确要求硬件身份优先 |
 
 ---
 

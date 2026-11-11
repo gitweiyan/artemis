@@ -201,17 +201,18 @@ Tests:
 
 Files: `devices/descriptors.py`, new `drivers/ios/uvc_identity.py` (or L4 observer), `drivers/factory.py`.
 
-Order:
+Order (hardware-first, 2026-11-11 decision):
 
-1. explicit `uvc_hardware_key` (operator/test pin);
-2. USB hardware serial;
-3. USB topology/port path (stable per host);
-4. config hint with explicit `IdentitySource.CONFIG_HINT` and a warning.
+1. USB hardware serial (validated, stable across ports);
+2. USB topology/port path when no reliable/unique serial exists;
+3. explicit `uvc_hardware_key` only as a fallback config hint;
+4. AVFoundation/device-name hint with a warning when nothing else exists.
 
 Rules:
 
+- An explicit config hint must never silently override a usable hardware identity; it is P2, not P0.
 - No `/dev/videoN`/“USB Video” as a silent unique identity.
-- If no stable key and strict exclusive mode is requested, fail closed with a clear remediation.
+- `ARTEMIS_UVC_IDENTITY_STRICT=1` requires real hardware identity and fails closed; hints are not sufficient.
 - Preserve the existing resource_id format and fingerprint invalidation.
 
 Tests:
