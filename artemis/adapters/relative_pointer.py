@@ -607,7 +607,16 @@ class SessionTapController:
         try:
             self.session.move_abs(x, y)
             self.session.click_abs()
-        except (AttributeError, RuntimeError, OSError, ValueError):
+        except (AttributeError, RuntimeError, OSError, ValueError) as exc:
+            if getattr(exc, "incident", None) == "command_unsupported":
+                return TapResult(
+                    False,
+                    1,
+                    None,
+                    None,
+                    str(exc),
+                    "command_unsupported",
+                )
             return None
         after = self.capture.grab_latest()
         effect = verify_effect(before.image, after.image, (x, y))

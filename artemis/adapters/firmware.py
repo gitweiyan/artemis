@@ -23,6 +23,7 @@ __all__ = [
     "FirmwareCommandError",
     "FirmwareInfo",
     "FirmwareLineTooLong",
+    "FirmwareUnsupportedCommand",
     "LineTransport",
     "MAX_PROTOCOL",
     "MIN_PROTOCOL",
@@ -46,6 +47,20 @@ class FirmwareError(RuntimeError):
 
 class FirmwareCommandError(FirmwareError):
     """The firmware answered ``ERR`` or ``usage:`` for a command."""
+
+    #: Canonical incident when this failure is a missing command, not bad args.
+    incident: str | None = None
+
+    def __init__(self, message: str, *, incident: str | None = None) -> None:
+        super().__init__(message)
+        self.incident = incident
+
+
+class FirmwareUnsupportedCommand(FirmwareCommandError):
+    """The firmware does not implement the requested command (old build)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, incident="command_unsupported")
 
 
 class FirmwareAckTimeout(FirmwareError):
@@ -150,6 +165,18 @@ class FirmwareBridge:
                         if part.startswith("ERR ") or part.startswith("usage:")
                     ]
                     if errors:
+                        unsupported = next(
+                            (
+                                error
+                                for error in errors
+                                if "unknown command" in error.lower() or error.startswith("usage:")
+                            ),
+                            None,
+                        )
+                        if unsupported is not None:
+                            raise FirmwareUnsupportedCommand(
+                                f"firmware command {command!r} is unsupported: {unsupported}"
+                            )
                         raise FirmwareCommandError(
                             f"firmware command {command!r} failed: {errors[0]}"
                         )

@@ -1319,6 +1319,32 @@ def test_two_rejected_absolute_reports_are_named_absolute_unavailable():
     assert control.absolute_clicks == 0
 
 
+def test_an_old_firmware_absolute_command_is_reported_as_unsupported():
+    """An unknown amove is a capability gap, not a generic two-attempt rejection."""
+    from artemis.adapters.firmware import FirmwareUnsupportedCommand
+    from artemis.reflex.mouse import SessionTapController
+
+    class _OldFirmware(_AbsolutePointer):
+        def mouse_move_abs(self, nx, ny):
+            if (nx, ny) != (0, 0):
+                raise FirmwareUnsupportedCommand("firmware command 'amove' is unsupported")
+            super().mouse_move_abs(nx, ny)
+
+    control = _OldFirmware()
+    session = PointerSession(control, frame_size=(449, 974), gain=(2.0, 2.0))
+    session.connect()
+    controller = SessionTapController(
+        session, capture=_DotCamera(control), detector=_DotDetector(), settle_timeout_s=0.0
+    )
+
+    result = controller.tap(224, 487)
+
+    assert result.ok is False
+    assert result.incident == "command_unsupported"
+    assert result.attempts == 1, "an unsupported command is not retried"
+    assert control.absolute_clicks == 0
+
+
 def test_an_ignored_absolute_move_reports_no_effect_instead_of_falling_back():
     """Stage A: a tap is absolute or it refuses; it never silently switches to relative."""
     from artemis.reflex.mouse import SessionTapController

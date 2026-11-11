@@ -9,6 +9,7 @@ from artemis.adapters.firmware import (
     FirmwareBridge,
     FirmwareCommandError,
     FirmwareLineTooLong,
+    FirmwareUnsupportedCommand,
     MAX_LINE_BYTES,
     parse_hello_info,
     parse_usb_info,
@@ -58,6 +59,16 @@ def test_err_is_a_command_error():
 
     with pytest.raises(FirmwareCommandError, match="ERR bad args"):
         bridge.exchange("move 1 1")
+
+
+def test_an_old_firmware_command_is_reported_as_command_unsupported():
+    bridge, _ = _bridge(replies={"amove 100 200": b"ERR unknown command\nOK\n"})
+
+    with pytest.raises(FirmwareUnsupportedCommand) as excinfo:
+        bridge.exchange("amove 100 200")
+
+    assert excinfo.value.incident == "command_unsupported"
+    assert "unsupported" in str(excinfo.value)
 
 
 def test_line_too_long_resyncs_and_retries_once():
