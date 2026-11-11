@@ -22,6 +22,7 @@ from typing import Iterable, Iterator, Literal, Mapping, Sequence
 
 __all__ = [
     "CATALOG",
+    "CapabilitySet",
     "CapabilityDeclaration",
     "CapabilityDomain",
     "CapabilityEvidence",
@@ -38,6 +39,22 @@ __all__ = [
 ]
 
 _UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class CapabilitySet:
+    """Compatibility capability view shared by L3 sources/sinks and L4 drivers."""
+
+    supports_ui_tree: bool = False
+    supports_absolute_tap: bool = False
+    supports_relative_pointer: bool = False
+    requires_pointer_precheck: bool = False
+    supports_ocr: bool = False
+    supports_text_input: bool = False
+    supports_shell: bool = False
+    #: Launch/stop an app by name. Android resolves a package; iOS uses the
+    #: Spotlight/keyboard launcher because it has no package manager to query.
+    supports_app_launch: bool = True
 
 
 class CapabilityDomain(StrEnum):

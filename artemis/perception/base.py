@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from artemis.devices.capabilities import CapabilitySet
+from artemis.core.capabilities import CapabilitySet
 
 
 @dataclass(frozen=True)

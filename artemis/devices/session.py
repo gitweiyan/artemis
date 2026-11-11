@@ -18,6 +18,7 @@ from artemis.control.base import ControlSink
 from artemis.core.capabilities import CapabilityView
 from artemis.core.capability_registry import declared_view
 from artemis.core.identity import DeviceDescriptor
+from artemis.core.errors import DeviceSessionError, SessionClosedError
 from artemis.devices.capabilities import CapabilitySet
 from artemis.devices.capabilities_compat import manifest_from_capability_set
 from artemis.devices.geometry import ScreenGeometry
@@ -37,14 +38,6 @@ class SessionState(StrEnum):
     CLOSING = "closing"
     CLOSED = "closed"
     FAILED = "failed"
-
-
-class DeviceSessionError(RuntimeError):
-    """A session cannot satisfy a requested perception or control capability."""
-
-
-class SessionClosedError(DeviceSessionError):
-    """The session has been closed (or is closing) and cannot serve requests."""
 
 
 @dataclass

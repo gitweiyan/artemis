@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import fields
 
 from artemis.control.base import ActionResult, ControlSink
-from artemis.devices.capabilities import CapabilitySet
+from artemis.core.capabilities import CapabilitySet
 
 __all__ = ["CompositeControlSink"]
 

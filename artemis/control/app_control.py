@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 
 from artemis.control.base import ActionResult
-from artemis.devices.capabilities import CapabilitySet
+from artemis.core.capabilities import CapabilitySet
 
 __all__ = ["AppControlSink"]
 

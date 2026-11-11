@@ -16,7 +16,7 @@ from artemis.core.capabilities import (
     CapabilityManifest,
 )
 from artemis.core.capability_registry import ProbeResult
-from artemis.devices.capabilities import CapabilitySet
+from artemis.core.capabilities import CapabilitySet
 from artemis.perception.base import Frame, Target, TextBox
 from third_party.mobile_use.utils.logger import get_logger
 

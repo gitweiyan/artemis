@@ -13,7 +13,7 @@ from artemis.core.capabilities import (
     CapabilityManifest,
 )
 from artemis.core.capability_registry import ProbeResult
-from artemis.devices.capabilities import CapabilitySet
+from artemis.core.capabilities import CapabilitySet
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)

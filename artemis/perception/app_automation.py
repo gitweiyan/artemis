@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from artemis.devices.capabilities import CapabilitySet
+from artemis.core.capabilities import CapabilitySet
 from artemis.perception.base import Frame, UIElement
 
 __all__ = ["AppAutomationSource"]

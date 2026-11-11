@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from artemis.devices.capabilities import CapabilitySet
+from artemis.core.capabilities import CapabilitySet
 from artemis.perception.base import Frame
 from third_party.mobile_use.utils.logger import get_logger
 

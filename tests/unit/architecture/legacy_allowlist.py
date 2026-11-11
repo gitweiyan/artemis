@@ -46,19 +46,6 @@ def _entry(importer, imported, review_after="Phase 4", owner="Phase 3R/4"):
 
 
 LEGACY_IMPORTS = (
-    # agents → controller compatibility facade
-    # graph fallback observation
-    # L4 builders still use legacy capture/selector and the iOS Reflex helpers
-    # Device profile still imports Reflex pointer/locator internals
-    # L3 source/sink code imports compatibility capability/session DTOs
-    _entry("artemis/perception/app_automation.py", "artemis.devices.capabilities", "Phase 5"),
-    _entry("artemis/perception/base.py", "artemis.devices.capabilities", "Phase 5"),
-    _entry("artemis/perception/camera.py", "artemis.devices.capabilities", "Phase 5"),
-    _entry("artemis/perception/composite.py", "artemis.devices.capabilities", "Phase 5"),
-    _entry("artemis/perception/composite.py", "artemis.devices.session", "Phase 5"),
-    _entry("artemis/perception/uvc.py", "artemis.devices.capabilities", "Phase 5"),
-    _entry("artemis/control/app_control.py", "artemis.devices.capabilities", "Phase 5"),
-    _entry("artemis/control/base.py", "artemis.devices.capabilities", "Phase 5"),
-    _entry("artemis/control/composite.py", "artemis.devices.capabilities", "Phase 5"),
-    _entry("artemis/control/hid.py", "artemis.devices.capabilities", "Phase 5"),
+    # Phase 5 L3→devices DTO migration is complete; keep the mechanism for
+    # the next contract boundary rather than deleting the ratchet.
 )

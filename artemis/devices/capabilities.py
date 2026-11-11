@@ -1,24 +1,7 @@
-"""Platform-neutral capability declarations.
-
-A capability describes what a source or sink can actually do. Core orchestration
-must branch on these flags, never on a platform name.
-"""
+"""Compatibility shim: CapabilitySet moved to core.capabilities (Phase 9)."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from artemis.core.capabilities import CapabilitySet  # noqa: F401
 
-
-@dataclass(frozen=True)
-class CapabilitySet:
-    supports_ui_tree: bool = False
-    supports_absolute_tap: bool = False
-    supports_relative_pointer: bool = False
-    requires_pointer_precheck: bool = False
-    supports_ocr: bool = False
-    supports_text_input: bool = False
-    supports_shell: bool = False
-    #: Launch/stop an app by name. Android resolves a package; iOS uses the
-    #: Spotlight/keyboard launcher (IOSAppLauncher.open_app) because it has no package
-    #: manager to query.
-    supports_app_launch: bool = True
+__all__ = ["CapabilitySet"]

@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from dataclasses import fields
 
-from artemis.devices.capabilities import CapabilitySet
+from artemis.core.capabilities import CapabilitySet
+from artemis.core.errors import DeviceSessionError
 from artemis.perception.base import Frame, PerceptionSource
 
 __all__ = ["CompositePerception"]
@@ -53,8 +54,6 @@ class CompositePerception:
             failures.append(
                 f"{type(source).__name__}: frame health={getattr(frame, 'health', None)!r}"
             )
-        from artemis.devices.session import DeviceSessionError
-
         raise DeviceSessionError(
             "no healthy perception frame: " + ("; ".join(failures) or "no sources")
         )
