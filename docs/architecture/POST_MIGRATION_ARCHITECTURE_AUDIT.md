@@ -137,6 +137,7 @@ Known failures:
 - P1-4 progress: `LEGACY_IMPORTS` is now structured (`importer/imported/owner/exit_condition/review_after`), covers devices→reflex and graph→mcp, fails unregistered imports, stale entries and expired review phases.
 - P1-4 cleanup (2026-11-11): removed `graph/perception.py → controllers.unified_controller`; graph now calls the Session-aware `get_screen_data()` service and its L2 controller fallback lives outside the graph. Allowlist count is 43; remaining debt is listed in `legacy_allowlist.py`.
 - P1-4 cleanup 2 (2026-11-11): graph now imports `perception.observation.get_screen_data`; the MCP observation module re-exports/delegates to it. `graph → mcp.observation` and `graph → controllers` are both removed. Allowlist count is 42.
+- Post-observation-boundary real-device check (2026-11-11): iOS Flash `回到主屏` (`635ef881...`) and Android Flash (`7f6f9bb1...`) completed after the extraction.
 - P1-3 pointer progress (2026-11-11): Flash precondition verifies a relative-pointer sink exists when the Session requires pointer precheck and marks alignment as delegated to the sink; missing sink returns capability_unavailable. Burst behavior remains declarative.
 - P1-3 burst progress (2026-11-11): Flash turns are capped at 8 device actions with an explicit action allowlist; over-budget actions return an error ToolMessage without dispatch. Alignment remains delegated to the relative-pointer sink.
 
