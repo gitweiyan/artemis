@@ -30,13 +30,13 @@ __all__ = [
 
 
 def _cv2():
-    import cv2  # type: ignore
+    import cv2
 
     return cv2
 
 
 def _numpy():
-    import numpy as np  # type: ignore
+    import numpy as np
 
     return np
 

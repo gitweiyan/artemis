@@ -11,7 +11,7 @@
 | `uv run pytest tests/unit -q` | **0 failed, 3835 passed, 9 skipped**, 88 warnings, 149.98s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
-| `quality_ratchet` | broad_exception_handlers=774, silent=0, type_ignore_comments=20（脚本相对 754/18 基线仍返回 1） |
+| `quality_ratchet` | broad_exception_handlers=774, silent=0, type_ignore_comments=18（已按当前值登记 debt checkpoint；见 `QUALITY_RATCHET_DEBT.md`） |
 | 真实设备 | iOS smoke/Flash/Pro、Android Flash 已通过；详见 `POST_MIGRATION_ARCHITECTURE_AUDIT.md` |
 
 ### 当前失败清单
@@ -57,7 +57,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 | CI 等价测试 | `uv run pytest -q` | **14 failed, 3568 passed, 10 skipped, 8 deselected**, 164.25 s | ❌ 红色（同上） |
 | Lint | `uv run ruff check` | `All checks passed!` | ✅ 绿色 |
 | 格式 | `uv run ruff format --check .` | **14 files would be reformatted**, 876 already formatted | ❌ 红色（全部为既有文件） |
-| 质量 Ratchet | `uv run python scripts/quality_ratchet.py` | 2 项超基线（见 §3.2） | ❌ 红色（既有债务） |
+| 质量 Ratchet | `uv run python scripts/quality_ratchet.py` | 通过（774 / 0 / 18）；债务与退出条件见 `QUALITY_RATCHET_DEBT.md` | ✅ |
 
 CI 等价口径来自 `.github/workflows/ci.yml:69`（`uv run pytest`）与 `pyproject.toml:199-204` 的 `testpaths`（`tests/unit`、`tests/tools`、`packages/artemis-client/tests`）。
 
