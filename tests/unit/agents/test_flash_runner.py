@@ -786,3 +786,47 @@ async def test_final_report_persists_native_thinking(mock_context):
     assert kwargs["operator_raw_thinking"] == "final text"
     assert kwargs["operator_native_thinking"] == "native summary"
     assert isinstance(messages[-1], ToolMessage)
+
+
+@pytest.mark.asyncio
+async def test_a_ten_click_sequence_is_rejected_as_one_tool_call():
+    from types import SimpleNamespace
+
+    runner = object.__new__(FlashRunner)
+    runner.executor = SimpleNamespace(action_tool_names=frozenset({"click_sequence"}))
+    runner.executor.execute = AsyncMock()
+
+    await runner._process_tool_calls(
+        [
+            {
+                "name": "click_sequence",
+                "args": {
+                    "sequence": [[i, i] for i in range(10)],
+                    "target_descriptions": [f"t{i}" for i in range(10)],
+                },
+                "id": "tc-seq",
+            }
+        ],
+        SimpleNamespace(indexed_elements=[]),
+        [],
+        "thought",
+        {},
+        b"pre",
+        ["xml"],
+        0,
+        SimpleNamespace(step_keys=[], actions=[]),
+    )
+
+    runner.executor.execute.assert_not_awaited()
+
+
+def test_high_value_action_without_effect_evidence_is_not_success():
+    from types import SimpleNamespace
+
+    result = SimpleNamespace(status="success", text_summary="launched")
+    metadata = {"post_verification": {}}
+
+    FlashRunner._require_effect_evidence("manage_app", result, metadata)
+
+    assert result.status == "error"
+    assert metadata["incident"] == "target_unverified"

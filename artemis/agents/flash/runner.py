@@ -90,8 +90,9 @@ from artemis.actions.service import ActionService
 from artemis.perception.observation import observe
 from artemis.runtime import observation_clock
 from artemis.safety.flash import (
-    FLASH_HIGH_RISK_ACTIONS,
+    FLASH_REQUIRED_EFFECT_ACTIONS,
     evaluate_flash_precondition,
+    flash_action_cost,
     flash_action_policy,
     flash_burst_budget,
 )
@@ -838,6 +839,26 @@ class FlashRunner:
         return ActionState.ADAPTER_ACKNOWLEDGED.value
 
     @staticmethod
+    def _require_effect_evidence(name: str, exec_result, metadata: dict) -> None:
+        """Fail a high-value action that only has an ACK, never a silent success."""
+
+        if name not in FLASH_REQUIRED_EFFECT_ACTIONS:
+            return
+        if str(getattr(exec_result, "status", "unknown") or "unknown") != "success":
+            return
+        post = metadata.get("post_verification") or {}
+        if post.get("ok") is False:
+            return  # preserve no_effect / explicit verification failure
+        if metadata.get("effect_observed") is True or post.get("ok") is True:
+            return
+        exec_result.status = "error"
+        exec_result.text_summary = (
+            f"{getattr(exec_result, 'text_summary', '')} "
+            "Post-action verification missing: no observed effect evidence."
+        ).strip()
+        metadata["incident"] = "target_unverified"
+
+    @staticmethod
     def _pointer_precheck_receipt(precondition, exec_result, metadata: dict) -> dict | None:
         """Turn the delegated pointer check into a traceable result.
 
@@ -1167,6 +1188,7 @@ class FlashRunner:
                 if verdict.changed is True and not verdict.is_no_op:
                     # A visible whole-frame change proves an effect, not the goal.
                     metadata["effect_observed"] = True
+                self._require_effect_evidence(name, exec_result, metadata)
 
             # One record shape for the DataEngine step and the visual lens.
             action_dict = (
@@ -1308,7 +1330,8 @@ class FlashRunner:
         index_elements = self._turn_index_snapshot(state)
         burst_budget = flash_burst_budget()
         burst_position = 0
-        high_risk_position = 0
+        burst_clicks = 0
+        burst_risk_units = 0
         # The turn's tool-result messages are collected and emitted together:
         # emitting them per call would interleave an image carrier between two
         # tool messages, which OpenAI-compatible providers reject outright.
@@ -1323,27 +1346,30 @@ class FlashRunner:
             # whether it may run, not whether it is checked: a non-allowlisted
             # action must fail closed instead of bypassing the position limit.
             if name in action_names:
+                cost = flash_action_cost(name, args)
                 burst_position += 1
-                if name in FLASH_HIGH_RISK_ACTIONS:
-                    high_risk_position += 1
+                next_clicks = burst_clicks + cost.clicks
+                next_risk = burst_risk_units + cost.risk_units
                 if not burst_budget.allows(
                     name,
                     burst_position,
-                    high_risk_position=high_risk_position,
+                    clicks=next_clicks,
+                    risk_units=next_risk,
                 ):
                     if name not in burst_budget.allowed_actions:
                         message = (
                             f"Flash burst policy rejected action {name!r}"
                             f" (not allowlisted); action was not dispatched."
                         )
-                    elif (
-                        name in FLASH_HIGH_RISK_ACTIONS
-                        and high_risk_position > burst_budget.max_high_risk_actions
-                    ):
+                    elif next_clicks > burst_budget.max_clicks:
                         message = (
-                            f"Flash high-risk burst budget exceeded at action"
-                            f" {high_risk_position} (max {burst_budget.max_high_risk_actions}"
-                            f" high-risk actions); action {name!r} was not dispatched."
+                            f"Flash click budget exceeded at {next_clicks} real clicks"
+                            f" (max {burst_budget.max_clicks}); action {name!r} was not dispatched."
+                        )
+                    elif next_risk > burst_budget.max_risk_units:
+                        message = (
+                            f"Flash risk budget exceeded at {next_risk} units"
+                            f" (max {burst_budget.max_risk_units}); action {name!r} was not dispatched."
                         )
                     else:
                         message = (
@@ -1361,6 +1387,8 @@ class FlashRunner:
                         )
                     )
                     continue
+                burst_clicks = next_clicks
+                burst_risk_units = next_risk
 
             if name == "report_task_status":
                 final_report = await self._finalize_task_report(

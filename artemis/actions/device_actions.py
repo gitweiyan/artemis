@@ -277,6 +277,12 @@ class DeviceActionService:
                 "action_attempt": attempt,
                 "action_state": action_state,
                 **(
+                    {"effect_observed": True}
+                    if isinstance(getattr(res, "metrics", None), dict)
+                    and float(getattr(res, "metrics", {}).get("crop_change", 0) or 0) > 0
+                    else {}
+                ),
+                **(
                     {"action_receipt": receipt.as_dict()}
                     if receipt is not None
                     else {}

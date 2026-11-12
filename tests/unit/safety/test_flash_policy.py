@@ -8,7 +8,7 @@ def test_single_pointer_actions_require_precondition_but_post_verification_is_op
 
     assert policy.mode is FlashMode.SINGLE
     assert policy.requires_precondition is True
-    assert policy.requires_post_verification is False
+    assert policy.requires_post_verification is True
     assert policy.pointer_precheck is True
     assert policy.burst_allowed is True
 
@@ -18,15 +18,15 @@ def test_burst_disables_precondition_and_keeps_post_verification_opt_in():
 
     assert policy.mode is FlashMode.BURST
     assert policy.requires_precondition is False
-    assert policy.requires_post_verification is False
+    assert policy.requires_post_verification is True
     assert policy.burst_allowed is True
 
 
-def test_launch_does_not_pay_for_post_verification_by_default():
+def test_launch_requires_effect_evidence():
     policy = flash_action_policy("manage_app")
 
     assert policy.requires_precondition is False
-    assert policy.requires_post_verification is False
+    assert policy.requires_post_verification is True
     assert policy.pointer_precheck is False
     assert policy.burst_allowed is True
 
@@ -115,13 +115,13 @@ def test_flash_burst_budget_caps_actions_and_disallows_unknown_actions():
 
     budget = flash_burst_budget()
 
-    assert budget.allows("click", 1) is True
-    assert budget.allows("click", 1, high_risk_position=1) is True
-    assert budget.allows("click", 1, high_risk_position=budget.max_high_risk_actions) is True
-    assert budget.allows("click", 1, high_risk_position=budget.max_high_risk_actions + 1) is False
+    assert budget.allows("click", 1, clicks=1, risk_units=2) is True
+    assert budget.allows("click", 1, clicks=budget.max_clicks, risk_units=8) is True
+    assert budget.allows("click", 1, clicks=budget.max_clicks + 1, risk_units=10) is False
     assert budget.allows("click", budget.max_actions) is True
     assert budget.allows("click", budget.max_actions + 1) is False
     assert budget.allows("unknown_action", 1) is False
+    assert budget.allows("click_sequence", 1, clicks=10, risk_units=20) is False
 
 
 def test_flash_rejects_a_stale_high_risk_observation(monkeypatch):
@@ -161,3 +161,49 @@ def test_flash_does_not_apply_the_high_risk_age_cap_to_a_key_action():
     )
     assert decision.allowed is True
     assert decision.max_observation_age_s is None
+
+
+def test_click_sequence_is_high_risk_and_cost_counts_real_clicks():
+    from artemis.safety.flash import flash_action_cost, flash_action_policy
+
+    policy = flash_action_policy("click_sequence")
+    cost = flash_action_cost("click_sequence", {"sequence": [[1, 2], [3, 4], [5, 6]]})
+
+    assert policy.high_risk is True
+    assert policy.requires_precondition is True
+    assert cost.clicks == 3
+    assert cost.risk_units == 6
+    assert flash_action_cost("click", {"target": [1, 2], "times": 4}).clicks == 4
+
+
+def test_stale_click_sequence_is_rejected_before_dispatch(monkeypatch):
+    from types import SimpleNamespace
+    from artemis.runtime import observation_clock
+    from artemis.safety.flash import FLASH_MAX_OBSERVATION_AGE_S, evaluate_flash_precondition
+
+    monkeypatch.setattr("artemis.runtime.observation_clock.time.monotonic", lambda: 100.0)
+    ctx = SimpleNamespace()
+    observation_clock.stamp_capture(ctx, now=100.0 - FLASH_MAX_OBSERVATION_AGE_S - 1)
+
+    decision = evaluate_flash_precondition(
+        "click_sequence",
+        {"sequence": [[100, 200], [300, 400]]},
+        pre_screenshot=b"frame",
+        ctx=ctx,
+    )
+
+    assert decision.allowed is False
+    assert decision.incident == "stale_frame"
+
+
+def test_click_sequence_out_of_range_point_is_rejected():
+    from artemis.safety.flash import evaluate_flash_precondition
+
+    decision = evaluate_flash_precondition(
+        "click_sequence",
+        {"sequence": [[100, 200], [1200, 400]]},
+        pre_screenshot=b"frame",
+    )
+
+    assert decision.allowed is False
+    assert decision.incident == "coordinate_space_mismatch"

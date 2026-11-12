@@ -402,6 +402,7 @@ def _exec_result(tc_id, name, post_bytes, ui="[1] next"):
         text_summary=f"{name} executed",
         screenshot_bytes=post_bytes,
         ui_elements_text=ui,
+        metadata={"effect_observed": True},
     )
 
 

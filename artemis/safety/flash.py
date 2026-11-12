@@ -11,15 +11,20 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 __all__ = [
+    "FlashActionCost",
     "FlashActionPolicy",
     "FlashMode",
     "FLASH_BURST_ACTIONS",
     "FlashBurstBudget",
+    "FLASH_REQUIRED_EFFECT_ACTIONS",
+    "MAX_FLASH_CLICKS_PER_TURN",
+    "MAX_FLASH_RISK_UNITS",
     "FlashPrecondition",
     "FLASH_HIGH_RISK_ACTIONS",
     "MAX_FLASH_ACTIONS_PER_TURN",
     "MAX_FLASH_HIGH_RISK_ACTIONS_PER_TURN",
     "evaluate_flash_precondition",
+    "flash_action_cost",
     "flash_action_policy",
     "flash_burst_budget",
 ]
@@ -28,6 +33,35 @@ __all__ = [
 class FlashMode(StrEnum):
     SINGLE = "single"
     BURST = "burst"
+
+
+@dataclass(frozen=True)
+class FlashActionCost:
+    """Actual cost of one tool call, independent of its name."""
+
+    tool_actions: int = 1
+    clicks: int = 0
+    risk_units: int = 1
+
+
+def flash_action_cost(action: str, args: dict | None = None) -> FlashActionCost:
+    """Count real clicks and risk units, not just the number of tool calls."""
+
+    name = str(action or "").strip()
+    payload = args if isinstance(args, dict) else {}
+    if name == "click":
+        try:
+            clicks = max(1, int(payload.get("times", 1)))
+        except (TypeError, ValueError):
+            clicks = 1
+        return FlashActionCost(clicks=clicks, risk_units=2 * clicks)
+    if name == "click_sequence":
+        sequence = payload.get("sequence")
+        clicks = len(sequence) if isinstance(sequence, (list, tuple)) else 0
+        return FlashActionCost(clicks=clicks, risk_units=2 * clicks)
+    if name in {"long_press", "input_text", "focus_and_input_text"}:
+        return FlashActionCost(clicks=1, risk_units=2)
+    return FlashActionCost()
 
 
 @dataclass(frozen=True)
@@ -54,11 +88,17 @@ class FlashActionPolicy:
         }
 
 
-_SINGLE_RISK = frozenset({"click", "tap", "long_press", "input_text", "focus_and_input_text"})
+_SINGLE_RISK = frozenset(
+    {"click", "tap", "long_press", "input_text", "focus_and_input_text", "click_sequence"}
+)
 #: Actions that can have an irreversible or hard-to-recover effect. They remain
 #: admissible in a burst, but only up to a small explicit high-risk budget.
 FLASH_HIGH_RISK_ACTIONS = _SINGLE_RISK
-_POST_VERIFY = frozenset()
+#: High-value actions must leave observable effect evidence (dHash or explicit pixel).
+FLASH_REQUIRED_EFFECT_ACTIONS = frozenset(
+    {"click", "click_sequence", "manage_app", "open_link"}
+)
+_POST_VERIFY = FLASH_REQUIRED_EFFECT_ACTIONS
 
 #: A single high-risk action is planned from a frame that must still be recent.
 #: The turn's LLM call already costs seconds; 5s keeps normal Flash turns usable
@@ -132,6 +172,34 @@ def evaluate_flash_precondition(
     if not pre_screenshot:
         return FlashPrecondition(False, "stale_frame", "no pre-action observation")
 
+    if name == "click_sequence":
+        sequence = args.get("sequence") if isinstance(args, dict) else None
+        if not isinstance(sequence, (list, tuple)) or not sequence:
+            return FlashPrecondition(
+                False, "coordinate_space_mismatch", "click_sequence needs a non-empty sequence"
+            )
+        for position, point in enumerate(sequence, start=1):
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                return FlashPrecondition(
+                    False,
+                    "coordinate_space_mismatch",
+                    f"sequence entry {position} is not a point",
+                )
+            try:
+                x, y = int(point[0]), int(point[1])
+            except (TypeError, ValueError):
+                return FlashPrecondition(
+                    False,
+                    "coordinate_space_mismatch",
+                    f"sequence entry {position} is invalid",
+                )
+            if not (0 <= x <= 1000 and 0 <= y <= 1000):
+                return FlashPrecondition(
+                    False,
+                    "coordinate_space_mismatch",
+                    f"sequence entry {position} {x},{y} is outside 0..1000",
+                )
+
     target = args.get("target") if isinstance(args, dict) else None
     if target is None and isinstance(args, dict):
         target = args.get("coordinates")
@@ -199,6 +267,8 @@ def evaluate_flash_precondition(
 MAX_FLASH_ACTIONS_PER_TURN = 8
 #: High-risk actions get their own, smaller ceiling inside the turn budget.
 MAX_FLASH_HIGH_RISK_ACTIONS_PER_TURN = 2
+MAX_FLASH_CLICKS_PER_TURN = 3
+MAX_FLASH_RISK_UNITS = 8
 
 #: Actions that may appear in a budgeted sequential Flash turn. Flash observes
 #: after each action, so this is not Pro's unvetted fast-action burst. The
@@ -227,7 +297,8 @@ FLASH_BURST_ACTIONS = frozenset(
 @dataclass(frozen=True)
 class FlashBurstBudget:
     max_actions: int = MAX_FLASH_ACTIONS_PER_TURN
-    max_high_risk_actions: int = MAX_FLASH_HIGH_RISK_ACTIONS_PER_TURN
+    max_clicks: int = MAX_FLASH_CLICKS_PER_TURN
+    max_risk_units: int = MAX_FLASH_RISK_UNITS
     allowed_actions: frozenset[str] = FLASH_BURST_ACTIONS
 
     def allows(
@@ -235,18 +306,19 @@ class FlashBurstBudget:
         action: str,
         position: int,
         *,
-        high_risk_position: int = 1,
+        clicks: int = 0,
+        risk_units: int = 0,
     ) -> bool:
-        """Whether this action may run at these turn/high-risk positions."""
+        """Whether this action may run at these actual click/risk positions."""
 
         name = str(action)
         if name not in self.allowed_actions:
             return False
         if not 1 <= int(position) <= max(1, int(self.max_actions)):
             return False
-        if name in FLASH_HIGH_RISK_ACTIONS and int(high_risk_position) > max(
-            1, int(self.max_high_risk_actions)
-        ):
+        if int(clicks) > max(1, int(self.max_clicks)):
+            return False
+        if int(risk_units) > max(1, int(self.max_risk_units)):
             return False
         return True
 
