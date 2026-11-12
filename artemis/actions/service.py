@@ -1,10 +1,4 @@
-"""L3 action service: the Agent-facing contract over an injected action port.
-
-The compatibility MCP/Controller executor can be injected by composition, but
-``artemis.actions`` never imports it. The service adds the production
-``ActionReceipt`` envelope and leaves device translation to the port until the
-remaining adapter extraction lands.
-"""
+"""L3 action service: command dispatch plus explicit helper-tool ownership."""
 
 from __future__ import annotations
 
@@ -13,49 +7,45 @@ from typing import Any
 
 from artemis.actions.device_actions import DeviceActionService
 from artemis.actions.results import ToolExecutionResult
-from artemis.core.action_port import ActionExecutionPort
+from artemis.core.action_port import ActionDispatchPort
 from artemis.core.actions import ActionReceipt, ActionState, state_from_result
 
 __all__ = ["ActionService"]
 
 
 class ActionService:
-    """Execute agent actions through a platform-neutral port."""
+    """Execute device actions through a command port and helpers explicitly."""
 
-    def __init__(self, port: ActionExecutionPort, ctx: Any | None = None):
+    def __init__(
+        self,
+        ctx: Any,
+        port: ActionDispatchPort,
+        *,
+        helper_port: Any | None = None,
+    ):
+        object.__setattr__(self, "ctx", ctx)
         object.__setattr__(self, "port", port)
-        # A session-like port has call/observe methods; use the extracted
-        # semantic owner. The simple execute-only port remains a test seam.
-        object.__setattr__(
-            self,
-            "_device_service",
-            DeviceActionService(ctx, port) if ctx is not None and (hasattr(port, "call") or hasattr(port, "dispatch")) else None,
-        )
+        object.__setattr__(self, "helper_port", helper_port)
+        object.__setattr__(self, "_device_service", DeviceActionService(ctx, port))
 
     @property
     def action_tool_names(self) -> frozenset[str]:
         return self.port.action_tool_names
 
     def __getattr__(self, name: str) -> Any:
-        """Compatibility proxy for Validator/test session methods."""
-        if name == "_device_service":
+        if name in {"_device_service", "ctx", "port", "helper_port"}:
             raise AttributeError(name)
-        service = object.__getattribute__(self, "_device_service")
-        if service is not None and hasattr(service, name):
-            return getattr(service, name)
-        return getattr(self.port, name)
+        if hasattr(self.port, name):
+            return getattr(self.port, name)
+        raise AttributeError(name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in {"port", "_device_service"} or name.startswith("__"):
+        if name in {"ctx", "port", "helper_port", "_device_service", "execute"} or name.startswith("__"):
             object.__setattr__(self, name, value)
+        elif hasattr(self.port, name):
+            setattr(self.port, name, value)
         else:
-            # Compatibility for old tests/callers that attach a fake session to
-            # the executor; production code should use the port directly.
-            service = object.__getattribute__(self, "_device_service")
-            if service is not None and hasattr(service, name):
-                setattr(service, name, value)
-            else:
-                setattr(object.__getattribute__(self, "port"), name, value)
+            object.__setattr__(self, name, value)
 
     async def execute(
         self,
@@ -66,11 +56,9 @@ class ActionService:
         *,
         index_elements: list[dict[str, Any]] | None = None,
     ) -> ToolExecutionResult:
-        service = object.__getattribute__(self, "_device_service")
-        # Helper tools (notes/explorer/reflex/history) remain on the compatibility
-        # executor; only device actions are owned by DeviceActionService.
-        if service is not None and name.split(":")[-1] in self.action_tool_names:
-            result = await service.execute(
+        raw_name = name.split(":")[-1] if ":" in name else name
+        if raw_name in self.action_tool_names:
+            result = await self._device_service.execute(
                 name,
                 args,
                 tool_call_id,
@@ -78,7 +66,12 @@ class ActionService:
                 index_elements=index_elements,
             )
         else:
-            result = await self.port.execute(
+            if self.helper_port is None:
+                raise RuntimeError(
+                    f"no helper action port for tool {raw_name!r}; "
+                    "compose an explicit helper executor"
+                )
+            result = await self.helper_port.execute(
                 name,
                 args,
                 tool_call_id,
@@ -122,3 +115,11 @@ class ActionService:
 
     async def close(self) -> None:
         await self.port.close()
+        if self.helper_port is not None:
+            closer = getattr(self.helper_port, "aclose", None) or getattr(
+                self.helper_port, "close", None
+            )
+            if callable(closer):
+                result = closer()
+                if hasattr(result, "__await__"):
+                    await result

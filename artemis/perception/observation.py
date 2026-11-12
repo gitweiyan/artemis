@@ -154,6 +154,10 @@ async def get_screen_data(ctx: Any, controller: Any | None = None) -> ScreenData
     if controller is None:
         controller = getattr(ctx, "ui_adb_client", None)
     if controller is None:
+        # Last compatibility source: the context's driver facade (a
+        # duck-typed get_screen_data), never an imported Controller class.
+        controller = getattr(ctx, "driver", None)
+    if controller is None:
         raise RuntimeError(
             "no observation source: a DeviceSession or an explicit controller is required"
         )

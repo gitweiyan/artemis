@@ -25,7 +25,7 @@ The implementation is split by responsibility:
 - :mod:`artemis.agents.validator.precondition_pixel` -- pixel/VLM safety net.
 
 This module remains the stable import path: ``ValidatorNode``,
-``ValidationErrorCategory``, and the patchable seams (``get_action_session``,
+``ValidationErrorCategory``, and the patchable seams (``get_action_service``,
 ``get_llm``, ``VALIDATOR_POLL_TIMEOUT``, ``VALIDATOR_POLL_INTERVAL``) are all
 resolved here so existing imports and ``mock.patch`` targets keep working.
 """
@@ -53,7 +53,7 @@ from artemis.context import ArtemisContext
 from artemis.data_engine.trace import trace
 from artemis.graph.state import State
 from artemis.graph.visibility import strict_state
-from artemis.actions.session import ActionSession, get_action_session
+from artemis.actions.session import ActionSession, get_action_service, get_action_session  # noqa: F401
 from artemis.services.llm import acomplete_structured, get_llm  # noqa: F401
 from third_party.mobile_use.utils.decorators import agent_lifecycle_logging
 from third_party.mobile_use.utils.logger import get_logger
@@ -89,7 +89,7 @@ class ValidatorNode:
         which on Windows was the *only* path that ever ran -- is gone: the server now
         lives in-process, so there is no spawn to fail and exactly one execution path.
         """
-        return await get_action_session(self.ctx)
+        return await get_action_service(self.ctx)
 
     def _parse_decisions(self, structured_decisions: str) -> tuple[list[dict] | None, str | None]:
         return action_execution.parse_decisions(structured_decisions)

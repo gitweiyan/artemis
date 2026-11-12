@@ -80,7 +80,7 @@ def mock_context():
     ctx.data_engine = None
     ctx.adb_client = None
     ctx.driver = Mock()
-    ctx.action_service = ActionService(_ActionPort())
+    ctx.action_service = ActionService(None, _ActionPort(), helper_port=_ActionPort())
     return ctx
 
 

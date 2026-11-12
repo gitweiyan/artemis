@@ -124,7 +124,7 @@ class McpActionExecutor:
         return await (await self._session_or_start()).ui_hierarchy(timeout)
 
     async def observe(self, settle_ms: int = 400, include_image: bool = False):
-        return await (await self._session_or_start()).observe(settle_ms, include_image)
+        return await (await self._session_or_start()).observe(settle_ms=settle_ms, include_image=include_image)
 
     # --- Public entry ----------------------------------------------------------------
 

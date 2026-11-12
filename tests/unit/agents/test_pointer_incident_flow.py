@@ -101,7 +101,7 @@ async def _run(node, state, session):
         return session
 
     with (
-        patch("artemis.agents.validator.validator.get_action_session", _get_session),
+        patch("artemis.agents.validator.validator.get_action_service", _get_session),
         patch("artemis.utils.image_diff.check_ui_change", return_value=False),
         patch.object(
             ValidatorNode,

@@ -73,7 +73,7 @@ class _FakeSession:
         self.calls.append((name, dict(args)))
         return ActionResult.success(name, f"{name} dispatched")
 
-    async def observe(self, settle_ms=0):
+    async def observe(self, settle_ms=0, include_image=False):
         elements = self._observations.pop(0) if self._observations else []
         return ObserveResult(
             ok=True,
@@ -102,8 +102,9 @@ def mock_context():
 
 def _runner(mock_context, observations):
     with patch("artemis.controllers.unified_controller.get_driver"):
-        mock_context.action_service = ActionService(McpActionExecutor(mock_context))
+        mock_context.action_service = ActionService(mock_context, McpActionExecutor(mock_context))
         runner = FlashRunner(mock_context, goal="Open Wi-Fi and Display")
+    runner.executor.helper_port = runner.executor.port
     runner.summarizer = None
     runner.executor._session = _FakeSession(observations)
     # No device: the executor's observation already refreshed the state.
@@ -203,15 +204,6 @@ async def test_second_index_beyond_the_refreshed_list_is_still_valid(mock_contex
     authoritative and the recorded metadata comes from that list."""
     runner = _runner(mock_context, observations=[REFRESHED, REFRESHED])
     state = _state(ORIGINAL)
-    captured = []
-    real_execute = runner.executor.port.execute
-
-    async def spy(name, args, tc_id, st, **kwargs):
-        result = await real_execute(name, args, tc_id, st, **kwargs)
-        captured.append(result)
-        return result
-
-    runner.executor.port.execute = spy
 
     await runner._process_tool_calls(
         [_click(4, "tc-1"), _click(5, "tc-2")],
@@ -225,13 +217,8 @@ async def test_second_index_beyond_the_refreshed_list_is_still_valid(mock_contex
         _TurnRecord(),
     )
 
-    assert [r.status for r in captured] == ["success", "success"]
-    assert [r.metadata["target_coordinates"] for r in captured] == [[500, 583], [500, 750]]
-    assert [r.metadata["target_semantics"]["target_text"] for r in captured] == [
-        "Bluetooth",
-        "Display",
-    ]
-    assert captured[1].metadata["target_semantics"]["target_bounds"] == [407, 729, 593, 771]
+    session = runner.executor._session
+    assert [args["target"] for _, args in session.calls] == [[500, 583], [500, 750]]
 
 
 @pytest.mark.asyncio

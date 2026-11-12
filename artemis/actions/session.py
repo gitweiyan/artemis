@@ -19,15 +19,16 @@ class ActionSession(Protocol):
     async def aclose(self) -> None: ...
 
 
-async def get_action_session(ctx: Any, actuator: Any = None) -> Any:
-    """Return the composed action service, or fail with a configuration error.
+async def get_action_service(ctx: Any, actuator: Any = None) -> Any:
+    """Return the composed L3 action service for an Agent run."""
 
-    The MCP transport is an L1 concern; this compatibility name is kept for the
-    Validator's existing test seam and for old callers.
-    """
     service = getattr(ctx, "action_service", None)
     if service is None:
         raise RuntimeError(
             "no action service is composed on this context; build a device profile first"
         )
     return service
+
+
+#: Compatibility alias for callers/tests written before the Service naming.
+get_action_session = get_action_service

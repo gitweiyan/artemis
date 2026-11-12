@@ -72,6 +72,16 @@ class _ActionPort:
             text_summary=f"{name} executed",
         )
 
+    async def call(self, name, args):
+        from artemis.core.action_types import ActionCode, ActionResult
+
+        return ActionResult(ok=True, code=ActionCode.OK, action=name, message=f"{name} executed")
+
+    async def observe(self, settle_ms=400, include_image=False):
+        from artemis.core.action_types import ObserveResult
+
+        return ObserveResult(ok=True, message="observed", elements=[])
+
     async def close(self):
         return None
 
@@ -90,7 +100,7 @@ def mock_context():
     ctx.data_engine = None
     ctx.adb_client = None
     ctx.driver = Mock()
-    ctx.action_service = ActionService(_ActionPort())
+    ctx.action_service = ActionService(None, _ActionPort(), helper_port=_ActionPort())
     return ctx
 
 

@@ -1,4 +1,4 @@
-"""L3 ActionService contract (PR-R3.6)."""
+"""L3 ActionService contract (R3.6 Task 4)."""
 
 from __future__ import annotations
 
@@ -8,71 +8,30 @@ import pytest
 
 from artemis.actions.results import ToolExecutionResult
 from artemis.actions.service import ActionService
-from artemis.core.action_port import ActionExecutionPort
+from artemis.core.action_port import ActionDispatchResult
+from artemis.core.action_types import ActionCode, ActionResult, ObserveResult
+from artemis.core.actions import ActionReceipt, ActionState
 
 
-class FakePort:
-    action_tool_names = frozenset({"click"})
+class HelperPort:
+    action_tool_names = frozenset()
 
     def __init__(self):
         self.calls = []
         self.closed = False
 
     async def execute(self, name, args, tool_call_id, state, *, index_elements=None):
-        self.calls.append((name, args, tool_call_id, index_elements))
+        self.calls.append((name, args))
         return ToolExecutionResult(
             tool_call_id=tool_call_id,
             tool_name=name,
             status="success",
-            text_summary="dispatched",
-            metadata={
-                "action_id": "a-1",
-                "action_attempt": 1,
-                "action_state": "adapter_acknowledged",
-            },
+            text_summary="helper",
+            metadata={"action_id": "helper-1", "action_state": "adapter_acknowledged"},
         )
 
     async def close(self):
         self.closed = True
-
-
-@pytest.mark.asyncio
-async def test_action_service_uses_the_injected_port_and_adds_a_receipt():
-    port = FakePort()
-    service = ActionService(port)
-    state = SimpleNamespace(indexed_elements=[])
-
-    result = await service.execute("click", {"target": 1}, "tc-1", state)
-
-    assert isinstance(service.port, ActionExecutionPort)
-    assert port.calls == [("click", {"target": 1}, "tc-1", None)]
-    assert result.metadata["action_receipt"]["state"] == "adapter_acknowledged"
-    assert result.metadata["action_receipt"]["action_id"] == "a-1"
-
-
-@pytest.mark.asyncio
-async def test_action_service_preserves_an_observed_effect_receipt():
-    class ObservedPort(SessionPort):
-        async def execute(self, name, args, tool_call_id, state, *, index_elements=None):
-            return ToolExecutionResult(
-                tool_call_id=tool_call_id,
-                tool_name=name,
-                status="success",
-                text_summary="changed",
-                metadata={"action_id": "a-1", "action_state": "observed_effect"},
-            )
-
-    service = ActionService(ObservedPort())
-    result = await service.execute("click", {"target": [1, 2]}, "tc", SimpleNamespace())
-
-    assert result.metadata["action_receipt"]["state"] == "observed_effect"
-
-
-@pytest.mark.asyncio
-async def test_action_service_close_delegates_to_the_port():
-    port = FakePort()
-    await ActionService(port).close()
-    assert port.closed is True
 
 
 class SessionPort:
@@ -82,8 +41,6 @@ class SessionPort:
         self.calls = []
 
     async def call(self, name, args):
-        from artemis.core.action_types import ActionCode, ActionResult
-
         self.calls.append((name, args))
         return ActionResult(ok=True, code=ActionCode.OK, action=name, message="clicked")
 
@@ -91,27 +48,10 @@ class SessionPort:
         raise AssertionError("not used")
 
     async def observe(self, settle_ms=400, include_image=False):
-        from artemis.core.action_types import ObserveResult
-
         return ObserveResult(ok=True, message="observed", elements=[], hierarchy_ok=True)
 
     async def close(self):
         return None
-
-
-@pytest.mark.asyncio
-async def test_semantic_service_owns_target_translation_and_receipt():
-    port = SessionPort()
-    service = ActionService(port, SimpleNamespace(indexed_elements=[], data_engine=None))
-    state = SimpleNamespace(indexed_elements=[])
-
-    result = await service.execute(
-        "click", {"target": [500, 500], "target_description": "button"}, "tc-semantic", state
-    )
-
-    assert port.calls == [("click", {"target": [500, 500], "times": 1, "delay_ms": 100})]
-    assert result.status == "success"
-    assert result.metadata["action_receipt"]["state"] == "adapter_acknowledged"
 
 
 class DispatchPort:
@@ -121,10 +61,6 @@ class DispatchPort:
         self.commands = []
 
     async def dispatch(self, command):
-        from artemis.core.action_port import ActionDispatchResult
-        from artemis.core.action_types import ActionCode, ActionResult
-        from artemis.core.actions import ActionReceipt, ActionState
-
         self.commands.append(command)
         return ActionDispatchResult(
             result=ActionResult(ok=True, code=ActionCode.OK, action="click", message="clicked"),
@@ -140,8 +76,6 @@ class DispatchPort:
         )
 
     async def observe(self, settle_ms=400, include_image=False):
-        from artemis.core.action_types import ObserveResult
-
         return ObserveResult(ok=True, message="observed", elements=[])
 
     async def close(self):
@@ -149,10 +83,21 @@ class DispatchPort:
 
 
 @pytest.mark.asyncio
+async def test_helper_tools_use_the_explicit_helper_port():
+    helper = HelperPort()
+    service = ActionService(None, DispatchPort(), helper_port=helper)
+
+    result = await service.execute("read_note", {"key": "x"}, "tc", SimpleNamespace())
+
+    assert helper.calls == [("read_note", {"key": "x"})]
+    assert result.status == "success"
+
+
+@pytest.mark.asyncio
 async def test_semantic_service_dispatches_a_command_not_a_tool_call():
     port = DispatchPort()
     ctx = SimpleNamespace(indexed_elements=[], data_engine=None)
-    service = ActionService(port, ctx)
+    service = ActionService(ctx, port)
 
     result = await service.execute(
         "click",
@@ -166,3 +111,28 @@ async def test_semantic_service_dispatches_a_command_not_a_tool_call():
     assert command.adapter_id == "click"
     assert command.parameters["target"] == [500, 500]
     assert result.metadata["action_receipt"]["state"] == "adapter_acknowledged"
+
+
+@pytest.mark.asyncio
+async def test_session_port_compatibility_still_owns_target_translation():
+    port = SessionPort()
+    service = ActionService(SimpleNamespace(indexed_elements=[], data_engine=None), port)
+    state = SimpleNamespace(indexed_elements=[])
+
+    result = await service.execute(
+        "click", {"target": [500, 500], "target_description": "button"}, "tc-semantic", state
+    )
+
+    assert port.calls == [("click", {"target": [500, 500], "times": 1, "delay_ms": 100})]
+    assert result.status == "success"
+    assert result.metadata["action_receipt"]["state"] == "adapter_acknowledged"
+
+
+@pytest.mark.asyncio
+async def test_action_service_close_closes_helper_port():
+    helper = HelperPort()
+    service = ActionService(None, DispatchPort(), helper_port=helper)
+
+    await service.close()
+
+    assert helper.closed is True

@@ -380,7 +380,7 @@ async def test_validator_pre_execution_loop_reverted_to_exact_safety_contract(
 
     with (
         patch(
-            "artemis.agents.validator.validator.get_action_session",
+            "artemis.agents.validator.validator.get_action_service",
             AsyncMock(return_value=session),
         ),
         patch.object(

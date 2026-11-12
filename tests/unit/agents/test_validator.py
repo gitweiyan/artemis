@@ -115,7 +115,7 @@ def mock_mcp():
     async def _get_session(ctx, actuator=None):
         return fake
 
-    with patch("artemis.agents.validator.validator.get_action_session", _get_session):
+    with patch("artemis.agents.validator.validator.get_action_service", _get_session):
         yield fake
 
 
