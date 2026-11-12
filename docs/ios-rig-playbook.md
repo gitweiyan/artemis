@@ -275,3 +275,11 @@ pkill -9 -f "USB Video"
 | `ARTEMIS_IOS_OCR` | `1`/`0`，关闭 OCR（无文本目标时） |
 | `ARTEMIS_CAPABILITY_EVIDENCE` | `0` 关闭 smoke 的能力证据写入（默认开） |
 | `ARTEMIS_CAPABILITY_DB` / `ARTEMIS_CAPABILITY_ARTIFACTS` | 证据库/Artifact 目录覆盖（默认 app dir `capabilities/`） |
+
+## 9. UVC identity and residual leases (R3.7)
+
+- Resolver order is host-scoped: unique USB serial → unique USB port path → explicit key (non-strict) → device-name hint.
+- A serial duplicated by two matching devices on the same host is **not** a stable identity; the resolver records `USB_PORT_PATH` instead. The same serial on two different hosts is valid.
+- `ARTEMIS_UVC_IDENTITY_STRICT=1` fails closed rather than accepting a config hint.
+- If Session close reports `LeaseReleaseReport.residual`, do not delete the lock blindly: inspect `artemis.runtime.resource_lease.get_active_leases()` and the lock owner first.
+- Current capture card still has no serial/topology record; `CONFIG_HINT` is expected and must not be described as hardware identity.
