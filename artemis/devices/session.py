@@ -195,14 +195,20 @@ class DeviceSession:
         # remaining cleanup. No broad except-handler is needed.
         for participant in [*self.control, *self.perception]:
             task = asyncio.create_task(self._close_participant(participant))
-            try:
-                await asyncio.wait({task})
-            except asyncio.CancelledError as exc:
-                cancelled = exc
-                task.cancel()
-                await asyncio.wait({task})
+            current = asyncio.current_task()
+            # A canceled outer task must not cancel the adapter's close work:
+            # shield the closer and keep waiting after recording cancellation.
+            while not task.done():
+                try:
+                    # wait() does not propagate the closer's exception; task.exception()
+                    # below records it, and outer cancellation only cancels the waiter.
+                    await asyncio.wait({task})
+                except asyncio.CancelledError as exc:
+                    cancelled = exc
+                    if current is not None and hasattr(current, "uncancel"):
+                        current.uncancel()
             if task.cancelled():
-                cancelled = asyncio.CancelledError()
+                cancelled = cancelled or asyncio.CancelledError()
                 self._close_errors.append(f"{type(participant).__name__}: cancelled")
                 logger.warning(f"Closing {type(participant).__name__} was cancelled; continuing")
                 continue
@@ -213,10 +219,21 @@ class DeviceSession:
 
         if self.leases is not None:
             try:
-                self.leases.release()
+                report = getattr(self.leases, "release_with_report", None)
+                if callable(report):
+                    result = report()
+                    for resource_id, message in getattr(result, "errors", ()):
+                        text = f"leases: {resource_id}: {message}"
+                        self._close_errors.append(text)
+                        logger.warning(text)
+                    if getattr(result, "residual", ()):
+                        logger.warning(
+                            "Residual resource locks remain: "
+                            + ", ".join(getattr(result, "residual", ()))
+                        )
+                else:
+                    self.leases.release()
             except asyncio.CancelledError as exc:
-                # Keep the cancellation signal, but finish the state transition
-                # and the remaining cleanup below before re-raising it.
                 cancelled = cancelled or exc
                 self._close_errors.append("leases: cancelled")
                 logger.warning("Releasing device-session leases was cancelled; closing anyway")

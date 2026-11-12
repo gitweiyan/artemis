@@ -264,10 +264,11 @@ def test_a_failed_session_is_terminal_and_cannot_serve_requests():
 def test_close_finishes_handles_and_leases_when_a_closer_is_cancelled():
     events: list[str] = []
 
-    class HangingSink(Sink):
+    class SlowSink(Sink):
         async def aclose(self):
             events.append("control-start")
-            await asyncio.Event().wait()
+            await asyncio.sleep(0.05)
+            events.append("control-end")
 
     class ClosingSource(Source):
         async def aclose(self):
@@ -279,7 +280,7 @@ def test_close_finishes_handles_and_leases_when_a_closer_is_cancelled():
 
     session = DeviceSession(
         [ClosingSource()],
-        [HangingSink(absolute=True)],
+        [SlowSink(absolute=True)],
         geometry(),
         leases=Leases(),
     )
@@ -294,7 +295,7 @@ def test_close_finishes_handles_and_leases_when_a_closer_is_cancelled():
 
     asyncio.run(scenario())
 
-    assert events == ["control-start", "perception", "leases"]
+    assert events == ["control-start", "control-end", "perception", "leases"]
     assert session.state.value == "closed"
     assert session.leases is None
 

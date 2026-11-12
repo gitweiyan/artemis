@@ -98,6 +98,7 @@ def ios_smoke_command(
         config.uvc_device,
         explicit_key=(os.environ.get("ARTEMIS_UVC_IDENTITY_KEY") or "").strip() or None,
         strict=(os.environ.get("ARTEMIS_UVC_IDENTITY_STRICT") or "").strip() == "1",
+        host_id=host,
     )
     descriptor = build_ios_descriptor(
         device_id="ios-uvc",

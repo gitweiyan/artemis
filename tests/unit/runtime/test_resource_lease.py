@@ -262,3 +262,29 @@ def test_lease_set_releases_later_leases_after_one_release_error(tmp_path):
     assert broken.released == 1
     assert healthy.released == 1
     assert leases.resource_ids == ()
+
+
+def test_lease_release_report_names_errors_and_residual_locks(tmp_path):
+    class FakeLease:
+        def __init__(self, resource_id, *, error=None, residual=False):
+            self.resource_id = resource_id
+            self.error = error
+            self.path = tmp_path / f"resource-{resource_id[0]}.lock"
+            if residual:
+                self.path.write_text("lock")
+
+        def release(self):
+            if self.error:
+                raise self.error
+
+    broken = FakeLease("uvc:host:one/capture", error=TypeError("bad closer"), residual=True)
+    healthy = FakeLease("serial:host:one/command")
+    leases = LeaseSet(host_id="host", session_id="s", lease_dir=tmp_path)
+    leases._leases = [broken, healthy]
+
+    report = leases.release_with_report()
+
+    assert report.released == ("serial:host:one/command",)
+    assert report.errors[0][0] == "uvc:host:one/capture"
+    assert "bad closer" in report.errors[0][1]
+    assert report.residual == ("uvc:host:one/capture",)

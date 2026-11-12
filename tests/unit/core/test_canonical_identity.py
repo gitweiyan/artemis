@@ -72,3 +72,41 @@ def test_platform_family_is_still_a_separate_field():
     descriptor = build_android_descriptor(device_id="emulator-5554")
     assert descriptor.platform_family is PlatformFamily.ANDROID
     assert "android" not in descriptor.device_id
+
+
+def test_uvc_serial_is_stable_across_usb_port_changes():
+    from artemis.drivers.ios.uvc_identity import UsbEntry
+
+    entry = (UsbEntry("USB Video", "SERIAL-1", "1-2.3"),)
+    identity = resolve_uvc_identity("USB Video", host_id="host-a", inventory_probe=lambda _: entry)
+
+    assert identity.key == "SERIAL-1"
+    assert identity.source is IdentitySource.HARDWARE_SERIAL
+    assert identity.metadata["host_id"] == "host-a"
+
+
+def test_duplicate_uvc_serial_falls_back_to_port_path():
+    from artemis.drivers.ios.uvc_identity import UsbEntry
+
+    entries = (
+        UsbEntry("USB Video", "DUP-1", "1-2.3"),
+        UsbEntry("USB Video", "DUP-1", "1-2.4"),
+    )
+    identity = resolve_uvc_identity(
+        "USB Video", host_id="host-a", inventory_probe=lambda _: entries
+    )
+
+    assert identity.source is IdentitySource.USB_PORT_PATH
+    assert identity.key == "usb-1-2.3"
+
+
+def test_same_serial_on_different_hosts_is_not_a_collision():
+    from artemis.drivers.ios.uvc_identity import UsbEntry
+
+    entry = (UsbEntry("USB Video", "SERIAL-1", "1-2.3"),)
+    a = resolve_uvc_identity("USB Video", host_id="host-a", inventory_probe=lambda _: entry)
+    b = resolve_uvc_identity("USB Video", host_id="host-b", inventory_probe=lambda _: entry)
+
+    assert a.key == b.key == "SERIAL-1"
+    assert a.metadata["host_id"] == "host-a"
+    assert b.metadata["host_id"] == "host-b"

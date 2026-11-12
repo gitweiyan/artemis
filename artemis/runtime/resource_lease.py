@@ -33,6 +33,7 @@ from third_party.mobile_use.utils.logger import get_logger
 logger = get_logger(__name__)
 
 __all__ = [
+    "LeaseReleaseReport",
     "LeaseSet",
     "ResourceBusyError",
     "ResourceLease",
@@ -407,6 +408,23 @@ class ResourceLease:
         self.release()
 
 
+@dataclass(frozen=True)
+class LeaseReleaseReport:
+    """Outcome of a best-effort LeaseSet release."""
+
+    released: tuple[str, ...] = ()
+    errors: tuple[tuple[str, str], ...] = ()
+    residual: tuple[str, ...] = ()
+    exceptions: tuple[Exception, ...] = field(default=(), repr=False, compare=False)
+
+    def as_dict(self) -> dict[str, list]:
+        return {
+            "released": list(self.released),
+            "errors": [list(item) for item in self.errors],
+            "residual": list(self.residual),
+        }
+
+
 class _CollectCleanupErrors:
     """Context manager that records ordinary exceptions without skipping cleanup."""
 
@@ -481,19 +499,49 @@ class LeaseSet:
         self._leases = acquired
         return self
 
-    def release(self) -> None:
-        """Release every lease even if one owner fails; surface the first error after."""
+    def release_with_report(self) -> LeaseReleaseReport:
+        """Release every lease and report failures/residual locks without raising."""
 
-        errors: list[Exception] = []
+        errors: list[tuple[str, str]] = []
+        exceptions: list[Exception] = []
+        released: list[str] = []
+        residual: list[str] = []
         leases = list(self._leases)
         self._leases.clear()
         for lease in reversed(leases):
-            with _CollectCleanupErrors(errors):
+            resource_id = getattr(lease, "resource_id", repr(lease))
+            lease_errors: list[Exception] = []
+            with _CollectCleanupErrors(lease_errors):
                 lease.release()
-        for exc in errors:
-            logger.warning(f"Releasing a resource lease failed: {exc}")
-        if errors:
-            raise errors[0]
+            if lease_errors:
+                exc = lease_errors[0]
+                exceptions.append(exc)
+                errors.append((str(resource_id), str(exc)))
+                logger.warning(f"Releasing resource lease {resource_id} failed: {exc}")
+            else:
+                released.append(str(resource_id))
+            path = getattr(lease, "path", None)
+            if path is not None:
+                try:
+                    if path.exists():
+                        residual.append(str(resource_id))
+                except OSError:
+                    residual.append(str(resource_id))
+        return LeaseReleaseReport(
+            released=tuple(released),
+            errors=tuple(errors),
+            residual=tuple(residual),
+            exceptions=tuple(exceptions),
+        )
+
+    def release(self) -> None:
+        """Release every lease even if one owner fails; surface the first error after."""
+
+        report = self.release_with_report()
+        if report.exceptions:
+            raise report.exceptions[0]
+        if report.errors:
+            raise RuntimeError(report.errors[0][1])
 
     def __enter__(self) -> LeaseSet:
         return self
