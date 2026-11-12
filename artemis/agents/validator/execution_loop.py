@@ -395,6 +395,7 @@ def _action_evidence(
         dispatch_result=dict(item.get("action_result") or {}),
         device_ack=str(item.get("action_state") or "unknown"),
         action_state=_evidence_action_state(item),
+        action_receipt=dict(item.get("action_receipt") or {}),
         goal_verified=False,
         pre_verification=dict(item.get("safety_net_evidence") or {}),
         post_verification=dict(item.get("post_verification") or {}),

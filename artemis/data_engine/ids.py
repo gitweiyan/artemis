@@ -103,6 +103,8 @@ class ActionEvidence:
     device_ack: str | None = None
     #: Furthest proven action state: ack alone must never become verified.
     action_state: str | None = None
+    #: Production dispatch/ack/effect receipt (serialized ActionReceipt).
+    action_receipt: Mapping[str, Any] = field(default_factory=dict)
     #: Task-level verification owned by Checker/acceptance, not an adapter ACK.
     goal_verified: bool = False
     pre_verification: Mapping[str, Any] = field(default_factory=dict)
@@ -140,6 +142,7 @@ class ActionEvidence:
             "dispatch_result": dict(self.dispatch_result),
             "device_ack": self.device_ack,
             "action_state": self.action_state,
+            "action_receipt": dict(self.action_receipt),
             "goal_verified": bool(self.goal_verified),
             "pre_verification": dict(self.pre_verification),
             "post_verification": dict(self.post_verification),

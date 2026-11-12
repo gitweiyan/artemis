@@ -915,6 +915,10 @@ class FlashRunner:
             if pointer_receipt is not None:
                 metadata["pointer_precheck_receipt"] = pointer_receipt
                 action_dict["pointer_precheck_receipt"] = pointer_receipt
+            action_receipt = dict(metadata.get("action_receipt") or {})
+            if metadata.get("effect_observed") is True and action_receipt:
+                action_receipt["state"] = "observed_effect"
+                metadata["action_receipt"] = action_receipt
             if step_id is not None:
                 evidence = ActionEvidence(
                     ids=DataIds(
@@ -942,6 +946,7 @@ class FlashRunner:
                     },
                     device_ack=str(metadata.get("action_state") or "unknown"),
                     action_state=self._evidence_action_state(exec_result, metadata),
+                    action_receipt=action_receipt,
                     goal_verified=False,
                     pre_verification={
                         **(

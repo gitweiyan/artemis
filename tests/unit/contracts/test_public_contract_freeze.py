@@ -73,6 +73,7 @@ def test_action_evidence_fields_are_frozen():
         "dispatch_result",
         "device_ack",
         "action_state",
+        "action_receipt",
         "goal_verified",
         "pre_verification",
         "post_verification",

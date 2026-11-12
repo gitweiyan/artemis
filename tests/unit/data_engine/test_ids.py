@@ -44,6 +44,7 @@ def test_action_evidence_serializes_replay_facts_without_image_bytes():
         dispatch_result={"ok": True},
         device_ack="adapter_acknowledged",
         action_state="observed_effect",
+        action_receipt={"state": "observed_effect"},
         goal_verified=False,
         post_verification={"allowed": True},
         latency_ms=12.5,
@@ -55,6 +56,7 @@ def test_action_evidence_serializes_replay_facts_without_image_bytes():
     assert payload["ids"]["action_id"] == "a1"
     assert payload["latency_ms"] == 12.5
     assert payload["action_state"] == "observed_effect"
+    assert payload["action_receipt"]["state"] == "observed_effect"
     assert payload["goal_verified"] is False
     assert payload["artifacts"][0]["artifact_id"] == "b" * 64
     assert "image" not in payload
