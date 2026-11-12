@@ -2,13 +2,13 @@
 
 ## 2026-11-11 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `2e5b07c`
+> 审计对象：`integration/10101205-all-fixes` @ `299548d`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3869 passed, 9 skipped**, 88 warnings, 144.84s |
+| `uv run pytest tests/unit -q` | **0 failed, 3873 passed, 5 skipped**, 88 warnings, 145.84s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18） |
@@ -50,6 +50,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - Task 4 Pro 复测（2026-11-12）：iOS Pro `005aed2c-20d1-4e33-85d9-1939ad3fd1a4` 完成，Checker 3/3，`goal_verified=true`；6 条 action evidence（一条 tap 为 unknown，其余 acknowledged）。完整 Agent 传递闭包仍未清零。
 - Legacy tool 传递清理（2026-11-12）：video analyzer 通过 context 解析 controller，Flash 的 Reflex 声明由 L1 composition 注入；完整 Agent 传递闭包测试已启用并通过。
 - Task 4 最终真机（2026-11-12）：iOS smoke、iOS Flash `62e8db76...`、iOS Pro `1f1dedda...`（`goal_verified=true`，无 action）、Android Flash `d70d4d48...`（receipt `observed_effect`）均通过。
+- Android Pro 最终路径（2026-11-12）：`97e55f5b...`，`goal_verified=true`，Checker 2/2；Helper 不可用，观察走 UIAutomator2。
 - iOS Pro（2026-11-12）：`7f12bdaf-8d50-414f-adb5-7c25c5aacf54` 在 Service 路径完成，`goal_verified=true`（Checker 1 passed / 1 inconclusive）；该次没有 action 记录。完整 Agent 传递闭包仍未完成。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
