@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `f75a71f` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `3a984a6` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3864 passed, 9 skipped, 88 warnings in 145.07s
+0 failed, 3874 passed, 5 skipped, 88 warnings in 145.94s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -174,6 +174,7 @@ attach the mock client and exercise the intended native branch.
 - R3.6 action service slice (2026-11-12): `actions.service.ActionService` + `core.action_port.ActionExecutionPort` added; Flash uses the injected service, MCP transport moved to L1, action DTOs moved out of Agent modules, and `ActionReceipt` metadata is attached in production. `actions` has no agents/MCP/Controller/Driver/Adapter imports. `DeviceActionService` now owns translation/target/observation semantics; the MCP executor remains a compatibility transport.
 - ActionReceipt observed effect (2026-11-12): `ActionReceipt` accepts `OBSERVED_EFFECT`; `ActionService` preserves a recorded observed-effect state instead of forcing every successful result to `ADAPTER_ACKNOWLEDGED`.
 - ActionEvidence receipt (2026-11-12): `ActionEvidence.action_receipt` now persists the production receipt; Flash upgrades its state to `observed_effect` when the frame-diff evidence is present. iOS Flash smoke after the semantic-service migration passed (`293ddbd1...`, `ab50a46a...`).
+- Command-shaped Action Port (2026-11-12): `ActionDispatchPort.dispatch(ActionCommand)` + `ActionDispatchResult` and `McpActionPort` landed; `DeviceActionService` dispatches commands rather than calling the legacy executor directly. iOS smoke/Flash (`c9bacf28...`) and Android Flash (`ced4441e...`) produced `action_receipt.state=observed_effect`. Pro and full Agent transitive closure remain open.
 - R3.6 boundary caveat: `tests/unit/architecture/test_action_contract_boundaries.py` enforces direct Agent imports and transitive `actions` imports. The Agent transitive graph still reaches legacy `tools`→driver/reflex paths (video/reflex declarations), so full Agent transitive closure remains open; no allowlist entries were added.
 - Pointer receipt real-device check (2026-11-11 22:51): iOS session `895239e6-...` recorded `pointer_precheck.state=failed` for a `screen_changed` click and `state=verified` with `error_px=0.0` for the next click; the task itself failed on the No-Op Guard.
 - Android observation parity (2026-11-11): helper JSON fallback now synthesizes the same `bounds` (and keeps `parsed_bounds`/`accessibilityText`) as the XML/UIAutomator parser; unit tests cover element-shape parity and fallback screen-data parity. After enabling the helper, forced-helper Flash `5eef9e4b...` and Pro `19bce48e...` used `Artemis accessibility helper v1.3.1`; stable-screen parity passed (91% recall / 95% precision). A tunnel rebuild occurred once in Pro.

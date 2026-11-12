@@ -2,13 +2,13 @@
 
 ## 2026-11-11 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `f75a71f`
+> 审计对象：`integration/10101205-all-fixes` @ `3a984a6`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3864 passed, 9 skipped**, 88 warnings, 145.07s |
+| `uv run pytest tests/unit -q` | **0 failed, 3874 passed, 5 skipped**, 88 warnings, 145.94s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18） |
@@ -45,6 +45,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - R3.6 Action Service（2026-11-12）：新增 `ActionService`/`ActionExecutionPort`；`DeviceActionService` 接管 translation/target/observation 语义，Agent 使用注入服务，MCP transport 在 L1；`ActionReceipt` metadata 进入生产结果。Agent 的完整传递依赖仍受 legacy `tools` 路径阻塞。
 - ActionReceipt 状态（2026-11-12）：生产 receipt 现在保留 `observed_effect`，不再把每个成功 dispatch 压成 ACK。
 - ActionEvidence receipt（2026-11-12）：`ActionEvidence.action_receipt` 持久化生产 receipt；Flash 在 frame diff 证据存在时将其升级为 `observed_effect`。iOS Flash 新语义路径已跑通（`293ddbd1...`、`ab50a46a...`）。
+- Command-shaped Action Port（2026-11-12）：`ActionDispatchPort`/`McpActionPort` 落地；iOS smoke/Flash `c9bacf28...`、Android Flash `ced4441e...` 的 `action_receipt` 为 `observed_effect`。Pro 与完整 Agent 传递闭包仍未完成。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 
