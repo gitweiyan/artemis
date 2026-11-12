@@ -110,3 +110,39 @@ def test_same_serial_on_different_hosts_is_not_a_collision():
     assert a.key == b.key == "SERIAL-1"
     assert a.metadata["host_id"] == "host-a"
     assert b.metadata["host_id"] == "host-b"
+
+
+def test_same_device_keeps_serial_identity_after_moving_usb_port():
+    from artemis.drivers.ios.uvc_identity import UsbEntry
+
+    probes = iter(
+        (
+            (UsbEntry("USB Video", "SERIAL-1", "1-2.3"),),
+            (UsbEntry("USB Video", "SERIAL-1", "1-2.4"),),
+        )
+    )
+    first = resolve_uvc_identity("USB Video", inventory_probe=lambda _: next(probes))
+    second = resolve_uvc_identity("USB Video", inventory_probe=lambda _: next(probes))
+
+    assert first.key == second.key == "SERIAL-1"
+    assert first.source is IdentitySource.HARDWARE_SERIAL
+    assert second.source is IdentitySource.HARDWARE_SERIAL
+
+
+def test_duplicate_serial_entries_are_visible_in_host_inventory():
+    from artemis.drivers.ios.uvc_identity import probe_usb_inventory
+
+    def runner(*args, **kwargs):
+        class Result:
+            stdout = (
+                b'{"SPUSBDataType": [{"_name": "USB Video", "serial_num": "DUP-1",'
+                b' "location_id": "1-2.3"}, {"_name": "USB Video", "serial_num":'
+                b' "DUP-1", "location_id": "1-2.4"}]}'
+            )
+
+        return Result()
+
+    entries = probe_usb_inventory("USB Video", runner=runner)
+
+    assert [entry.serial for entry in entries] == ["DUP-1", "DUP-1"]
+    assert [entry.location_id for entry in entries] == ["1-2.3", "1-2.4"]
