@@ -175,6 +175,7 @@ async def test_perception_node_runs_smoothly_without_ocr():
         mock_ctx.device = MagicMock()
         mock_ctx.device.device_width = 1080
         mock_ctx.device.device_height = 2400
+        mock_ctx.controller = mock_controller
 
         mock_state = MagicMock(spec=State)
         mock_state.structured_decisions = []

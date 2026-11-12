@@ -24,14 +24,30 @@ from artemis.agents.flash.runner import FlashRunner
 from artemis.agents.flash.summarizer import VisualStepSummarizer
 from artemis.context import ArtemisContext
 from artemis.llm.router import ModelFactory
+from artemis.actions.service import ActionService
 
 SENTINEL = object()
+
+
+class _ActionPort:
+    controller = None
+    action_tool_names = frozenset(
+        {"click", "click_sequence", "long_press", "input_text", "swipe", "press_key",
+         "manage_app", "open_link", "wait_for_delay", "wait_for_text"}
+    )
+
+    async def execute(self, name, args, tool_call_id, state, *, index_elements=None):
+        raise AssertionError("lens-provider tests must not dispatch actions")
+
+    async def close(self):
+        return None
 
 
 @pytest.fixture
 def ctx():
     context = Mock(spec=ArtemisContext)
     context.data_engine = None
+    context.action_service = ActionService(_ActionPort())
     return context
 
 

@@ -29,6 +29,7 @@ import pytest
 from langchain_core.messages import ToolMessage
 
 from artemis.agents.flash.runner import FlashRunner, _TurnRecord
+from artemis.actions.service import ActionService
 from artemis.context import ArtemisContext
 from artemis.graph.state import State
 from artemis.mcp.action_executor import McpActionExecutor, _ArgError
@@ -101,6 +102,7 @@ def mock_context():
 
 def _runner(mock_context, observations):
     with patch("artemis.controllers.unified_controller.get_driver"):
+        mock_context.action_service = ActionService(McpActionExecutor(mock_context))
         runner = FlashRunner(mock_context, goal="Open Wi-Fi and Display")
     runner.summarizer = None
     runner.executor._session = _FakeSession(observations)
@@ -202,14 +204,14 @@ async def test_second_index_beyond_the_refreshed_list_is_still_valid(mock_contex
     runner = _runner(mock_context, observations=[REFRESHED, REFRESHED])
     state = _state(ORIGINAL)
     captured = []
-    real_execute = runner.executor.execute
+    real_execute = runner.executor.port.execute
 
     async def spy(name, args, tc_id, st, **kwargs):
         result = await real_execute(name, args, tc_id, st, **kwargs)
         captured.append(result)
         return result
 
-    runner.executor.execute = spy
+    runner.executor.port.execute = spy
 
     await runner._process_tool_calls(
         [_click(4, "tc-1"), _click(5, "tc-2")],

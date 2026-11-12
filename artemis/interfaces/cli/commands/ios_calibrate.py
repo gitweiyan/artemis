@@ -27,7 +27,7 @@ from typing import Annotated
 from rich.console import Console
 import typer
 
-from artemis.actions.ios_rig import (
+from artemis.tools.ios_rig import (
     Esp32HidControl,
     IOSUvcHidDriver,
     IosConfigError,

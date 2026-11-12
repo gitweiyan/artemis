@@ -552,6 +552,9 @@ class AgentBase:
                 await self._prepare_app_installation(task=task)
                 await self._prepare_device_environment(context=context)
                 await self._prepare_app_lock(task=task, context=context)
+                from artemis.interfaces.action_bootstrap import attach_action_service
+
+                attach_action_service(context)
                 async with context:
                     recording_started = False
                     if self._config.video_recording_tools_enabled:

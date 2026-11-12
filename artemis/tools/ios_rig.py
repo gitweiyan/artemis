@@ -13,7 +13,7 @@ from artemis.drivers.ios.evidence import record_smoke_evidence
 from artemis.drivers.ios.ios_uvc_hid_driver import IOSUvcHidDriver
 from artemis.drivers.ios.smoke import run_smoke
 from artemis.drivers.ios.uvc_identity import resolve_uvc_identity
-from artemis.reflex.control import Esp32HidControl
+from artemis.adapters.legacy_control import Esp32HidControl
 
 __all__ = [
     "Esp32HidControl",

@@ -160,6 +160,22 @@ class ActionReceipt:
     retry_of: str | None = None
     evidence_refs: tuple[str, ...] = ()
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "action_id": self.action_id,
+            "intent_id": self.intent_id,
+            "command_id": self.command_id,
+            "attempt": self.attempt,
+            "adapter_id": self.adapter_id,
+            "state": self.state.value,
+            "dispatched_at": self.dispatched_at,
+            "acknowledged_at": self.acknowledged_at,
+            "incident": self.incident,
+            "metrics": dict(self.metrics),
+            "retry_of": self.retry_of,
+            "evidence_refs": list(self.evidence_refs),
+        }
+
     def __post_init__(self) -> None:
         for name in ("action_id", "intent_id", "command_id", "adapter_id"):
             object.__setattr__(self, name, _text(getattr(self, name), name=name))

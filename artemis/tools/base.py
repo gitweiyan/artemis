@@ -31,8 +31,10 @@ from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel
 
 from artemis.core.tool_declaration import ToolDeclaration
-from artemis.drivers.base import BaseDeviceDriver
-from artemis.drivers.factory import get_driver
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from artemis.drivers.base import BaseDeviceDriver
 from third_party.mobile_use.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -62,7 +64,7 @@ class ArtemisTool:
         """Determines if this tool is currently available and should be exposed to agents."""
         return True
 
-    async def execute(self, driver: BaseDeviceDriver, ctx: Any, **kwargs: Any) -> Any:
+    async def execute(self, driver: Any, ctx: Any, **kwargs: Any) -> Any:
         """Executes the tool handler with injected driver and context."""
         # Inspect handler signature to only pass supported arguments
         if self.handler is not None:
@@ -90,20 +92,11 @@ class ArtemisTool:
     def to_langchain_tool(self, ctx: Any, name: str | None = None) -> BaseTool:
         """Exports this tool to a LangChain StructuredTool."""
 
-        def _get_context_driver() -> BaseDeviceDriver | None:
+        def _get_context_driver() -> Any | None:
             # DEPRECATED (ADR-006): new tools should consume DeviceSession/Ports or an
             # Application Service; this driver injection remains for legacy tools.
-            if (
-                ctx is not None
-                and hasattr(ctx, "device")
-                and ctx.device
-                and getattr(ctx.device, "device_id", None)
-            ):
-                try:
-                    return get_driver(ctx)
-                except Exception as e:  # pylint: disable=broad-exception-caught
-                    logger.debug(f"Failed to get driver: {e}")
-                    return None
+            # L2 tools receive a driver/handle from the caller or the deprecated
+            # context field. They must not import the L4 driver factory.
             return getattr(ctx, "_active_driver", None) if ctx is not None else None
 
         def _func(state: Annotated[Any, InjectedState] = None, **kwargs):

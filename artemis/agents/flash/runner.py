@@ -86,7 +86,7 @@ from artemis.data_engine.trace import trace
 from artemis.graph.perception import _check_injected_instruction_file
 from artemis.graph.state import State
 from artemis.llm.structured import ParseFailure, parse_structured
-from artemis.actions.executor import McpActionExecutor
+from artemis.actions.service import ActionService
 from artemis.perception.observation import observe
 from artemis.runtime import observation_clock
 from artemis.safety.flash import (
@@ -176,7 +176,12 @@ class FlashRunner:
         # attribute only as a compatibility seam for observation tests.
         # ``agent_name="flash"`` makes ask_explorer follow ``explorer.flash_mode``
         # (the Flash profile knob) instead of the Pro profile's tier.
-        self.executor = McpActionExecutor(ctx, agent_name="flash")
+        self.executor = getattr(ctx, "action_service", None)
+        if not isinstance(self.executor, ActionService):
+            raise RuntimeError(
+                "FlashRunner requires a composed ActionService; "
+                "set ctx.action_service before constructing the runner"
+            )
         self.controller = self.executor.controller
         # Batch item 5: Flash has no Operator similarity component. The guard
         # folds the driver's incident / crop_change and the pre/post dHash into

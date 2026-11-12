@@ -58,12 +58,10 @@ The classification of actions (required/optional/internal) stays in
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import cache
-import inspect
 import types
 from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 from langchain_core.tools import StructuredTool
-from mcp.types import CallToolResult
 from pydantic import Field, create_model
 
 from artemis.core.tool_declaration import ToolDeclaration
@@ -79,7 +77,6 @@ __all__ = [
     "ParamSpec",
     "WireDialect",
     "exception_prefix",
-    "make_wire_handler",
     "operator_shell_tool",
     "tool_declaration",
     "wire_dialects",
@@ -874,47 +871,3 @@ def tool_declaration(name: str) -> ToolDeclaration:
 def wire_dialects() -> tuple[ActionSpec, ...]:
     """Returns every spec that has a wire dialect, in manifest order."""
     return tuple(spec for spec in _SPECS if spec.wire is not None)
-
-
-def make_wire_handler(
-    spec: ActionSpec,
-    actuator: Any,
-    wrap: Callable[[ActionResult], CallToolResult],
-    wrap_exception: Callable[[str, Exception], CallToolResult],
-) -> Callable[..., Awaitable[CallToolResult]]:
-    """Builds the FastMCP tool function for one wire dialect.
-
-    The returned coroutine carries an explicit ``__signature__`` so FastMCP derives
-    the same argument model a literal ``async def`` produced historically, and the
-    same ``Annotated[CallToolResult, ActionResult]`` return annotation so the
-    structured-output schema is unchanged.
-    """
-    wire = spec.wire
-    if wire is None:
-        raise ValueError(f"Action '{spec.name}' has no wire dialect.")
-
-    async def handler(**kwargs: Any) -> Any:
-        try:
-            return wrap(await wire.bind(actuator, kwargs))
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            return wrap_exception(spec.name, e)
-
-    return_annotation = Annotated[CallToolResult, ActionResult]
-    parameters = [
-        inspect.Parameter(
-            p.name,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=p.annotation,
-            default=inspect.Parameter.empty if p.required else p.default,
-        )
-        for p in wire.params
-    ]
-    handler.__name__ = spec.name
-    handler.__qualname__ = spec.name
-    handler.__doc__ = wire.description
-    handler.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
-        parameters, return_annotation=return_annotation
-    )
-    handler.__annotations__ = {p.name: p.annotation for p in wire.params}
-    handler.__annotations__["return"] = return_annotation
-    return handler

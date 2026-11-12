@@ -29,7 +29,7 @@ from rich.console import Console
 import typer
 
 from artemis._version import get_version
-from artemis.actions.ios_rig import (
+from artemis.tools.ios_rig import (
     IOSUvcHidDriver,
     IosConfigError,
     IosRuntimeConfig,

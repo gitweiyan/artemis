@@ -43,6 +43,8 @@ from artemis.agents.operator.prompts import (
 )
 from artemis.agents.validator.tool_declarations import ToolExecutionResult
 from artemis.context import ArtemisContext
+from artemis.actions.results import ToolExecutionResult as ActionToolResult
+from artemis.actions.service import ActionService
 from artemis.graph.state import State
 from artemis.memory.transcript import (
     EPHEMERAL_BLOCKS_KEY,
@@ -55,6 +57,23 @@ OBSERVATION_HEADER_RE = re.compile(r"^# CURRENT OBSERVATION \[T\+\d{2,}:\d{2}\]$
 FAILED_RESULT_RE = re.compile(
     rf"^{re.escape(EXECUTION_RESULT_MARKER)} \(T\+\d{{2,}}:\d{{2}}\) ---\nStatus: failed\n"
 )
+
+
+class _ActionPort:
+    controller = None
+
+    action_tool_names = frozenset({"click", "swipe", "manage_app", "wait_for_delay"})
+
+    async def execute(self, name, args, tool_call_id, state, *, index_elements=None):
+        return ActionToolResult(
+            tool_call_id=tool_call_id,
+            tool_name=name,
+            status="success",
+            text_summary=f"{name} executed",
+        )
+
+    async def close(self):
+        return None
 
 
 @pytest.fixture
@@ -71,6 +90,7 @@ def mock_context():
     ctx.data_engine = None
     ctx.adb_client = None
     ctx.driver = Mock()
+    ctx.action_service = ActionService(_ActionPort())
     return ctx
 
 

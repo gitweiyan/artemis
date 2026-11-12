@@ -40,6 +40,7 @@ def mock_context():
     ctx.device.mobile_platform = DevicePlatform.ANDROID
     ctx.adb_client = Mock()
     ctx.ui_adb_client = Mock()
+    ctx.controller = None
     mock_screen_data = Mock()
     mock_screen_data.base64 = "YmFzZTY0"
     mock_screen_data.elements = []

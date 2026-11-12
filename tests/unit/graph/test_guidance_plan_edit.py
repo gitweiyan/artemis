@@ -39,6 +39,7 @@ async def _run_perception(ctx, payload):
         controller = MagicMock()
         controller.get_screen_data = AsyncMock(return_value=device_data)
         controller_cls.return_value = controller
+        ctx.controller = controller
 
         state = MagicMock(spec=State)
         state.structured_decisions = []

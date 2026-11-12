@@ -27,13 +27,13 @@ def test_the_default_is_an_adb_actuator():
 
 
 def test_the_executor_uses_the_factory():
-    from artemis.actions.executor import McpActionExecutor
+    from artemis.mcp.action_executor import McpActionExecutor
 
     ctx = SimpleNamespace(device=SimpleNamespace(device_width=1080, device_height=2400))
     controller = object()
     sentinel = SimpleNamespace(controller=controller, capabilities=lambda: frozenset())
 
-    with patch("artemis.actions.executor.build_actuator", return_value=sentinel) as factory:
+    with patch("artemis.mcp.action_executor.build_actuator", return_value=sentinel) as factory:
         executor = McpActionExecutor(ctx, controller=controller)
 
     factory.assert_called_once_with(ctx, controller)

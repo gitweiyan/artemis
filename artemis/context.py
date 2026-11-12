@@ -197,6 +197,8 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
     mcp_session: Any | None = None
     action_session: Any | None = None
     """In-process unified action MCP session (artemis.mcp.action_session)."""
+    action_service: Any | None = None
+    """L3 application service used by agents for device actions."""
     actuator: Any | None = None
     """Optional actuator backend override (artemis.mcp.actuators). ``None`` selects
     the default AdbActuator; installing e.g. a robot-arm backend happens here."""

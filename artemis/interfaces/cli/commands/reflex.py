@@ -26,7 +26,7 @@ from typing import Annotated
 
 from artemis.config import settings
 from artemis.devices.descriptors import host_resource_ids
-from artemis.actions.reflex_service import (
+from artemis.tools.reflex_service import (
     DEFAULT_FPS_CAP,
     AdbInputControl,
     Esp32HidControl,

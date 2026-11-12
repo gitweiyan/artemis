@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from dataclasses import dataclass, field
+import inspect
 from pathlib import Path
 import time
 from typing import Any, Protocol, runtime_checkable
@@ -88,9 +89,13 @@ def _evidence_for_frame(frame: Any, source: Any, session: Any) -> ObservationEvi
 
 
 def _coerce(data: Any, *, evidence: ObservationEvidence | None = None) -> ScreenData:
+    raw_elements = getattr(data, "elements", None) or getattr(data, "ui_elements", []) or []
+    # Some legacy clients return duck-typed mocks or XML strings here; only a
+    # real sequence is an element list. Do not crash a whole turn on a mock.
+    elements = list(raw_elements) if isinstance(raw_elements, (list, tuple)) else []
     return ScreenData(
         base64=str(getattr(data, "base64", None) or getattr(data, "screenshot_base64", "") or ""),
-        elements=list(getattr(data, "elements", None) or getattr(data, "ui_elements", []) or []),
+        elements=elements,
         width=int(getattr(data, "width", 1080) or 1080),
         height=int(getattr(data, "height", 2400) or 2400),
         platform=str(getattr(data, "platform", "unknown") or "unknown"),
@@ -143,10 +148,19 @@ async def get_screen_data(ctx: Any, controller: Any | None = None) -> ScreenData
     if data is not None:
         return data
     if controller is None:
-        from artemis.controllers.unified_controller import UnifiedMobileController
-
-        controller = UnifiedMobileController(ctx)
-    return _coerce(await controller.get_screen_data())
+        # Explicit injection is preferred; context-attached compatibility
+        # controllers are accepted without importing their classes here.
+        controller = getattr(ctx, "controller", None)
+    if controller is None:
+        controller = getattr(ctx, "ui_adb_client", None)
+    if controller is None:
+        raise RuntimeError(
+            "no observation source: a DeviceSession or an explicit controller is required"
+        )
+    result = controller.get_screen_data()
+    if inspect.isawaitable(result):
+        result = await result
+    return _coerce(result)
 
 
 @runtime_checkable

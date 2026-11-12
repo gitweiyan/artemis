@@ -27,6 +27,42 @@ from artemis.agents.validator.tool_declarations import (
     ToolExecutionResult,
 )
 from artemis.context import ArtemisContext
+from artemis.actions.results import ToolExecutionResult as ActionToolResult
+from artemis.actions.service import ActionService
+
+
+class _ActionPort:
+    controller = None
+
+    action_tool_names = frozenset(
+        {
+            "click",
+            "click_sequence",
+            "long_press",
+            "input_text",
+            "focus_and_input_text",
+            "swipe",
+            "press_key",
+            "manage_app",
+            "open_link",
+            "wait_for_delay",
+            "wait_for_text",
+            "erase_one_char",
+            "clear_text",
+            "focus_and_clear_text",
+        }
+    )
+
+    async def execute(self, name, args, tool_call_id, state, *, index_elements=None):
+        return ActionToolResult(
+            tool_call_id=tool_call_id,
+            tool_name=name,
+            status="success",
+            text_summary=f"{name} executed",
+        )
+
+    async def close(self):
+        return None
 
 
 @pytest.fixture
@@ -44,6 +80,7 @@ def mock_context():
     ctx.data_engine = None
     ctx.adb_client = None
     ctx.driver = Mock()
+    ctx.action_service = ActionService(_ActionPort())
     return ctx
 
 
@@ -196,17 +233,12 @@ async def test_fallback_observation_failure_is_contained(mock_context):
     assert state.latest_screenshot == "old.jpg"
 
 
-def test_flash_runner_executor_follows_the_flash_explorer_tier(mock_context):
-    """The executor is tagged as the Flash profile so ask_explorer follows flash_mode."""
-    with (
-        patch("artemis.controllers.unified_controller.get_driver"),
-        patch("artemis.agents.flash.runner.McpActionExecutor") as executor_cls,
-    ):
+def test_flash_runner_uses_the_injected_action_service(mock_context):
+    """The agent receives the L3 service; it never constructs an MCP executor."""
+    with patch("artemis.controllers.unified_controller.get_driver"):
         runner = FlashRunner(mock_context, goal="Test Open Settings")
 
-    executor_cls.assert_called_once()
-    assert executor_cls.call_args.kwargs["agent_name"] == "flash"
-    assert runner.executor is executor_cls.return_value
+    assert isinstance(runner.executor, ActionService)
 
 
 def test_ask_explorer_declaration_is_tier_agnostic(mock_context):
