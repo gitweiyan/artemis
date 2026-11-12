@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `3a984a6` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `16f9568` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3874 passed, 5 skipped, 88 warnings in 145.94s
+0 failed, 3873 passed, 5 skipped, 88 warnings in 145.89s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -175,6 +175,7 @@ attach the mock client and exercise the intended native branch.
 - ActionReceipt observed effect (2026-11-12): `ActionReceipt` accepts `OBSERVED_EFFECT`; `ActionService` preserves a recorded observed-effect state instead of forcing every successful result to `ADAPTER_ACKNOWLEDGED`.
 - ActionEvidence receipt (2026-11-12): `ActionEvidence.action_receipt` now persists the production receipt; Flash upgrades its state to `observed_effect` when the frame-diff evidence is present. iOS Flash smoke after the semantic-service migration passed (`293ddbd1...`, `ab50a46a...`).
 - Command-shaped Action Port (2026-11-12): `ActionDispatchPort.dispatch(ActionCommand)` + `ActionDispatchResult` and `McpActionPort` landed; `DeviceActionService` dispatches commands rather than calling the legacy executor directly. iOS smoke/Flash (`c9bacf28...`) and Android Flash (`ced4441e...`) produced `action_receipt.state=observed_effect`. Pro and full Agent transitive closure remain open.
+- Task 4 Agent service cleanup (2026-11-12): `get_action_service` is the primary accessor, `ActionService` requires a command port and an explicit helper port, and Flash/Validator have no MCP executor/session imports. iOS Flash `db7991de...` and Android Flash `c1a7c835...` passed after the rewire. A Pro retry was blocked by a black UVC frame; full Agent transitive closure is still open.
 - iOS Pro on the new service path (2026-11-12): `7f12bdaf-8d50-414f-adb5-7c25c5aacf54` completed with `goal_verified=true` (Checker 1 passed / 1 inconclusive); it had no action records, so it adds goal verification but not an action-receipt sample.
 - R3.6 boundary caveat: `tests/unit/architecture/test_action_contract_boundaries.py` enforces direct Agent imports and transitive `actions` imports. The Agent transitive graph still reaches legacy `tools`→driver/reflex paths (video/reflex declarations), so full Agent transitive closure remains open; no allowlist entries were added.
 - Pointer receipt real-device check (2026-11-11 22:51): iOS session `895239e6-...` recorded `pointer_precheck.state=failed` for a `screen_changed` click and `state=verified` with `error_px=0.0` for the next click; the task itself failed on the No-Op Guard.
