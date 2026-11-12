@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `239e625` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `026cd6a` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3861 passed, 9 skipped, 88 warnings in 145.11s
+0 failed, 3863 passed, 9 skipped, 88 warnings in 145.97s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -171,7 +171,7 @@ attach the mock client and exercise the intended native branch.
 - R4 contract stabilization (2026-11-11): added adapter contract tests for UvcSource, AppAutomationSource, CompositePerception, CompositeControlSink, AppControlSink and HidControlSink shape; frozen interfaces and remaining macOS/TV/Android-helper gaps are recorded in `R4_CONTRACT_STABILIZATION.md`.
 - R4 public contract freeze (2026-11-11): `test_public_contract_freeze.py` pins DTO fields/enums (ActionResult, ActionReceipt, ActionEvidence, Frame, ScreenData, CapabilitySet, CapabilityId) and required PerceptionSource/ControlSink methods; contract changes now require an intentional test diff.
 - Pointer precheck receipt (2026-11-11): Flash keeps `delegated` on the precondition but records a post-action `verified`/`failed`/`delegated` receipt from sink metrics; a missing `error_px` is not promoted to verified. Receipt is stored in `ActionEvidence.pre_verification` and the action record.
-- R3.6 action service slice (2026-11-12): `actions.service.ActionService` + `core.action_port.ActionExecutionPort` added; Flash uses the injected service, MCP transport moved to L1, action DTOs moved out of Agent modules, and `ActionReceipt` metadata is attached in production. `actions` has no agents/MCP/Controller/Driver/Adapter imports. This is a **thin wrapper over the compatibility executor**, not yet a full semantic migration.
+- R3.6 action service slice (2026-11-12): `actions.service.ActionService` + `core.action_port.ActionExecutionPort` added; Flash uses the injected service, MCP transport moved to L1, action DTOs moved out of Agent modules, and `ActionReceipt` metadata is attached in production. `actions` has no agents/MCP/Controller/Driver/Adapter imports. `DeviceActionService` now owns translation/target/observation semantics; the MCP executor remains a compatibility transport.
 - R3.6 boundary caveat: `tests/unit/architecture/test_action_contract_boundaries.py` enforces direct Agent imports and transitive `actions` imports. The Agent transitive graph still reaches legacy `tools`→driver/reflex paths (video/reflex declarations), so full Agent transitive closure remains open; no allowlist entries were added.
 - Pointer receipt real-device check (2026-11-11 22:51): iOS session `895239e6-...` recorded `pointer_precheck.state=failed` for a `screen_changed` click and `state=verified` with `error_px=0.0` for the next click; the task itself failed on the No-Op Guard.
 - Android observation parity (2026-11-11): helper JSON fallback now synthesizes the same `bounds` (and keeps `parsed_bounds`/`accessibilityText`) as the XML/UIAutomator parser; unit tests cover element-shape parity and fallback screen-data parity. After enabling the helper, forced-helper Flash `5eef9e4b...` and Pro `19bce48e...` used `Artemis accessibility helper v1.3.1`; stable-screen parity passed (91% recall / 95% precision). A tunnel rebuild occurred once in Pro.

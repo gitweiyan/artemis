@@ -2,13 +2,13 @@
 
 ## 2026-11-11 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `239e625`
+> 审计对象：`integration/10101205-all-fixes` @ `026cd6a`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3861 passed, 9 skipped**, 88 warnings, 145.11s |
+| `uv run pytest tests/unit -q` | **0 failed, 3863 passed, 9 skipped**, 88 warnings, 145.97s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18） |
@@ -42,7 +42,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - R4 Public Contract Freeze（2026-11-11）：新增 `test_public_contract_freeze.py`，冻结 ActionResult/ActionReceipt/ActionEvidence/Frame/ScreenData/CapabilitySet/CapabilityId 字段与 Protocol 方法。
 - Pointer precheck receipt（2026-11-11）：Flash precondition 仍为 delegated；动作后按 sink metrics 记录 verified/failed/delegated，无 `error_px` 不升级为 verified，写入 ActionEvidence.pre_verification。
 - Pointer receipt 真机（2026-11-11 22:51）：iOS session `895239e6-...` 的两次 click 分别为 `failed`（screen_changed）和 `verified`（error_px=0.0）；任务被 No-Op Guard 以 failed 结束，不能记作成功。
-- R3.6 Action Service（2026-11-12）：新增 `ActionService`/`ActionExecutionPort`；Agent 使用注入服务，MCP transport 在 L1，`actions` 直接依赖已清零；`ActionReceipt` metadata 进入生产结果。Agent 的完整传递依赖仍受 legacy `tools` 路径阻塞。
+- R3.6 Action Service（2026-11-12）：新增 `ActionService`/`ActionExecutionPort`；`DeviceActionService` 接管 translation/target/observation 语义，Agent 使用注入服务，MCP transport 在 L1；`ActionReceipt` metadata 进入生产结果。Agent 的完整传递依赖仍受 legacy `tools` 路径阻塞。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 
