@@ -12,4 +12,4 @@ def attach_action_service(ctx: Any) -> None:
     from artemis.actions.service import ActionService
     from artemis.mcp.action_executor import McpActionExecutor
 
-    ctx.action_service = ActionService(McpActionExecutor(ctx))
+    ctx.action_service = ActionService(McpActionExecutor(ctx), ctx)
