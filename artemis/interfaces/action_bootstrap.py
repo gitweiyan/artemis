@@ -20,3 +20,7 @@ def attach_action_service(ctx: Any) -> None:
         ctx.controller = UnifiedMobileController(ctx)
     executor = McpActionExecutor(ctx)
     ctx.action_service = ActionService(ctx, McpActionPort(executor), helper_port=executor)
+    # Optional Reflex declarations are composed at L1, not imported by Agent code.
+    from artemis.tools.reflex_tool import reflex_tool_declarations
+
+    ctx.reflex_tool_declarations = reflex_tool_declarations

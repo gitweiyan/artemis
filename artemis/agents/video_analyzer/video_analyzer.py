@@ -66,7 +66,6 @@ from artemis.agents.video_analyzer.universal_tools import (
 from artemis.config import get_temp_dir, settings
 from artemis.constants import SAFETY_SETTINGS_BLOCK_NONE
 from artemis.context import ArtemisContext
-from artemis.devices.video import get_controller
 from artemis.data_engine.trace import CURRENT_TRACE_ID, TraceSpan, trace
 from artemis.llm.google import (
     is_gemini_model,
@@ -90,6 +89,17 @@ except ImportError:
     UTC = UTC
 
 logger = get_logger(__name__)
+
+
+def get_controller(ctx: Any) -> Any:
+    """L2 compatibility resolver; production composition supplies the controller."""
+    controller = getattr(ctx, "controller", None)
+    if controller is not None:
+        return controller
+    resolver = getattr(ctx, "get_controller", None)
+    if callable(resolver):
+        return resolver()
+    raise RuntimeError("video analyzer requires a composed controller")
 
 TRANSCODE_SEMAPHORE = asyncio.Semaphore(2)
 MAIN_AGENT_SEMAPHORE = asyncio.Semaphore(2)

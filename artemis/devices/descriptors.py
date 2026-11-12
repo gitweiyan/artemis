@@ -24,9 +24,6 @@ from artemis.core.identity import (
     resolve_device_id,
 )
 
-if TYPE_CHECKING:  # pragma: no cover - typing only, keeps devices -> drivers out
-    from artemis.drivers.ios.config import IosRuntimeConfig
-
 ENV_DEVICE_ALIAS = "ARTEMIS_DEVICE_ALIAS"
 
 
@@ -184,7 +181,7 @@ def descriptor_from_device_context(
     *,
     host_id: str,
     alias: str | None = None,
-    ios_config: IosRuntimeConfig | None = None,
+    ios_config: Any | None = None,
     adb_host: str = "127.0.0.1",
     adb_port: int = 5037,
     uvc_hardware_key: str | None = None,

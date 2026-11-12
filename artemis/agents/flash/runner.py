@@ -231,9 +231,9 @@ class FlashRunner:
         tools.extend(history_tool_declarations(self.ctx))
         # Reflex skills: a bounded, model-free inner loop the agent can hand the
         # device to (see artemis/reflex). Declared only when a skill actually loads.
-        from artemis.tools.reflex_tool import reflex_tool_declarations
-
-        tools.extend(reflex_tool_declarations(self.ctx))
+        reflex_provider = getattr(self.ctx, "reflex_tool_declarations", None)
+        if callable(reflex_provider):
+            tools.extend(reflex_provider(self.ctx))
         if self._video_tools_enabled():
             from artemis.tools.video_tool import VIDEO_ANALYZER_TOOL
 

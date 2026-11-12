@@ -9,7 +9,7 @@ from import_graph import build_import_graph
 ROOT = Path(__file__).resolve().parents[3] / "artemis"
 
 
-def test_agents_have_no_direct_mcp_controller_driver_or_adapter():
+def test_agents_have_no_transitive_mcp_controller_driver_or_adapter():
     graph = build_import_graph(ROOT)
     assert (
         graph.violations(
@@ -24,7 +24,6 @@ def test_agents_have_no_direct_mcp_controller_driver_or_adapter():
                 "artemis.drivers.cloud",
                 "artemis.adapters",
             ),
-            transitive=False,
         )
         == []
     )
