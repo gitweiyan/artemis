@@ -47,6 +47,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - ActionEvidence receipt（2026-11-12）：`ActionEvidence.action_receipt` 持久化生产 receipt；Flash 在 frame diff 证据存在时将其升级为 `observed_effect`。iOS Flash 新语义路径已跑通（`293ddbd1...`、`ab50a46a...`）。
 - Command-shaped Action Port（2026-11-12）：`ActionDispatchPort`/`McpActionPort` 落地；iOS smoke/Flash `c9bacf28...`、Android Flash `ced4441e...` 的 `action_receipt` 为 `observed_effect`。Pro 与完整 Agent 传递闭包仍未完成。
 - Task 4（2026-11-12）：`get_action_service` 主入口、`ActionService` command port + helper_port；iOS Flash `db7991de...`、Android Flash `c1a7c835...` 通过；Pro 因黑帧阻塞，完整 Agent 传递闭包仍未清零。
+- Task 4 Pro 复测（2026-11-12）：iOS Pro `005aed2c-20d1-4e33-85d9-1939ad3fd1a4` 完成，Checker 3/3，`goal_verified=true`；6 条 action evidence（一条 tap 为 unknown，其余 acknowledged）。完整 Agent 传递闭包仍未清零。
 - iOS Pro（2026-11-12）：`7f12bdaf-8d50-414f-adb5-7c25c5aacf54` 在 Service 路径完成，`goal_verified=true`（Checker 1 passed / 1 inconclusive）；该次没有 action 记录。完整 Agent 传递闭包仍未完成。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
