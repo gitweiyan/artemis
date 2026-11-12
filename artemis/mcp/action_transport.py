@@ -23,6 +23,10 @@ class McpActionTransport:
         self._session = None
 
     @property
+    def controller(self):
+        return getattr(self.actuator, "controller", None)
+
+    @property
     def action_tool_names(self) -> frozenset[str]:
         extensions = getattr(self.actuator, "extensions", lambda: ())()
         return (REQUIRED_ACTIONS | OPTIONAL_ACTIONS) | {
