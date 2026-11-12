@@ -1,6 +1,6 @@
 # Post-Migration Architecture Audit — 2026-11-11
 
-- **Audit commit:** `299548d` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
+- **Audit commit:** `b7360f9` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
 - **Status language:** This is the current runtime audit; it does not overturn `ARCHITECTURE_CONTRACT.md` or `REFACTOR_EXECUTION_PLAN.md`.
 
@@ -123,7 +123,7 @@ New violations fail immediately; existing entries must be removed when their own
 
 ```text
 uv run pytest tests/unit -q
-0 failed, 3873 passed, 5 skipped, 88 warnings in 145.84s
+0 failed, 3878 passed, 5 skipped, 88 warnings in 145.92s
 ```
 
 Known failures: none. The former 12 Explorer/VideoAnalyzer failures were test-harness
@@ -180,6 +180,7 @@ attach the mock client and exercise the intended native branch.
 - Legacy tool transitive cleanup (2026-11-12): video analyzer now resolves its controller through context, Flash receives Reflex declarations from L1 composition, and descriptors no longer has an IOS type-only import. The architecture test now enforces transitive Agent→MCP/Controller/Driver/Adapter closure and passes.
 - Final Task 4 real-device pass (2026-11-12): iOS smoke passed; iOS Flash `62e8db76-...`; iOS Pro `1f1dedda-...` with `goal_verified=true` (2/2, no action records); Android Flash `d70d4d48-...` with `action_receipt.state=observed_effect`.
 - Final Android Pro closure (2026-11-12): `97e55f5b-...` completed with `goal_verified=true` (Checker 2/2) on the command-service path; helper was unavailable and UIAutomator2 served observation. Production uses `McpActionTransport`; `McpActionExecutor` remains legacy/helper compatibility only.
+- R3.5 Flash safety closure (2026-11-12): `click_sequence` is high-risk and validates points/freshness; burst counts actual clicks/risk units (`max_clicks=3`, `max_risk=8`); high-value actions require effect evidence. iOS Flash `20fd178b-...` and Android Flash passed after the change.
 - iOS Pro on the new service path (2026-11-12): `7f12bdaf-8d50-414f-adb5-7c25c5aacf54` completed with `goal_verified=true` (Checker 1 passed / 1 inconclusive); it had no action records, so it adds goal verification but not an action-receipt sample.
 - R3.6 boundary caveat: `tests/unit/architecture/test_action_contract_boundaries.py` enforces direct Agent imports and transitive `actions` imports. The Agent transitive graph still reaches legacy `tools`→driver/reflex paths (video/reflex declarations), so full Agent transitive closure remains open; no allowlist entries were added.
 - Pointer receipt real-device check (2026-11-11 22:51): iOS session `895239e6-...` recorded `pointer_precheck.state=failed` for a `screen_changed` click and `state=verified` with `error_px=0.0` for the next click; the task itself failed on the No-Op Guard.
