@@ -47,6 +47,8 @@ from artemis.actions.manifest import OPTIONAL_ACTIONS, REQUIRED_ACTIONS
 from artemis.actions.specs import exception_prefix
 from artemis.core.action_types import ActionCode, ActionResult
 from artemis.actions.normalization import normalize_coordinate_target
+from artemis.core.action_port import ActionDispatchResult
+from artemis.core.actions import ActionCommand, ActionReceipt, ActionState
 from artemis.actions.results import ToolExecutionResult
 from artemis.utils.coordinates import (
     compute_smart_swipe_coordinates,
@@ -151,6 +153,7 @@ class DeviceActionService:
 
         message = ""
         res: ActionResult | None = None
+        receipt: ActionReceipt | None = None
         img_bytes: bytes | None = None
         shot_path: str | None = None
         xml_list: str | None = None
@@ -181,7 +184,22 @@ class DeviceActionService:
                     )
                     res = ActionResult.success(raw_name, message)
                 else:
-                    res = await session.call(wire_name, wire_args)
+                    if hasattr(session, "dispatch"):
+                        command = ActionCommand(
+                            command_id=action_id,
+                            intent_id=action_id,
+                            attempt=attempt,
+                            adapter_id=wire_name,
+                            parameters=dict(wire_args),
+                        )
+                        dispatched = await session.dispatch(command)
+                        if isinstance(dispatched, ActionDispatchResult):
+                            receipt = dispatched.receipt
+                            res = dispatched.result
+                        else:  # compatibility with an older adapter
+                            res = dispatched
+                    else:
+                        res = await session.call(wire_name, wire_args)
                     message = finalize(res) if finalize else res.message
 
                 if res.ok or self._observe_despite_failure(raw_name, res):
@@ -258,6 +276,11 @@ class DeviceActionService:
                 "action_id": action_id,
                 "action_attempt": attempt,
                 "action_state": action_state,
+                **(
+                    {"action_receipt": receipt.as_dict()}
+                    if receipt is not None
+                    else {}
+                ),
             },
         )
 

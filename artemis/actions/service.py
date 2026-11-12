@@ -29,7 +29,7 @@ class ActionService:
         object.__setattr__(
             self,
             "_device_service",
-            DeviceActionService(ctx, port) if ctx is not None and hasattr(port, "call") else None,
+            DeviceActionService(ctx, port) if ctx is not None and (hasattr(port, "call") or hasattr(port, "dispatch")) else None,
         )
 
     @property

@@ -112,3 +112,57 @@ async def test_semantic_service_owns_target_translation_and_receipt():
     assert port.calls == [("click", {"target": [500, 500], "times": 1, "delay_ms": 100})]
     assert result.status == "success"
     assert result.metadata["action_receipt"]["state"] == "adapter_acknowledged"
+
+
+class DispatchPort:
+    action_tool_names = frozenset({"click"})
+
+    def __init__(self):
+        self.commands = []
+
+    async def dispatch(self, command):
+        from artemis.core.action_port import ActionDispatchResult
+        from artemis.core.action_types import ActionCode, ActionResult
+        from artemis.core.actions import ActionReceipt, ActionState
+
+        self.commands.append(command)
+        return ActionDispatchResult(
+            result=ActionResult(ok=True, code=ActionCode.OK, action="click", message="clicked"),
+            receipt=ActionReceipt(
+                action_id=command.command_id,
+                intent_id=command.intent_id,
+                command_id=command.command_id,
+                attempt=command.attempt,
+                adapter_id=command.adapter_id,
+                state=ActionState.ADAPTER_ACKNOWLEDGED,
+                dispatched_at=1.0,
+            ),
+        )
+
+    async def observe(self, settle_ms=400, include_image=False):
+        from artemis.core.action_types import ObserveResult
+
+        return ObserveResult(ok=True, message="observed", elements=[])
+
+    async def close(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_semantic_service_dispatches_a_command_not_a_tool_call():
+    port = DispatchPort()
+    ctx = SimpleNamespace(indexed_elements=[], data_engine=None)
+    service = ActionService(port, ctx)
+
+    result = await service.execute(
+        "click",
+        {"target": [500, 500], "target_description": "button"},
+        "tc-command",
+        SimpleNamespace(indexed_elements=[]),
+    )
+
+    assert len(port.commands) == 1
+    command = port.commands[0]
+    assert command.adapter_id == "click"
+    assert command.parameters["target"] == [500, 500]
+    assert result.metadata["action_receipt"]["state"] == "adapter_acknowledged"

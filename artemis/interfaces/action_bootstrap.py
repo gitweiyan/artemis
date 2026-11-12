@@ -11,5 +11,7 @@ def attach_action_service(ctx: Any) -> None:
         return
     from artemis.actions.service import ActionService
     from artemis.mcp.action_executor import McpActionExecutor
+    from artemis.mcp.action_port import McpActionPort
 
-    ctx.action_service = ActionService(McpActionExecutor(ctx), ctx)
+    executor = McpActionExecutor(ctx)
+    ctx.action_service = ActionService(McpActionPort(executor), ctx)
