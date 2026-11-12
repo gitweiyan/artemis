@@ -47,12 +47,10 @@ from artemis.data_engine.trace import TraceSpan
 from artemis.actions.manifest import OPTIONAL_ACTIONS, REQUIRED_ACTIONS
 from artemis.actions.specs import exception_prefix
 from artemis.actions.session import ActionSession, get_action_session
-from artemis.mcp.action_types import ActionCode, ActionResult
+from artemis.core.action_types import ActionCode, ActionResult
 from artemis.mcp.actuators.factory import build_actuator
-from artemis.agents.validator.tool_declarations import (
-    ToolExecutionResult,
-    normalize_coordinate_target,
-)
+from artemis.actions.normalization import normalize_coordinate_target
+from artemis.actions.results import ToolExecutionResult
 from artemis.tools.history import HISTORY_TOOL_NAMES, history_tool_by_name
 from artemis.tools.tool_wrapper import split_multimodal_result
 from artemis.utils.coordinates import (

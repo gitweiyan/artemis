@@ -48,45 +48,7 @@ from third_party.mobile_use.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class ToolExecutionResult(BaseModel):
-    """Standardized result produced by executing a mobile automation or utility tool."""
-
-    tool_call_id: str
-    tool_name: str
-    status: Literal["success", "error", "cancelled"]
-    text_summary: str
-    screenshot_bytes: bytes | None = None
-    screenshot_path: str | None = None
-    ui_elements_text: str | None = None
-    raw_result: Any = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    def to_langchain_tool_message(self) -> ToolMessage:
-        """Converts execution result into a standardized multimodal LangChain ToolMessage."""
-        content_blocks: list[dict[str, Any]] = [
-            {"type": "text", "text": self.text_summary or f"Action '{self.tool_name}' dispatched."}
-        ]
-        if self.ui_elements_text:
-            content_blocks.append(
-                {
-                    "type": "text",
-                    "text": f"--- UI Element List ---\n{self.ui_elements_text}",
-                }
-            )
-        if self.screenshot_bytes:
-            b64_img = base64.b64encode(self.screenshot_bytes).decode("utf-8")
-            content_blocks.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"},
-                }
-            )
-        return ToolMessage(
-            tool_call_id=self.tool_call_id,
-            name=self.tool_name,
-            content=content_blocks,
-            status=self.status,
-        )
+from artemis.actions.results import ToolExecutionResult
 
 
 def prune_intermediate_screenshots(messages: list[Any]) -> None:
@@ -185,44 +147,7 @@ async def capture_screenshot_and_parse_ui(
     return obs.screenshot_path, screenshot_bytes, obs.elements_text
 
 
-def normalize_coordinate_target(target: Any) -> int | list[int] | Any:
-    """Normalizes coordinate targets or index references to standard types.
-
-    Supports:
-    - Integer index: e.g. 1 or "1" -> 1
-    - Coordinate list: e.g. [500, 280] or ["500", "280"] -> [500, 280]
-    - Serialized coordinate string: e.g. "[500, 280]" or "500, 280" -> [500, 280]
-    """
-    if isinstance(target, int):
-        return target
-
-    if isinstance(target, (list, tuple)):
-        if len(target) == 2:
-            try:
-                return [int(target[0]), int(target[1])]
-            except (ValueError, TypeError):
-                pass
-        elif len(target) == 1:
-            return normalize_coordinate_target(target[0])
-
-    if isinstance(target, str):
-        cleaned = target.strip()
-        if cleaned.isdigit() or (cleaned.startswith("-") and cleaned[1:].isdigit()):
-            return int(cleaned)
-        try:
-            parsed = json.loads(cleaned)
-            return normalize_coordinate_target(parsed)
-        except (json.JSONDecodeError, TypeError):
-            pass
-        if "," in cleaned:
-            parts = [p.strip().strip("[]() ") for p in cleaned.split(",")]
-            if len(parts) == 2:
-                try:
-                    return [int(parts[0]), int(parts[1])]
-                except (ValueError, TypeError):
-                    pass
-
-    return target
+from artemis.actions.normalization import normalize_coordinate_target
 
 
 # Device-action declarations are generated from the canonical manifest
