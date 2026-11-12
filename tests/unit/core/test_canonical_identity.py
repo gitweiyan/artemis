@@ -146,3 +146,18 @@ def test_duplicate_serial_entries_are_visible_in_host_inventory():
 
     assert [entry.serial for entry in entries] == ["DUP-1", "DUP-1"]
     assert [entry.location_id for entry in entries] == ["1-2.3", "1-2.4"]
+
+
+def test_conflicting_serial_devices_are_distinguished_by_port_hint():
+    from artemis.drivers.ios.uvc_identity import UsbEntry
+
+    entries = (
+        UsbEntry("USB Video", "DUP-1", "1-2.3"),
+        UsbEntry("USB Video", "DUP-1", "1-2.4"),
+    )
+    first = resolve_uvc_identity("USB Video", inventory_probe=lambda _: entries, port_hint="1-2.3")
+    second = resolve_uvc_identity("USB Video", inventory_probe=lambda _: entries, port_hint="1-2.4")
+
+    assert first.key == "usb-1-2.3"
+    assert second.key == "usb-1-2.4"
+    assert first.key != second.key

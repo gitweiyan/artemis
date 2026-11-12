@@ -125,6 +125,7 @@ def resolve_uvc_identity(
     explicit_key: str | None = None,
     strict: bool = False,
     host_id: str | None = None,
+    port_hint: str | None = None,
     probe: Callable[[str], UVCIdentity | None] = probe_usb_identity,
     inventory_probe: Callable[[str], tuple[UsbEntry, ...]] | None = None,
 ) -> UVCIdentity:
@@ -139,8 +140,22 @@ def resolve_uvc_identity(
         entries = ()
     if entries:
         serials = [entry.serial for entry in entries if entry.serial]
-        unique_serial = serials[0] if len(serials) == 1 and len(entries) == 1 else None
-        if unique_serial and serials.count(unique_serial) == 1:
+        duplicate_serial = len(serials) > 1 and len(set(serials)) < len(serials)
+        if port_hint:
+            wanted = derive_hardware_key(port_hint)
+            selected = tuple(
+                entry
+                for entry in entries
+                if entry.location_id and derive_hardware_key(entry.location_id) == wanted
+            )
+            if selected:
+                entries = selected
+            elif strict:
+                raise ValueError(f"USB port hint {port_hint!r} did not match the host inventory")
+        unique_serial = (
+            serials[0] if len(entries) == 1 and len(serials) == 1 and not duplicate_serial else None
+        )
+        if unique_serial:
             return UVCIdentity(unique_serial, IdentitySource.HARDWARE_SERIAL, metadata)
         locations = sorted(entry.location_id for entry in entries if entry.location_id)
         if locations:
