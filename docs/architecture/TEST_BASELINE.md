@@ -8,7 +8,7 @@
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3884 passed, 5 skipped**, 88 warnings, 147.0s |
+| `uv run pytest tests/unit -q` | **0 failed, 3885 passed, 5 skipped**, 88 warnings, 147.0s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18；1 below） |
