@@ -2,7 +2,7 @@
 
 ## 2026-11-11 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `cc958dc`
+> 审计对象：`integration/10101205-all-fixes` @ `f75a71f`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
@@ -44,6 +44,7 @@ universal LangChain 路径并解析 MagicMock provider。现在测试挂载 mock
 - Pointer receipt 真机（2026-11-11 22:51）：iOS session `895239e6-...` 的两次 click 分别为 `failed`（screen_changed）和 `verified`（error_px=0.0）；任务被 No-Op Guard 以 failed 结束，不能记作成功。
 - R3.6 Action Service（2026-11-12）：新增 `ActionService`/`ActionExecutionPort`；`DeviceActionService` 接管 translation/target/observation 语义，Agent 使用注入服务，MCP transport 在 L1；`ActionReceipt` metadata 进入生产结果。Agent 的完整传递依赖仍受 legacy `tools` 路径阻塞。
 - ActionReceipt 状态（2026-11-12）：生产 receipt 现在保留 `observed_effect`，不再把每个成功 dispatch 压成 ACK。
+- ActionEvidence receipt（2026-11-12）：`ActionEvidence.action_receipt` 持久化生产 receipt；Flash 在 frame diff 证据存在时将其升级为 `observed_effect`。iOS Flash 新语义路径已跑通（`293ddbd1...`、`ab50a46a...`）。
 
 > 历史记录（2026-11-09，`a82d58e`）保留在下方，仅作基线对照，不代表当前 HEAD。
 
