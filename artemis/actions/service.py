@@ -67,7 +67,9 @@ class ActionService:
         index_elements: list[dict[str, Any]] | None = None,
     ) -> ToolExecutionResult:
         service = object.__getattribute__(self, "_device_service")
-        if service is not None:
+        # Helper tools (notes/explorer/reflex/history) remain on the compatibility
+        # executor; only device actions are owned by DeviceActionService.
+        if service is not None and name.split(":")[-1] in self.action_tool_names:
             result = await service.execute(
                 name,
                 args,
