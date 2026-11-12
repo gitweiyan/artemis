@@ -186,6 +186,7 @@ class ActionReceipt:
         if state not in {
             ActionState.DISPATCHED,
             ActionState.ADAPTER_ACKNOWLEDGED,
+            ActionState.OBSERVED_EFFECT,
             ActionState.REJECTED,
             ActionState.CANCELLED,
             ActionState.DEADLINE_EXCEEDED,

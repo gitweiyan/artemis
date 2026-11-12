@@ -90,10 +90,21 @@ class ActionService:
         metadata = dict(result.metadata or {})
         if "action_receipt" not in metadata:
             action_id = str(metadata.get("action_id") or tool_call_id)
-            state_value = state_from_result(
-                str(result.status) == "success",
-                metadata.get("incident"),
-            )
+            recorded_state = metadata.get("action_state")
+            try:
+                state_value = (
+                    ActionState(str(recorded_state))
+                    if recorded_state
+                    else state_from_result(
+                        str(result.status) == "success",
+                        metadata.get("incident"),
+                    )
+                )
+            except ValueError:
+                state_value = state_from_result(
+                    str(result.status) == "success",
+                    metadata.get("incident"),
+                )
             receipt = ActionReceipt(
                 action_id=action_id,
                 intent_id=action_id,

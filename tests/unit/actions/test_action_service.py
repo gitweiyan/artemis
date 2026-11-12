@@ -51,6 +51,24 @@ async def test_action_service_uses_the_injected_port_and_adds_a_receipt():
 
 
 @pytest.mark.asyncio
+async def test_action_service_preserves_an_observed_effect_receipt():
+    class ObservedPort(SessionPort):
+        async def execute(self, name, args, tool_call_id, state, *, index_elements=None):
+            return ToolExecutionResult(
+                tool_call_id=tool_call_id,
+                tool_name=name,
+                status="success",
+                text_summary="changed",
+                metadata={"action_id": "a-1", "action_state": "observed_effect"},
+            )
+
+    service = ActionService(ObservedPort())
+    result = await service.execute("click", {"target": [1, 2]}, "tc", SimpleNamespace())
+
+    assert result.metadata["action_receipt"]["state"] == "observed_effect"
+
+
+@pytest.mark.asyncio
 async def test_action_service_close_delegates_to_the_port():
     port = FakePort()
     await ActionService(port).close()
@@ -87,7 +105,9 @@ async def test_semantic_service_owns_target_translation_and_receipt():
     service = ActionService(port, SimpleNamespace(indexed_elements=[], data_engine=None))
     state = SimpleNamespace(indexed_elements=[])
 
-    result = await service.execute("click", {"target": [500, 500], "target_description": "button"}, "tc-semantic", state)
+    result = await service.execute(
+        "click", {"target": [500, 500], "target_description": "button"}, "tc-semantic", state
+    )
 
     assert port.calls == [("click", {"target": [500, 500], "times": 1, "delay_ms": 100})]
     assert result.status == "success"
