@@ -838,10 +838,9 @@ class FlashRunner:
         post = metadata.get("post_verification") or {}
         if post.get("ok") is True and not post.get("skipped"):
             return ActionState.OBSERVED_EFFECT.value
-        if (
-            str(metadata.get("action_state") or "") == ActionState.ADAPTER_ACKNOWLEDGED.value
-            and metadata.get("action_receipt")
-        ):
+        if str(
+            metadata.get("action_state") or ""
+        ) == ActionState.ADAPTER_ACKNOWLEDGED.value and metadata.get("action_receipt"):
             return ActionState.ADAPTER_ACKNOWLEDGED.value
         return ActionState.UNKNOWN.value
 

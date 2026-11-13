@@ -136,9 +136,7 @@ async def capture_screenshot_and_parse_ui(
     Thin adapter over :func:`artemis.perception.observation.observe` that adds the LangGraph
     ``State`` write-back (indexed points/elements) the agents rely on.
     """
-    obs, screenshot_bytes = await observation_port.observe(
-        settle_ms=0 if skip_settling else 400
-    )
+    obs, screenshot_bytes = await observation_port.observe(settle_ms=0 if skip_settling else 400)
     if not obs.ok:
         return None, None, None
 
