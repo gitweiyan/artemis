@@ -61,8 +61,16 @@ def _wrap(res: ActionResult) -> CallToolResult:
 
 
 def _wrap_exception(action: str, exc: Exception) -> CallToolResult:
+    incident = getattr(exc, "incident", None)
+    if incident is None and isinstance(exc, OSError):
+        incident = "transport_error"
     return _wrap(
-        ActionResult.failure(action, f"{exception_prefix(action)}: {exc}", detail=repr(exc))
+        ActionResult.failure(
+            action,
+            f"{exception_prefix(action)}: {exc}",
+            incident=incident,
+            detail=repr(exc),
+        )
     )
 
 

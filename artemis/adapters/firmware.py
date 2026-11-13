@@ -44,6 +44,9 @@ _HELLO_RE = re.compile(
 class FirmwareError(RuntimeError):
     """Base class for firmware/protocol failures."""
 
+    #: A lost serial link is a transport fault, not an action argument error.
+    incident: str | None = "transport_error"
+
 
 class FirmwareCommandError(FirmwareError):
     """The firmware answered ``ERR`` or ``usage:`` for a command."""
