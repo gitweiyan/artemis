@@ -1,18 +1,18 @@
 # 测试与质量门禁基线（2026-11-09）
 
-## 2026-11-11 当前基线（最新）
+## 2026-11-13 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `1856eec`
+> 审计对象：`integration/10101205-all-fixes` @ `9fe4b43`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3885 passed, 5 skipped**, 88 warnings, 147.0s |
+| `uv run pytest tests/unit -q` | **0 failed, 3900 passed, 9 skipped**, 88 warnings, 149.94s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18；1 below） |
-| 真实设备 | iOS smoke/Flash/Pro、Android Flash 已通过；详见 `POST_MIGRATION_ARCHITECTURE_AUDIT.md` |
+| 真实设备 | 本轮改动后 iOS smoke **未完成**：机台 `/dev/cu.usbmodem5B140947461` 当前不存在；既有历史证据不等于本轮验证 |
 
 ### 当前失败清单
 
@@ -197,3 +197,13 @@ uv run ruff check
 uv run ruff format --check .
 uv run python scripts/quality_ratchet.py --print-current
 ```
+
+### 2026-11-13 R3.6/R3.7 实施基线
+
+- 代码提交：`04ec960`（Observation/Controller 边界）、`a5a579b`（UVC identity）、`9fe4b43`（Session/Lease cleanup）
+- `uv run pytest tests/unit -q`: **0 failed, 3900 passed, 9 skipped**
+- `uv run pytest tests/unit/architecture -q`: **14 passed**
+- `uv run ruff check`: pass
+- `quality_ratchet`: 773 / 0 / 18（baseline 774/18，1 below）
+- 真实 iOS smoke：**NOT RUN（device offline）**；运行时报 `/dev/cu.usbmodem5B140947461` 不存在，已正常释放已获取的 UVC/serial Lease。
+- 本轮新增行为由单元/契约测试证明；真机断线、UVC 多候选和 Session cleanup retry 的硬件证据仍待补。
