@@ -71,7 +71,6 @@ def build_ios_uvc_session(
         control,
         frame_size=frame_size,
         gain=pointer_gain,
-        absolute_rotated=True,
     )
     target_locator = None
     if detector is None:

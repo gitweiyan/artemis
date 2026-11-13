@@ -88,7 +88,6 @@ class PointerSession:
         frame_size: tuple[int, int] = (449, 974),
         gain: tuple[float, float] = (1.4, 1.4),
         home_settle_s: float = 0.8,
-        absolute_rotated: bool = False,
     ):
         if gain[0] <= 0 or gain[1] <= 0:
             raise ValueError("gain must be positive")
@@ -100,10 +99,6 @@ class PointerSession:
         self._y = 0.0
         self.connected = False
         self.home_settle_s = max(0.0, float(home_settle_s))
-        #: The ESP32 absolute HID report is rotated/mirrored by iOS on this portrait
-        #: rig: the report's X drives screen Y (inverted), report Y drives screen X.
-        #: The relative path is unaffected; only absolute placement needs this map.
-        self.absolute_rotated = bool(absolute_rotated)
 
     @property
     def position(self) -> tuple[float, float]:
@@ -164,12 +159,10 @@ class PointerSession:
         width, height = self.frame_size
         x = max(0.0, min(float(width), float(x)))
         y = max(0.0, min(float(height), float(y)))
-        nx = x / width * 1000
-        ny = y / height * 1000
-        if self.absolute_rotated:
-            # iOS maps report X to screen Y (inverted) and report Y to screen X.
-            nx, ny = (1.0 - y / height) * 1000, x / width * 1000
-        move(max(0, min(1000, round(nx))), max(0, min(1000, round(ny))))
+        move(
+            max(0, min(1000, round(x / width * 1000))),
+            max(0, min(1000, round(y / height * 1000))),
+        )
 
     def click_abs(self) -> None:
         """Left-click at the absolute position (the absolute report's buttons)."""
