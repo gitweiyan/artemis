@@ -2,7 +2,7 @@
 
 ## 2026-11-13 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `c98a872`
+> 审计对象：`integration/10101205-all-fixes` @ `93bba5b`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
@@ -12,7 +12,7 @@
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **27 files would be reformatted**（既有文件；非新增；本轮改动文件已格式检查通过） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18；1 below） |
-| 真实设备 | 本轮改动后 iOS smoke **未完成**：机台 `/dev/cu.usbmodem5B140947461` 当前不存在；既有历史证据不等于本轮验证 |
+| 真实设备 | iOS smoke 通过（`设置`）；iOS Flash/Pro 与 Android Flash/Pro 通过；详见 `POST_MIGRATION_ARCHITECTURE_AUDIT.md` |
 
 ### 当前失败清单
 
@@ -205,5 +205,9 @@ uv run python scripts/quality_ratchet.py --print-current
 - `uv run pytest tests/unit/architecture -q`: **14 passed**
 - `uv run ruff check`: pass
 - `quality_ratchet`: 773 / 0 / 18（baseline 774/18，1 below）
-- 真实 iOS smoke：**NOT RUN（device offline）**；运行时报 `/dev/cu.usbmodem5B140947461` 不存在，已正常释放已获取的 UVC/serial Lease。
-- 本轮新增行为由单元/契约测试证明；真机断线、UVC 多候选和 Session cleanup retry 的硬件证据仍待补。
+- 真实 iOS smoke：**PASS**。`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461 artemis ios-smoke --target 设置` 七阶段通过，7 条 capability evidence；同时确认绝对 HID 坐标需要 portrait 轴的旋转/镜像修正。
+- 真实 iOS Flash：`d5587103-5ce1-48d4-8251-8a9f8ed47126` 成功；step action evidence `observed_effect`，UVC/serial Lease 均释放。
+- 真实 iOS Pro：`bcb09b38-a513-4ca6-bc46-01dbe826ac7d` 完成，Checker tests 3 passed / 0 failed，`goal_verified=true`；UVC/serial Lease 均释放。
+- 真实 Android Flash：`c69921eb-77f0-464c-9961-8165d6e4cdad` 成功，`manage_app` action evidence 为 `observed_effect`。
+- 真实 Android Pro：`7693c4ce-cd63-41b5-a751-0517766060bb` 完成（Accessibility Helper 不可用，UIAutomator2 路径）；任务成功，但旧 HOME 步骤仍显示 failed 的展示状态，需后续单独审查。
+- 本轮未做：真实 UVC/ESP32 中途拔线、Android USB 中途断线、双采集卡 port_hint、Host 级 CleanupRegistry 真机恢复。
