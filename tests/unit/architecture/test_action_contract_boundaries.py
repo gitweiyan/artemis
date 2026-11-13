@@ -75,3 +75,11 @@ def test_runtime_controller_passthrough_is_removed():
     assert "def controller" not in transport
     assert "self.controller" not in flash
     assert "langchain_core.messages" not in (ROOT / "actions" / "results.py").read_text()
+
+
+def test_planner_and_graph_do_not_persist_a_second_screenshot():
+    planner = (ROOT / "agents" / "planner" / "planner.py").read_text()
+    graph = (ROOT / "graph" / "perception.py").read_text()
+
+    assert "get_or_create_image" not in planner
+    assert "get_or_create_image" not in graph

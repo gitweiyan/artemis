@@ -14,7 +14,6 @@
 
 import asyncio
 import base64
-import hashlib
 import json
 from pathlib import Path
 
@@ -147,42 +146,52 @@ async def perception_node(state: State, ctx: ArtemisContext) -> dict:
                 # this moment stay protected until the next instruction.
                 _unprotect_current_check_lines(ctx)
 
-    # Graph observation goes through the Session-aware application service; the
-    # controller fallback lives inside that service, not in L2.
-    if _should_skip_settling(state):
-        logger.info("Skipping settling. Retrieving screen data directly...")
-        device_data = await get_screen_data(
-            ctx, observation_port=getattr(ctx, "observation_port", None)
-        )
+    # Graph observation goes through the explicit ObservationPort. The port's
+    # observe() is the single persistence owner; Graph only consumes its result.
+    observation_port = getattr(ctx, "observation_port", None)
+    if observation_port is not None:
+        settle_ms = 0 if _should_skip_settling(state) else 400
+        observed, image_bytes = await observation_port.observe(settle_ms=settle_ms)
+        if not observed.ok:
+            raise RuntimeError(f"perception observation failed: {observed.message}")
+        latest_screenshot_bytes = image_bytes or b""
+        latest_screenshot_b64 = base64.b64encode(latest_screenshot_bytes).decode("ascii")
+        xml_hierarchy = observed.elements or []
+        screenshot_path = observed.screenshot_path
+        width = int(observed.width or (ctx.device.device_width if ctx.device else 1080))
+        height = int(observed.height or (ctx.device.device_height if ctx.device else 2400))
     else:
-        logger.info("Screen settling required. Delaying 0.4s and capturing screen data...")
-        await asyncio.sleep(0.4)
-        device_data = await get_screen_data(
-            ctx, observation_port=getattr(ctx, "observation_port", None)
+        # Explicit compatibility only for tests/contexts without a composed port.
+        if _should_skip_settling(state):
+            logger.info("Skipping settling. Retrieving screen data directly...")
+        else:
+            await asyncio.sleep(0.4)
+        device_data = await get_screen_data(ctx)
+        latest_screenshot_b64 = getattr(device_data, "base64", None) or getattr(
+            device_data, "screenshot_base64", ""
         )
-    latest_screenshot_b64 = getattr(device_data, "base64", None) or getattr(
-        device_data, "screenshot_base64", ""
-    )
-    xml_hierarchy = getattr(device_data, "elements", None)
-    if xml_hierarchy is None:
-        xml_hierarchy = getattr(device_data, "ui_elements", []) or []
+        xml_hierarchy = getattr(device_data, "elements", None)
+        if xml_hierarchy is None:
+            xml_hierarchy = getattr(device_data, "ui_elements", []) or []
+        latest_screenshot_bytes = base64.b64decode(latest_screenshot_b64)
+        screenshot_path = None
+        width = int(device_data.width or 1080)
+        height = int(device_data.height or 2400)
 
     # The screen behind this turn is now in hand; every action planned from it is
     # dispatched against an observation that is already this old (I5).
     observation_clock.stamp_capture(ctx)
 
-    latest_screenshot_bytes = base64.b64decode(latest_screenshot_b64)
-
     # Update context device dimensions dynamically
     if ctx.device:
-        ctx.device.device_width = device_data.width
-        ctx.device.device_height = device_data.height
-        logger.info(f"Updated context device dimensions: {device_data.width}x{device_data.height}")
+        ctx.device.device_width = width
+        ctx.device.device_height = height
+        logger.info(f"Updated context device dimensions: {width}x{height}")
 
     # 3. Perform OCR (if configured, else fallback to pure XML layout)
     ocr_results = []
     if is_ocr_configured():
-        screen_height = device_data.height
+        screen_height = height
         status_bar_height = _detect_status_bar_height(xml_hierarchy, screen_height)
         try:
             if status_bar_height > 0:
@@ -210,21 +219,7 @@ async def perception_node(state: State, ctx: ArtemisContext) -> dict:
     # 4. Fuse OCR with XML (if ocr_results is empty, returns original xml_hierarchy intact)
     fused_xml = fuse_ocr_with_xml(xml_hierarchy, ocr_results)
 
-    # 5. Save to Data Engine in background thread
-    image_name = None
-    screenshot_path = None
-    if ctx.data_engine:
-        image_name = hashlib.sha256(latest_screenshot_bytes).hexdigest()
-        screenshot_path = str(ctx.data_engine.get_image_path(image_name))
-        asyncio.create_task(
-            asyncio.to_thread(
-                ctx.data_engine.get_or_create_image,
-                latest_screenshot_bytes,
-                ui_tree=xml_hierarchy,
-                ocr_result=ocr_results,
-            )
-        )
-        logger.info(f"Offloaded perception data saving to background with image_name: {image_name}")
+    # ObservationPort.observe() already persisted the frame and its artifacts.
 
     # Return state update
     update = {
@@ -234,8 +229,8 @@ async def perception_node(state: State, ctx: ArtemisContext) -> dict:
             "screenshot_b64": latest_screenshot_b64,
             "xml_hierarchy": xml_hierarchy if xml_hierarchy is not None else [],
             "ocr_results": ocr_results,
-            "width": device_data.width,
-            "height": device_data.height,
+            "width": width,
+            "height": height,
         },
         "injected_instruction": injected_instruction,
         # sticky_or reducer: once latched True, later False updates keep it True

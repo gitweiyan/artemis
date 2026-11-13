@@ -256,21 +256,23 @@ class PlannerNode:
         if not screenshot_b64:
             logger.info("No screenshot found in state. Taking screenshot for Initial Plan...")
             try:
-                from artemis.perception.observation import get_screen_data
-
                 observation_port = getattr(self.ctx, "observation_port", None)
-                screenshot_b64 = (
-                    await get_screen_data(self.ctx, observation_port=observation_port)
-                ).base64
+                if observation_port is not None:
+                    observed, image_bytes = await observation_port.observe(settle_ms=0)
+                    if not observed.ok:
+                        raise RuntimeError(observed.message)
+                    if image_bytes:
+                        screenshot_b64 = base64.b64encode(image_bytes).decode("ascii")
+                    elif observed.screenshot_path:
+                        screenshot_b64 = base64.b64encode(
+                            Path(observed.screenshot_path).read_bytes()
+                        ).decode("ascii")
+                    state.latest_screenshot = observed.screenshot_path
+                else:
+                    from artemis.perception.observation import get_screen_data
 
-                # Save to Data Engine if available to keep trace
-                if self.ctx.data_engine:
-                    img_bytes = base64.b64decode(screenshot_b64)
-                    image_name = self.ctx.data_engine.get_or_create_image(img_bytes)
-                    saved_path = str(self.ctx.data_engine.get_image_path(image_name))
-                    # Update local state object so it can be used later if needed
-                    state.latest_screenshot = saved_path
-                    logger.info(f"Saved initial plan screenshot to {saved_path}")
+                    device_data = await get_screen_data(self.ctx)
+                    screenshot_b64 = device_data.base64
             except Exception as e:
                 logger.error(f"Failed to take screenshot for Initial Plan: {e}")
 
