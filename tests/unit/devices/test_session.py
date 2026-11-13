@@ -513,3 +513,19 @@ def test_non_fatal_source_error_does_not_fail_the_session():
         asyncio.run(session.snapshot())
 
     assert session.state.value == "ready"
+
+
+def test_repeated_unhealthy_frames_fail_the_session():
+    bad = Frame(b"black", 1.0, 10, 10, "uvc", health="black")
+    session = DeviceSession([Source(bad)], [], geometry())
+    session.open()
+
+    for _ in range(2):
+        with pytest.raises(DeviceSessionError):
+            asyncio.run(session.snapshot())
+        assert session.state.value == "ready"
+
+    with pytest.raises(DeviceSessionError):
+        asyncio.run(session.snapshot())
+    assert session.state.value == "failed"
+    assert session.fault_source == "perception"

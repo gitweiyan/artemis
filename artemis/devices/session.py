@@ -18,7 +18,12 @@ from artemis.control.base import ControlSink
 from artemis.core.capabilities import CapabilityView
 from artemis.core.capability_registry import declared_view
 from artemis.core.identity import DeviceDescriptor
-from artemis.core.errors import DeviceFault, DeviceSessionError, SessionClosedError
+from artemis.core.errors import (
+    DeviceFault,
+    DeviceFaultKind,
+    DeviceSessionError,
+    SessionClosedError,
+)
 from artemis.devices.capabilities import CapabilitySet
 from artemis.devices.capabilities_compat import manifest_from_capability_set
 from artemis.devices.geometry import ScreenGeometry
@@ -99,6 +104,7 @@ class DeviceSession:
     #: generic session does not grow platform-specific fields (ADR-003 §5.4).
     adapter_state: dict[str, Any] = field(default_factory=dict)
     last_frame_id: str | None = None
+    unhealthy_snapshot_limit: int = 3
     fault_source: str | None = None
     fault_reason: str | None = None
     _state: SessionState = field(default=SessionState.NEW, init=False, repr=False)
@@ -111,6 +117,7 @@ class DeviceSession:
     _cleanup_owners: list[tuple[str, Any]] = field(default_factory=list, init=False, repr=False)
     _released_resource_ids: set[str] = field(default_factory=set, init=False, repr=False)
     _cancel_signal: asyncio.CancelledError | None = field(default=None, init=False, repr=False)
+    _unhealthy_snapshots: int = field(default=0, init=False, repr=False)
     last_close_report: SessionCloseReport | None = field(default=None, init=False, repr=False)
 
     @property
@@ -500,9 +507,20 @@ class DeviceSession:
                 continue
             if frame.health == "ok":
                 self.last_frame_id = getattr(frame, "frame_id", None) or self.last_frame_id
+                self._unhealthy_snapshots = 0
                 return frame
             errors.append(f"{type(source).__name__}: frame health={frame.health!r}")
         detail = "; ".join(errors) or "no perception sources configured"
+        self._unhealthy_snapshots += 1
+        if self._unhealthy_snapshots >= max(1, int(self.unhealthy_snapshot_limit)):
+            self.record_fault(
+                DeviceFault(
+                    f"no healthy perception frame after {self._unhealthy_snapshots} attempts:"
+                    f" {detail}",
+                    kind=DeviceFaultKind.SESSION_FAILED,
+                    source="perception",
+                )
+            )
         raise DeviceSessionError(f"no healthy perception frame: {detail}")
 
     def validate_target(self, target: Any) -> Any:
