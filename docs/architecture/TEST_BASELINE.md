@@ -8,7 +8,7 @@
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3902 passed, 9 skipped**, 88 warnings, 146.59s |
+| `uv run pytest tests/unit -q` | **0 failed, 3908 passed, 5 skipped**, 88 warnings, 148.52s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **27 files would be reformatted**（既有文件；非新增；本轮改动文件已格式检查通过） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18；1 below） |
@@ -201,7 +201,7 @@ uv run python scripts/quality_ratchet.py --print-current
 ### 2026-11-13 R3.6/R3.7 实施基线
 
 - 代码提交：`04ec960`（Observation/Controller 边界）、`a5a579b`（UVC identity）、`9fe4b43`（Session/Lease cleanup）
-- `uv run pytest tests/unit -q`: **0 failed, 3900 passed, 9 skipped**
+- `uv run pytest tests/unit -q`: **0 failed, 3908 passed, 5 skipped**
 - `uv run pytest tests/unit/architecture -q`: **14 passed**
 - `uv run ruff check`: pass
 - `quality_ratchet`: 773 / 0 / 18（baseline 774/18，1 below）
