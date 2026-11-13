@@ -205,7 +205,7 @@ uv run python scripts/quality_ratchet.py --print-current
 - `uv run pytest tests/unit/architecture -q`: **14 passed**
 - `uv run ruff check`: pass
 - `quality_ratchet`: 773 / 0 / 18（baseline 774/18，1 below）
-- 真实 iOS smoke：**PASS**。`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461 artemis ios-smoke --target 设置` 七阶段通过，7 条 capability evidence；同时确认绝对 HID 坐标需要 portrait 轴的旋转/镜像修正。
+- 真实 iOS smoke：**PASS**。`ARTEMIS_ESP32_PORT=/dev/cu.usbmodem5B140947461 artemis ios-smoke --target 设置` 七阶段通过，7 条 capability evidence；最终确认绝对 HID 坐标是原生 portrait 映射，之前加入的旋转/镜像修正是错误假设，已在 `18d4a71` 撤销。
 - 真实 iOS Flash：`d5587103-5ce1-48d4-8251-8a9f8ed47126` 成功；step action evidence `observed_effect`，UVC/serial Lease 均释放。
 - 真实 iOS Pro：`bcb09b38-a513-4ca6-bc46-01dbe826ac7d` 完成，Checker tests 3 passed / 0 failed，`goal_verified=true`；UVC/serial Lease 均释放。
 - 真实 Android Flash：`c69921eb-77f0-464c-9961-8165d6e4cdad` 成功，`manage_app` action evidence 为 `observed_effect`。
