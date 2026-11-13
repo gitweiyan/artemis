@@ -118,6 +118,8 @@ class DeviceSession:
     _released_resource_ids: set[str] = field(default_factory=set, init=False, repr=False)
     _cancel_signal: asyncio.CancelledError | None = field(default=None, init=False, repr=False)
     _unhealthy_snapshots: int = field(default=0, init=False, repr=False)
+    _last_closed_now: list[str] = field(default_factory=list, init=False, repr=False)
+    _last_released_now: list[str] = field(default_factory=list, init=False, repr=False)
     last_close_report: SessionCloseReport | None = field(default=None, init=False, repr=False)
 
     @property
@@ -269,7 +271,12 @@ class DeviceSession:
             for index, participant in enumerate(participants)
         ]
 
-    def _report(self) -> SessionCloseReport:
+    def _report(
+        self,
+        *,
+        closed_now: list[str] | None = None,
+        released_now: list[str] | None = None,
+    ) -> SessionCloseReport:
         retained = (
             tuple(getattr(self.leases, "resource_ids", ())) if self.leases is not None else ()
         )
@@ -278,10 +285,14 @@ class DeviceSession:
             session_state=self._state,
             cleanup_state=self._cleanup_state,
             attempt=self._cleanup_attempt,
-            closed_participants_now=(),
+            closed_participants_now=tuple(
+                closed_now if closed_now is not None else self._last_closed_now
+            ),
             closed_participants_total=tuple(sorted(self._closed_participants)),
             failed_participants=tuple(sorted(self._failed_participants)),
-            released_now=(),
+            released_now=tuple(
+                released_now if released_now is not None else self._last_released_now
+            ),
             released_total=tuple(sorted(self._released_resource_ids)),
             retained=retained,
             cleanup_complete=self._cleanup_state is CleanupState.COMPLETE,
@@ -327,6 +338,7 @@ class DeviceSession:
             self._failed_participants.pop(participant_id, None)
             self._closed_participants.add(participant_id)
             closed_now.append(participant_id)
+            self._last_closed_now = list(closed_now)
         return closed_now, list(self._failed_participants)
 
     async def _close_participants(
@@ -392,6 +404,7 @@ class DeviceSession:
             errors.append(f"leases: {exc}")
             residual = list(getattr(self.leases, "resource_ids", ()))
         self._released_resource_ids.update(released_now)
+        self._last_released_now = list(released_now)
         remaining = getattr(self.leases, "resource_ids", None)
         if not errors and not residual and not remaining:
             self.leases = None
@@ -405,7 +418,7 @@ class DeviceSession:
         if failed:
             self._cleanup_state = CleanupState.RETRYABLE
             self._state = SessionState.CLOSED
-            report = self._report()
+            report = self._report(closed_now=closed_now)
             self.last_close_report = report
             return report
         released_now, lease_errors, residual = await self._cleanup_leases()
@@ -452,6 +465,8 @@ class DeviceSession:
             self._cleanup_attempt += 1
             self._close_errors.clear()
             self._cancel_signal = None
+            self._last_closed_now = []
+            self._last_released_now = []
             try:
                 report = await self._run_cleanup()
             except asyncio.CancelledError as exc:
@@ -486,7 +501,15 @@ class DeviceSession:
             self._cleanup_state = CleanupState.IN_PROGRESS
             self._cleanup_attempt += 1
             self._cancel_signal = None
-            report = await self._run_cleanup(retry=True)
+            self._last_closed_now = []
+            self._last_released_now = []
+            try:
+                report = await self._run_cleanup(retry=True)
+            except asyncio.CancelledError:
+                self._cleanup_state = CleanupState.RETRYABLE
+                report = self._report()
+                self.last_close_report = report
+                raise
             if self._cancel_signal is not None:
                 cancelled = self._cancel_signal
                 self._cancel_signal = None

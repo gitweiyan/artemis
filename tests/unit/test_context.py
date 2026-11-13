@@ -106,3 +106,32 @@ async def test_context_closes_the_device_session_on_exit():
 
     assert session.closed is True
     assert context.device_session is None
+
+
+@pytest.mark.asyncio
+async def test_context_registers_incomplete_session_in_the_host_registry():
+    from types import SimpleNamespace
+
+    class Registry:
+        def __init__(self):
+            self.registered = []
+
+        def register(self, session):
+            self.registered.append(session)
+
+    class Session:
+        async def close(self):
+            return SimpleNamespace(cleanup_complete=False)
+
+    session = Session()
+    registry = Registry()
+    context = ArtemisContext(
+        device=DeviceContext(device_id="dummy"),
+        device_session=session,
+        cleanup_registry=registry,
+    )
+
+    await context.__aexit__(None, None, None)
+
+    assert registry.registered == [session]
+    assert context.device_session is None

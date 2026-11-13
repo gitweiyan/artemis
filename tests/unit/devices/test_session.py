@@ -529,3 +529,47 @@ def test_repeated_unhealthy_frames_fail_the_session():
         asyncio.run(session.snapshot())
     assert session.state.value == "failed"
     assert session.fault_source == "perception"
+
+
+def test_cancelled_close_keeps_partial_progress_in_the_report():
+    events: list[str] = []
+
+    class SlowSink(Sink):
+        async def aclose(self):
+            events.append("control-start")
+            await asyncio.sleep(0.05)
+            events.append("control-end")
+
+    class ClosingSource(Source):
+        async def aclose(self):
+            events.append("perception")
+
+    class Leases:
+        def release_with_report(self):
+            from artemis.runtime.resource_lease import LeaseReleaseReport
+
+            events.append("leases")
+            return LeaseReleaseReport(released=("uvc:host:one/capture",))
+
+    session = DeviceSession(
+        [ClosingSource()],
+        [SlowSink(absolute=True)],
+        geometry(),
+        leases=Leases(),
+    )
+
+    async def scenario():
+        task = asyncio.create_task(session.close())
+        while "control-start" not in events:
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    report = session.last_close_report
+    assert report is not None
+    assert report.closed_participants_now == ("0:SlowSink", "1:ClosingSource")
+    assert report.released_now == ("uvc:host:one/capture",)
+    assert report.cleanup_complete is True
