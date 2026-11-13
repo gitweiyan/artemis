@@ -154,7 +154,7 @@ reconnecting, Flash session `e00216ec-61b5-4ed8-abd1-6328eb464952` completed
 
 ```text
 uv run pytest tests/unit -q
-  3917 passed, 5 skipped
+  3924 passed, 5 skipped
 
 uv run pytest tests/unit/architecture -q
   15 passed
@@ -182,3 +182,18 @@ UVC/serial leases released after each iOS run
 The iOS Flash run encountered no_effect clicks first and then used the supported
 `manage_app` path; this was a hardware/click-path result, not a fallback to a
 Controller. The task completed on a new Session.
+
+
+## Device fault classification tests
+
+Added after the real-device runs to make the failure cause explicit:
+
+- `DeviceFaultKind.CAPTURE_UNHEALTHY`: black frames after the bounded threshold.
+- `DeviceDisconnectedError` / `TRANSPORT_FAILED`: device or control link loss.
+- `ObservationProcessingError`: OCR/XML/decode/model processing failure; never
+  marks the Session `FAILED`.
+- A fatal source failure fails the Session even if another source exists; a
+  non-fatal processing failure or a black source falls through to a healthy
+  source.
+- A control transport fault raised by a dispatch is recorded through
+  `DeviceSession.record_fault`.

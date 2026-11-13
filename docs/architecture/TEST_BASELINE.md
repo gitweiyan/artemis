@@ -2,17 +2,17 @@
 
 ## 2026-11-13 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `caa7e62`
+> 审计对象：`integration/10101205-all-fixes` @ `cb2f99d`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3917 passed, 5 skipped**, 88 warnings, 149.97s |
+| `uv run pytest tests/unit -q` | **0 failed, 3924 passed, 5 skipped**, 88 warnings, 149.93s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **27 files would be reformatted**（既有文件；非新增；本轮改动文件已格式检查通过） |
-| `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18；1 below） |
-| 真实设备 | strict ObservationPort 后 iOS smoke/Flash、Android Flash 均通过；历史故障证据见 `R3_FAULT_INJECTION_REPORT.md` |
+| `quality_ratchet` | broad_exception_handlers=772, silent=0, type_ignore_comments=18（当前基线 774/18；2 below） |
+| 真实设备 | strict ObservationPort 后 iOS smoke/Flash、Android Flash 均通过；Device Fault 分类测试已覆盖；详见 `R3_FAULT_INJECTION_REPORT.md` |
 
 ### 当前失败清单
 
