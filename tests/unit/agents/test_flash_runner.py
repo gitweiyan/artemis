@@ -912,3 +912,27 @@ async def test_fallback_observation_uses_the_observation_port(mock_context):
     assert seen == [0]
     assert result.ui_elements_text == "[1] Text: 'Port'"
     assert state.latest_screenshot == "/tmp/port.jpg"
+
+
+@pytest.mark.asyncio
+async def test_bomb_controller_is_untouched_by_fallback_observation(mock_context):
+    from artemis.core.action_types import ObserveResult
+
+    class Bomb:
+        def __getattr__(self, name):
+            raise AssertionError(f"controller touched: {name}")
+
+    class FakePort:
+        async def observe(self, settle_ms=400, ocr_results=None):
+            return ObserveResult(ok=True, message="ok"), b"img"
+
+        async def screen_data(self):
+            raise AssertionError("not used")
+
+    mock_context.controller = Bomb()
+    mock_context.observation_port = FakePort()
+    runner = FlashRunner(mock_context, goal="g")
+    state = Mock()
+    result = _failed_click()
+
+    await runner._capture_post_screenshot(result, "click", frozenset({"click"}), state)
