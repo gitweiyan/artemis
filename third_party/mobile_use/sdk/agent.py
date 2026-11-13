@@ -67,6 +67,7 @@ from artemis.graph.graph import get_graph
 from artemis.graph.state import State
 from artemis.core.identity import resolve_canonical_device_id
 from artemis.runtime import DeviceExecutionLock
+from artemis.runtime.session_cleanup import SessionCleanupRegistry
 from artemis.runtime.trace_export import (
     export_step_media,
     write_run_status,
@@ -117,6 +118,7 @@ class AgentBase:
     _current_task: asyncio.Task | None = None
     _task_lock: asyncio.Lock
     _cloud_mobile_id: str | None = None
+    _cleanup_registry: SessionCleanupRegistry | None = None
 
     async def init(
         self,
@@ -157,6 +159,7 @@ class AgentBase:
         if self._initialized:
             logger.warning("Agent is already initialized. Skipping...")
             return True
+        self._cleanup_registry = SessionCleanupRegistry()
 
         # Get first available device ID
         if os.environ.get("ARTEMIS_CLOUD_MODE") == "1":
@@ -460,6 +463,7 @@ class AgentBase:
             ui_adb_client=self._ui_adb_client,
             llm_config=agent_profile.llm_config,
             agent_config=self._config,
+            cleanup_registry=self._cleanup_registry,
         )
 
         output_config = None
