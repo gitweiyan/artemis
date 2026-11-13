@@ -106,7 +106,10 @@ class DeviceActionService:
 
     async def observe(self, settle_ms: int = 400, include_image: bool = False):
         if self.observation_port is not None:
-            return await self.observation_port.observe(settle_ms=settle_ms)
+            result = await self.observation_port.observe(settle_ms=settle_ms)
+            # ObservationPort.observe returns (ObserveResult, bytes); the action
+            # service consumes only the structured result.
+            return result[0] if isinstance(result, tuple) else result
         return await (await self._session_or_start()).observe(settle_ms, include_image)
 
     # --- Public entry ----------------------------------------------------------------

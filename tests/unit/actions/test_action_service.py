@@ -148,6 +148,30 @@ def test_action_service_does_not_forward_port_attributes():
 
 
 @pytest.mark.asyncio
+async def test_action_service_unwraps_observation_port_tuple():
+    from artemis.core.action_types import ObserveResult
+
+    class Observation:
+        async def observe(self, settle_ms=400, ocr_results=None):
+            return ObserveResult(ok=True, message="observed", elements=[]), b"image"
+
+        async def screen_data(self):
+            raise AssertionError("not used")
+
+    ctx = SimpleNamespace(indexed_elements=[], data_engine=None)
+    service = ActionService(ctx, DispatchPort(), observation_port=Observation())
+    result = await service.execute(
+        "click",
+        {"target": [500, 500], "target_description": "button"},
+        "tc-obs",
+        SimpleNamespace(indexed_elements=[]),
+    )
+
+    assert result.status == "success"
+    assert result.metadata["action_receipt"]["state"] == "adapter_acknowledged"
+
+
+@pytest.mark.asyncio
 async def test_helper_receipt_is_rejected():
     from artemis.core.errors import ActionReceiptContractError
 
