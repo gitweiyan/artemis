@@ -284,6 +284,7 @@ class DeviceSession:
 
     async def _close_cleanup_owners(self) -> tuple[list[str], list[str]]:
         closed_now: list[str] = []
+        current = asyncio.current_task()
         for name, closer in self._cleanup_owners:
             participant_id = f"external:{name}"
             if participant_id in self._closed_participants:
@@ -291,7 +292,26 @@ class DeviceSession:
             try:
                 result = closer()
                 if inspect.isawaitable(result):
-                    await result
+                    task = asyncio.create_task(result)
+                    while not task.done():
+                        try:
+                            await asyncio.wait({task})
+                        except asyncio.CancelledError as exc:
+                            self._cancel_signal = exc
+                            if current is not None and hasattr(current, "uncancel"):
+                                current.uncancel()
+                    if task.cancelled():
+                        self._cancel_signal = self._cancel_signal or asyncio.CancelledError()
+                        message = f"{participant_id}: cancelled"
+                        self._failed_participants[participant_id] = message
+                        self._close_errors.append(message)
+                        continue
+                    error = task.exception()
+                    if error is not None:
+                        message = f"{participant_id}: {error}"
+                        self._failed_participants[participant_id] = message
+                        self._close_errors.append(message)
+                        continue
             except (OSError, RuntimeError, ValueError, AttributeError) as exc:
                 message = f"{participant_id}: {exc}"
                 self._failed_participants[participant_id] = message
