@@ -9,6 +9,7 @@ known rig, but that is recorded as a config hint unless a serial is known.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 import json
 import subprocess
 from typing import Callable, Mapping
@@ -17,6 +18,14 @@ from artemis.core.identity import IdentitySource, derive_hardware_key
 
 __all__ = [
     "UsbEntry",
+    "UsbInventoryResult",
+    "UsbInventoryStatus",
+    "UVCDeviceNotFoundError",
+    "UVCIdentityError",
+    "UVCIdentityUnavailableError",
+    "UVCInventoryUnavailableError",
+    "UVCPortHintMismatchError",
+    "AmbiguousDeviceIdentityError",
     "UVCIdentity",
     "probe_usb_identity",
     "probe_usb_inventory",
@@ -31,6 +40,43 @@ class UsbEntry:
     product: str
     serial: str | None = None
     location_id: str | None = None
+
+
+class UsbInventoryStatus(StrEnum):
+    UNAVAILABLE = "unavailable"
+    EMPTY = "empty"
+    OK = "ok"
+
+
+@dataclass(frozen=True)
+class UsbInventoryResult:
+    status: UsbInventoryStatus
+    entries: tuple[UsbEntry, ...] = ()
+    diagnostic: str | None = None
+
+
+class UVCIdentityError(ValueError):
+    """Base class for stable UVC identity failures."""
+
+
+class UVCInventoryUnavailableError(UVCIdentityError):
+    pass
+
+
+class UVCDeviceNotFoundError(UVCIdentityError):
+    pass
+
+
+class UVCPortHintMismatchError(UVCDeviceNotFoundError):
+    pass
+
+
+class AmbiguousDeviceIdentityError(UVCIdentityError):
+    pass
+
+
+class UVCIdentityUnavailableError(UVCIdentityError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -97,6 +143,47 @@ def probe_usb_inventory(
     return tuple(entries)
 
 
+def probe_usb_inventory_result(
+    *,
+    runner: Callable[..., object] | None = None,
+) -> UsbInventoryResult:
+    """Read the complete host USB inventory; preserve unavailable vs empty."""
+
+    run = runner or subprocess.run
+    try:
+        result = run(
+            ["system_profiler", "SPUSBDataType", "-json"],
+            capture_output=True,
+            timeout=3.0,
+        )
+        payload = json.loads(getattr(result, "stdout", b"") or b"{}")
+    except (OSError, subprocess.SubprocessError, TypeError, ValueError) as exc:
+        return UsbInventoryResult(
+            UsbInventoryStatus.UNAVAILABLE, diagnostic=f"USB inventory probe failed: {exc}"
+        )
+    entries: list[UsbEntry] = []
+    for row in _usb_rows(payload):
+        product = str(row.get("_name") or row.get("product_name") or "")
+        if not product:
+            continue
+        entries.append(
+            UsbEntry(
+                product=product,
+                serial=str(row.get("serial_num") or "").strip() or None,
+                location_id=str(row.get("location_id") or "").strip() or None,
+            )
+        )
+    if not entries:
+        return UsbInventoryResult(UsbInventoryStatus.EMPTY)
+    return UsbInventoryResult(UsbInventoryStatus.OK, tuple(entries))
+
+
+def _matches_product(device_name: str, entry: UsbEntry) -> bool:
+    name = str(device_name or "").strip().casefold()
+    product = entry.product.casefold()
+    return bool(name and (name in product or product in name))
+
+
 def probe_usb_identity(
     device_name: str,
     *,
@@ -119,6 +206,20 @@ def probe_usb_identity(
     return None
 
 
+def _config_hint_identity(
+    device_name: str,
+    explicit_key: str | None,
+    metadata: Mapping[str, str],
+) -> UVCIdentity | None:
+    explicit = derive_hardware_key(explicit_key) if explicit_key else ""
+    if explicit:
+        return UVCIdentity(explicit, IdentitySource.CONFIG_HINT, metadata)
+    hint = derive_hardware_key(device_name)
+    if hint:
+        return UVCIdentity(hint, IdentitySource.CONFIG_HINT, {**metadata, "device": device_name})
+    return None
+
+
 def resolve_uvc_identity(
     device_name: str,
     *,
@@ -128,43 +229,95 @@ def resolve_uvc_identity(
     port_hint: str | None = None,
     probe: Callable[[str], UVCIdentity | None] = probe_usb_identity,
     inventory_probe: Callable[[str], tuple[UsbEntry, ...]] | None = None,
+    inventory_result_probe: Callable[[], UsbInventoryResult] | None = None,
 ) -> UVCIdentity:
-    """Resolve hardware-first, with host-scoped serial uniqueness."""
+    """Resolve a host-unique hardware identity, or fail closed."""
 
     metadata = {"host_id": host_id} if host_id else {}
-    if inventory_probe is not None:
+    entries: tuple[UsbEntry, ...] | None = None
+
+    if inventory_result_probe is not None:
+        result = inventory_result_probe()
+        if result.status is UsbInventoryStatus.UNAVAILABLE:
+            if strict or port_hint:
+                raise UVCInventoryUnavailableError(
+                    result.diagnostic or "USB inventory unavailable"
+                )
+            fallback = _config_hint_identity(device_name, explicit_key, metadata)
+            if fallback is not None:
+                return fallback
+            raise UVCInventoryUnavailableError(result.diagnostic or "USB inventory unavailable")
+        if result.status is UsbInventoryStatus.EMPTY:
+            if strict or port_hint:
+                raise UVCDeviceNotFoundError("USB inventory is empty")
+            fallback = _config_hint_identity(device_name, explicit_key, metadata)
+            if fallback is not None:
+                return fallback
+            raise UVCDeviceNotFoundError("USB inventory is empty")
+        entries = result.entries
+    elif inventory_probe is not None:
         entries = tuple(inventory_probe(device_name))
     elif probe is probe_usb_identity:
-        entries = probe_usb_inventory(device_name)
-    else:
-        entries = ()
-    if entries:
-        serials = [entry.serial for entry in entries if entry.serial]
-        duplicate_serial = len(serials) > 1 and len(set(serials)) < len(serials)
+        result = probe_usb_inventory_result()
+        if result.status is UsbInventoryStatus.UNAVAILABLE:
+            if strict or port_hint:
+                raise UVCInventoryUnavailableError(
+                    result.diagnostic or "USB inventory unavailable"
+                )
+            fallback = _config_hint_identity(device_name, explicit_key, metadata)
+            if fallback is not None:
+                return fallback
+            raise UVCInventoryUnavailableError(result.diagnostic or "USB inventory unavailable")
+        if result.status is UsbInventoryStatus.EMPTY:
+            if strict or port_hint:
+                raise UVCDeviceNotFoundError("USB inventory is empty")
+            fallback = _config_hint_identity(device_name, explicit_key, metadata)
+            if fallback is not None:
+                return fallback
+            raise UVCDeviceNotFoundError("USB inventory is empty")
+        entries = result.entries
+
+    if entries is not None:
+        candidates = tuple(entry for entry in entries if _matches_product(device_name, entry))
         if port_hint:
             wanted = derive_hardware_key(port_hint)
-            selected = tuple(
+            candidates = tuple(
                 entry
-                for entry in entries
+                for entry in candidates
                 if entry.location_id and derive_hardware_key(entry.location_id) == wanted
             )
-            if selected:
-                entries = selected
-            elif strict:
-                raise ValueError(f"USB port hint {port_hint!r} did not match the host inventory")
-        unique_serial = (
-            serials[0] if len(entries) == 1 and len(serials) == 1 and not duplicate_serial else None
-        )
-        if unique_serial:
-            return UVCIdentity(unique_serial, IdentitySource.HARDWARE_SERIAL, metadata)
-        locations = sorted(entry.location_id for entry in entries if entry.location_id)
-        if locations:
-            location = locations[0]
-            return UVCIdentity(
-                f"usb-{derive_hardware_key(location)}",
-                IdentitySource.USB_PORT_PATH,
-                {**metadata, "location_id": location},
+            if not candidates:
+                raise UVCPortHintMismatchError(
+                    f"USB port hint {port_hint!r} did not match a candidate"
+                )
+        if not candidates:
+            raise UVCDeviceNotFoundError(f"no USB candidate matches {device_name!r}")
+        if len(candidates) > 1:
+            raise AmbiguousDeviceIdentityError(
+                f"multiple USB candidates match {device_name!r}; provide port_hint"
             )
+        selected = candidates[0]
+        serials = [entry.serial for entry in entries if entry.serial]
+        serial_ok = selected.serial is not None and serials.count(selected.serial) == 1
+        if serial_ok:
+            return UVCIdentity(selected.serial, IdentitySource.HARDWARE_SERIAL, metadata)
+        locations = [entry.location_id for entry in entries if entry.location_id]
+        if selected.location_id and locations.count(selected.location_id) == 1:
+            return UVCIdentity(
+                f"usb-{derive_hardware_key(selected.location_id)}",
+                IdentitySource.USB_PORT_PATH,
+                {**metadata, "location_id": selected.location_id},
+            )
+        explicit = derive_hardware_key(explicit_key) if explicit_key else ""
+        if strict:
+            raise UVCIdentityUnavailableError(
+                f"no host-unique hardware identity for UVC {device_name!r}"
+            )
+        if explicit:
+            return UVCIdentity(explicit, IdentitySource.CONFIG_HINT, metadata)
+        raise UVCIdentityUnavailableError(
+            f"no host-unique hardware identity for UVC {device_name!r}"
+        )
 
     found = probe(device_name)
     if found is not None:
@@ -172,7 +325,7 @@ def resolve_uvc_identity(
 
     explicit = derive_hardware_key(explicit_key) if explicit_key else ""
     if strict:
-        raise ValueError(
+        raise UVCIdentityUnavailableError(
             f"no stable USB identity for UVC {device_name!r}; connect a device with a"
             " USB serial/topology path (explicit config hints are not hardware identity)"
         )
@@ -181,7 +334,7 @@ def resolve_uvc_identity(
 
     hint = derive_hardware_key(device_name)
     if not hint:
-        raise ValueError(
+        raise UVCIdentityUnavailableError(
             f"no stable USB identity for UVC {device_name!r}; set an explicit identity"
             " key or connect a device with a USB serial/topology path"
         )

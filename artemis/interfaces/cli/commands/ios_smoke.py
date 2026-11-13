@@ -81,12 +81,21 @@ def ios_smoke_command(
             help="Print the report as JSON (for CI or a bug report).",
         ),
     ] = False,
+    uvc_port_hint: Annotated[
+        str | None,
+        typer.Option(
+            "--uvc-port-hint",
+            help="Exact USB port path used to select one of several capture cards.",
+        ),
+    ] = None,
 ) -> None:
     """Smoke-test the iOS UVC + ESP32 HID rig (no LLM, no task plan)."""
     console = Console()
 
     try:
         config = IosRuntimeConfig.from_env()
+        if uvc_port_hint:
+            config = replace(config, uvc_port_hint=uvc_port_hint.strip() or None)
     except IosConfigError as exc:
         console.print(f"[bold red]✖ iOS rig is not configured:[/bold red] {exc}")
         raise SystemExit(2)
@@ -99,6 +108,7 @@ def ios_smoke_command(
         explicit_key=(os.environ.get("ARTEMIS_UVC_IDENTITY_KEY") or "").strip() or None,
         strict=(os.environ.get("ARTEMIS_UVC_IDENTITY_STRICT") or "").strip() == "1",
         host_id=host,
+        port_hint=config.uvc_port_hint,
     )
     descriptor = build_ios_descriptor(
         device_id="ios-uvc",

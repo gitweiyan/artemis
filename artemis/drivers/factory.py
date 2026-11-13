@@ -165,6 +165,7 @@ def build_ios_profile(runtime, request, registry):
         explicit_key=explicit_uvc_key,
         strict=strict_uvc,
         host_id=host,
+        port_hint=ios.uvc_port_hint,
     )
     if uvc_identity.source is IdentitySource.CONFIG_HINT:
         logger.warning(

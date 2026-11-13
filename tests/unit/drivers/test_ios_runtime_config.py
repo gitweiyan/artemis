@@ -136,3 +136,13 @@ def test_replacing_the_crop_recomputes_the_frame_size():
     swapped = replace(config, uvc_crop=(700, 40, 1200, 1040))
 
     assert swapped.frame_size == (500, 1000)
+
+
+def test_uvc_port_hint_is_optional_and_loaded_from_the_environment():
+    base = IosRuntimeConfig.from_env({"ARTEMIS_ESP32_PORT": "/dev/fake"})
+    hinted = IosRuntimeConfig.from_env(
+        {"ARTEMIS_ESP32_PORT": "/dev/fake", "ARTEMIS_UVC_PORT_HINT": "1-2.4"}
+    )
+
+    assert base.uvc_port_hint is None
+    assert hinted.uvc_port_hint == "1-2.4"

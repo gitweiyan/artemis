@@ -20,6 +20,7 @@ the ratio online either way; a measured starting value simply costs fewer correc
 """
 
 import asyncio
+from dataclasses import replace
 import os
 import json
 from typing import Annotated
@@ -54,11 +55,20 @@ def ios_calibrate_command(
         typer.Option("--repeat", min=1, max=5, help="Probes per move size (more = steadier)."),
     ] = 2,
     as_json: Annotated[bool, typer.Option("--json", help="Print the measurement as JSON.")] = False,
+    uvc_port_hint: Annotated[
+        str | None,
+        typer.Option(
+            "--uvc-port-hint",
+            help="Exact USB port path used to select one of several capture cards.",
+        ),
+    ] = None,
 ) -> None:
     """Measure the iOS pointer gain (two bands) and print the env line to use."""
     console = Console()
     try:
         config = IosRuntimeConfig.from_env()
+        if uvc_port_hint:
+            config = replace(config, uvc_port_hint=uvc_port_hint.strip() or None)
     except IosConfigError as exc:
         console.print(f"[bold red]✖ iOS rig is not configured:[/bold red] {exc}")
         raise SystemExit(2)
@@ -69,6 +79,7 @@ def ios_calibrate_command(
         explicit_key=(os.environ.get("ARTEMIS_UVC_IDENTITY_KEY") or "").strip() or None,
         strict=(os.environ.get("ARTEMIS_UVC_IDENTITY_STRICT") or "").strip() == "1",
         host_id=host,
+        port_hint=config.uvc_port_hint,
     )
     descriptor = build_ios_descriptor(
         device_id="ios-uvc",

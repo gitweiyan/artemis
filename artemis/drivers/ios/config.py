@@ -37,6 +37,7 @@ DEFAULT_POINTER_GAIN = (1.48, 1.48)
 #: The ESP32-S3 board's UART port. The only required setting.
 ENV_ESP32_PORT = "ARTEMIS_ESP32_PORT"
 ENV_UVC_DEVICE = "ARTEMIS_UVC_DEVICE"
+ENV_UVC_PORT_HINT = "ARTEMIS_UVC_PORT_HINT"
 ENV_UVC_CROP = "ARTEMIS_UVC_CROP"
 ENV_SCREEN_SIZE = "ARTEMIS_IOS_SCREEN_SIZE"
 ENV_POINTER_GAIN = "ARTEMIS_IOS_POINTER_GAIN"
@@ -134,6 +135,7 @@ class IosRuntimeConfig:
 
     esp32_port: str
     uvc_device: str = "USB Video"
+    uvc_port_hint: str | None = None
     uvc_size: tuple[int, int] = DEFAULT_UVC_SIZE
     uvc_crop: tuple[int, int, int, int] = DEFAULT_UVC_CROP
     #: True when ``ARTEMIS_UVC_CROP`` supplied the value. A defaulted crop may be
@@ -172,6 +174,7 @@ class IosRuntimeConfig:
         return cls(
             esp32_port=port,
             uvc_device=_env(env, ENV_UVC_DEVICE) or "USB Video",
+            uvc_port_hint=_env(env, ENV_UVC_PORT_HINT),
             uvc_crop=_crop(env),
             uvc_crop_explicit=_env(env, ENV_UVC_CROP) is not None,
             screen_size=_size(env, ENV_SCREEN_SIZE) or DEFAULT_SCREEN_SIZE,

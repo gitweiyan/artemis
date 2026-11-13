@@ -90,7 +90,7 @@ def test_duplicate_uvc_serial_falls_back_to_port_path():
 
     entries = (
         UsbEntry("USB Video", "DUP-1", "1-2.3"),
-        UsbEntry("USB Video", "DUP-1", "1-2.4"),
+        UsbEntry("Other USB", "DUP-1", "1-2.4"),
     )
     identity = resolve_uvc_identity(
         "USB Video", host_id="host-a", inventory_probe=lambda _: entries
@@ -98,6 +98,30 @@ def test_duplicate_uvc_serial_falls_back_to_port_path():
 
     assert identity.source is IdentitySource.USB_PORT_PATH
     assert identity.key == "usb-1-2.3"
+
+
+def test_multiple_matching_candidates_require_a_port_hint():
+    from artemis.drivers.ios.uvc_identity import (
+        AmbiguousDeviceIdentityError,
+        UsbEntry,
+    )
+
+    entries = (
+        UsbEntry("USB Video", "DUP-1", "1-2.3"),
+        UsbEntry("USB Video", "DUP-1", "1-2.4"),
+    )
+    with pytest.raises(AmbiguousDeviceIdentityError):
+        resolve_uvc_identity(
+            "USB Video", host_id="host-a", inventory_probe=lambda _: entries
+        )
+
+    selected = resolve_uvc_identity(
+        "USB Video",
+        host_id="host-a",
+        inventory_probe=lambda _: entries,
+        port_hint="1-2.4",
+    )
+    assert selected.key == "usb-1-2.4"
 
 
 def test_same_serial_on_different_hosts_is_not_a_collision():
@@ -161,3 +185,32 @@ def test_conflicting_serial_devices_are_distinguished_by_port_hint():
     assert first.key == "usb-1-2.3"
     assert second.key == "usb-1-2.4"
     assert first.key != second.key
+
+
+def test_usb_inventory_result_distinguishes_unavailable_empty_and_ok():
+    from artemis.drivers.ios.uvc_identity import (
+        UsbInventoryStatus,
+        probe_usb_inventory_result,
+    )
+
+    class Result:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def unavailable(*args, **kwargs):
+        raise OSError("system_profiler missing")
+
+    def empty(*args, **kwargs):
+        return Result(b"")
+
+    def ok(*args, **kwargs):
+        return Result(
+            b'{"SPUSBDataType": [{"_name": "USB Video", "serial_num": "S",'
+            b' "location_id": "1-2.3"}]}'
+        )
+
+    assert probe_usb_inventory_result(runner=unavailable).status is UsbInventoryStatus.UNAVAILABLE
+    assert probe_usb_inventory_result(runner=empty).status is UsbInventoryStatus.EMPTY
+    result = probe_usb_inventory_result(runner=ok)
+    assert result.status is UsbInventoryStatus.OK
+    assert result.entries[0].serial == "S"
