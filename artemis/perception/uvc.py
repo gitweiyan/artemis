@@ -74,7 +74,7 @@ class UvcSource:
         try:
             raw = await asyncio.to_thread(self.capture.grab)
         except CaptureError as exc:
-            if exc.incident in {"device_disconnected", "transport_error"}:
+            if exc.incident in {"device_disconnected", "transport_error", "uvc_no_signal"}:
                 raise DeviceDisconnectedError(str(exc), source=self.name) from exc
             raise
         return Frame(
