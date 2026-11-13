@@ -269,6 +269,7 @@ pkill -9 -f "USB Video"
 |---|---|
 | `ARTEMIS_ESP32_PORT` | ESP32 板的 UART 串口（必填） |
 | `ARTEMIS_UVC_DEVICE` / `ARTEMIS_UVC_CROP` | 采集卡名 / 手机在卡中的裁剪框；**crop 不设时从一帧自动测量**（显式设置则永不覆盖，stream 模式不测量） |
+| `ARTEMIS_UVC_PORT_HINT` / `--uvc-port-hint` | 多张同名采集卡时按 USB location_id 精确选择；不匹配或重复匹配会拒绝启动 |
 | `ARTEMIS_IOS_SCREEN_SIZE` | 手机屏幕像素（默认 1080x2400） |
 | `ARTEMIS_IOS_POINTER_GAIN` | 指针 gain 起点（控制器会在线修正） |
 | `ARTEMIS_IOS_CAPTURE` | `frame`（默认）/ `stream` |
