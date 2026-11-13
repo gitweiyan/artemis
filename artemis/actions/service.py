@@ -79,13 +79,18 @@ class ActionService:
     async def close(self) -> None:
         if self._closed:
             return
-        self._closed = True
-        await self.port.close()
-        if self.helper_port is not None:
-            closer = getattr(self.helper_port, "aclose", None) or getattr(
-                self.helper_port, "close", None
-            )
-            if callable(closer):
-                result = closer()
-                if hasattr(result, "__await__"):
-                    await result
+        try:
+            await self.port.close()
+            if self.helper_port is not None:
+                closer = getattr(self.helper_port, "aclose", None) or getattr(
+                    self.helper_port, "close", None
+                )
+                if callable(closer):
+                    result = closer()
+                    if hasattr(result, "__await__"):
+                        await result
+        except Exception:
+            # A failed close must remain retryable through the Session barrier.
+            raise
+        else:
+            self._closed = True
