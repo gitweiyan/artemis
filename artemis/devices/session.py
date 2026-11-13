@@ -18,7 +18,7 @@ from artemis.control.base import ControlSink
 from artemis.core.capabilities import CapabilityView
 from artemis.core.capability_registry import declared_view
 from artemis.core.identity import DeviceDescriptor
-from artemis.core.errors import DeviceSessionError, SessionClosedError
+from artemis.core.errors import DeviceFault, DeviceSessionError, SessionClosedError
 from artemis.devices.capabilities import CapabilitySet
 from artemis.devices.capabilities_compat import manifest_from_capability_set
 from artemis.devices.geometry import ScreenGeometry
@@ -40,6 +40,50 @@ class SessionState(StrEnum):
     FAILED = "failed"
 
 
+class CleanupState(StrEnum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    RETRYABLE = "retryable"
+    MANUAL_REQUIRED = "manual_required"
+    COMPLETE = "complete"
+
+
+@dataclass(frozen=True)
+class SessionCloseReport:
+    """Business close state and physical cleanup state for one Session."""
+
+    session_id: str
+    session_state: SessionState
+    cleanup_state: CleanupState
+    attempt: int = 0
+    closed_participants_now: tuple[str, ...] = ()
+    closed_participants_total: tuple[str, ...] = ()
+    failed_participants: tuple[str, ...] = ()
+    released_now: tuple[str, ...] = ()
+    released_total: tuple[str, ...] = ()
+    retained: tuple[str, ...] = ()
+    cleanup_complete: bool = False
+    retryable: bool = False
+    errors: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "session_state": self.session_state.value,
+            "cleanup_state": self.cleanup_state.value,
+            "attempt": self.attempt,
+            "closed_participants_now": list(self.closed_participants_now),
+            "closed_participants_total": list(self.closed_participants_total),
+            "failed_participants": list(self.failed_participants),
+            "released_now": list(self.released_now),
+            "released_total": list(self.released_total),
+            "retained": list(self.retained),
+            "cleanup_complete": self.cleanup_complete,
+            "retryable": self.retryable,
+            "errors": list(self.errors),
+        }
+
+
 @dataclass
 class DeviceSession:
     perception: list[PerceptionSource] = field(default_factory=list)
@@ -55,12 +99,36 @@ class DeviceSession:
     #: generic session does not grow platform-specific fields (ADR-003 §5.4).
     adapter_state: dict[str, Any] = field(default_factory=dict)
     last_frame_id: str | None = None
+    fault_source: str | None = None
+    fault_reason: str | None = None
     _state: SessionState = field(default=SessionState.NEW, init=False, repr=False)
     _close_errors: list[str] = field(default_factory=list, init=False, repr=False)
+    _cleanup_state: CleanupState = field(default=CleanupState.NOT_STARTED, init=False, repr=False)
+    _cleanup_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
+    _cleanup_attempt: int = field(default=0, init=False, repr=False)
+    _closed_participants: set[str] = field(default_factory=set, init=False, repr=False)
+    _failed_participants: dict[str, str] = field(default_factory=dict, init=False, repr=False)
+    _cleanup_owners: list[tuple[str, Any]] = field(default_factory=list, init=False, repr=False)
+    _released_resource_ids: set[str] = field(default_factory=set, init=False, repr=False)
+    _cancel_signal: asyncio.CancelledError | None = field(default=None, init=False, repr=False)
+    last_close_report: SessionCloseReport | None = field(default=None, init=False, repr=False)
 
     @property
     def state(self) -> SessionState:
         return self._state
+
+    @property
+    def cleanup_state(self) -> CleanupState:
+        return self._cleanup_state
+
+    def register_cleanup_owner(self, name: str, closer: Any) -> None:
+        """Register an external owner (Action/MCP) in the Session cleanup barrier."""
+
+        if not callable(closer):
+            raise TypeError("cleanup owner must be callable")
+        if any(existing == name for existing, _ in self._cleanup_owners):
+            raise ValueError(f"cleanup owner {name!r} already registered")
+        self._cleanup_owners.append((str(name), closer))
 
     @property
     def pointer(self) -> Any | None:
@@ -126,8 +194,19 @@ class DeviceSession:
 
     def mark_failed(self, reason: str) -> None:
         if self._state not in (SessionState.CLOSED, SessionState.CLOSING):
+            if self.fault_reason is None:
+                self.fault_reason = str(reason)
             logger.error(f"Device session failed: {reason}")
             self._state = SessionState.FAILED
+
+    def record_fault(self, fault: DeviceFault) -> None:
+        """Record the first classified fatal device fault and fail the session."""
+
+        if not fault.fatal:
+            return
+        if self.fault_source is None:
+            self.fault_source = fault.source
+        self.mark_failed(f"{fault.kind.value}: {fault}")
 
     def health(self) -> SessionState:
         return self._state
@@ -161,10 +240,10 @@ class DeviceSession:
         self.capability_probes = probes
         return probes
 
-    async def _close_participant(self, participant: Any) -> None:
+    async def _close_participant(self, participant: Any) -> str | None:
         closer = getattr(participant, "aclose", None) or getattr(participant, "close", None)
         if not callable(closer):
-            return
+            return None
         try:
             result = closer()
             if inspect.isawaitable(result):
@@ -172,36 +251,65 @@ class DeviceSession:
         except (OSError, RuntimeError, ValueError, AttributeError) as exc:
             name = type(participant).__name__
             message = f"{name}: {exc}"
-            self._close_errors.append(message)
             logger.warning(f"Closing {name} failed: {exc}")
+            return message
+        return None
 
-    async def close(self) -> None:
-        """Release inputs, handles, then leases. Idempotent; never raises on cleanup.
+    def _participant_entries(self) -> list[tuple[str, Any]]:
+        participants = [*self.control, *self.perception]
+        return [
+            (f"{index}:{type(participant).__name__}", participant)
+            for index, participant in enumerate(participants)
+        ]
 
-        Cancellation is special: a cancelled ``aclose`` must not strand later
-        participants or the host leases. We remember it, finish the cleanup, then
-        re-raise so the caller still observes cancellation.
-        """
+    def _report(self) -> SessionCloseReport:
+        retained = tuple(getattr(self.leases, "resource_ids", ())) if self.leases is not None else ()
+        return SessionCloseReport(
+            session_id=str(self.session_id or ""),
+            session_state=self._state,
+            cleanup_state=self._cleanup_state,
+            attempt=self._cleanup_attempt,
+            closed_participants_now=(),
+            closed_participants_total=tuple(sorted(self._closed_participants)),
+            failed_participants=tuple(sorted(self._failed_participants)),
+            released_now=(),
+            released_total=tuple(sorted(self._released_resource_ids)),
+            retained=retained,
+            cleanup_complete=self._cleanup_state is CleanupState.COMPLETE,
+            retryable=self._cleanup_state is CleanupState.RETRYABLE,
+            errors=tuple(self._close_errors),
+        )
 
-        if self._state in (SessionState.CLOSING, SessionState.CLOSED):
-            return
-        self._state = SessionState.CLOSING
-        self._close_errors.clear()
+    async def _close_cleanup_owners(self) -> tuple[list[str], list[str]]:
+        closed_now: list[str] = []
+        for name, closer in self._cleanup_owners:
+            participant_id = f"external:{name}"
+            if participant_id in self._closed_participants:
+                continue
+            try:
+                result = closer()
+                if inspect.isawaitable(result):
+                    await result
+            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                message = f"{participant_id}: {exc}"
+                self._failed_participants[participant_id] = message
+                self._close_errors.append(message)
+                continue
+            self._failed_participants.pop(participant_id, None)
+            self._closed_participants.add(participant_id)
+            closed_now.append(participant_id)
+        return closed_now, list(self._failed_participants)
+
+    async def _close_participants(self, entries: list[tuple[str, Any]]) -> tuple[list[str], list[str]]:
         cancelled: asyncio.CancelledError | None = None
-
-        # Inputs first (control), then capture (perception), as ADR-003 requires.
-        # Each closer runs in a task so an arbitrary Exception (TypeError, a
-        # vendor exception) is captured as task.exception() and cannot stop the
-        # remaining cleanup. No broad except-handler is needed.
-        for participant in [*self.control, *self.perception]:
+        closed_now: list[str] = []
+        current = asyncio.current_task()
+        for participant_id, participant in entries:
+            if participant_id in self._closed_participants:
+                continue
             task = asyncio.create_task(self._close_participant(participant))
-            current = asyncio.current_task()
-            # A canceled outer task must not cancel the adapter's close work:
-            # shield the closer and keep waiting after recording cancellation.
             while not task.done():
                 try:
-                    # wait() does not propagate the closer's exception; task.exception()
-                    # below records it, and outer cancellation only cancels the waiter.
                     await asyncio.wait({task})
                 except asyncio.CancelledError as exc:
                     cancelled = exc
@@ -209,49 +317,148 @@ class DeviceSession:
                         current.uncancel()
             if task.cancelled():
                 cancelled = cancelled or asyncio.CancelledError()
-                self._close_errors.append(f"{type(participant).__name__}: cancelled")
-                logger.warning(f"Closing {type(participant).__name__} was cancelled; continuing")
+                message = f"{participant_id}: cancelled"
+                self._failed_participants[participant_id] = message
+                self._close_errors.append(message)
                 continue
             error = task.exception()
             if error is not None:
-                self._close_errors.append(f"{type(participant).__name__}: {error}")
-                logger.warning(f"Closing {type(participant).__name__} failed: {error}")
-
-        if self.leases is not None:
-            try:
-                report = getattr(self.leases, "release_with_report", None)
-                if callable(report):
-                    result = report()
-                    for resource_id, message in getattr(result, "errors", ()):
-                        text = f"leases: {resource_id}: {message}"
-                        self._close_errors.append(text)
-                        logger.warning(text)
-                    if getattr(result, "residual", ()):
-                        logger.warning(
-                            "Residual resource locks remain: "
-                            + ", ".join(getattr(result, "residual", ()))
-                        )
-                else:
-                    self.leases.release()
-            except asyncio.CancelledError as exc:
-                cancelled = cancelled or exc
-                self._close_errors.append("leases: cancelled")
-                logger.warning("Releasing device-session leases was cancelled; closing anyway")
-            except Exception as exc:  # noqa: BLE001 - cleanup must not strand the session
-                message = f"leases: {exc}"
+                message = f"{participant_id}: {error}"
+                self._failed_participants[participant_id] = message
                 self._close_errors.append(message)
-                logger.warning(f"Releasing device-session leases failed: {exc}")
-            finally:
-                self.leases = None
-
-        self._state = SessionState.CLOSED
-        if self._close_errors:
-            logger.warning(
-                f"Device session closed with {len(self._close_errors)} cleanup failure(s): "
-                f"{'; '.join(self._close_errors)}"
-            )
+                continue
+            result = task.result()
+            if result:
+                self._failed_participants[participant_id] = result
+                self._close_errors.append(result)
+                continue
+            self._failed_participants.pop(participant_id, None)
+            self._closed_participants.add(participant_id)
+            closed_now.append(participant_id)
         if cancelled is not None:
-            raise cancelled
+            self._cancel_signal = cancelled
+        return closed_now, list(self._failed_participants)
+
+    async def _cleanup_leases(self) -> tuple[list[str], list[str], list[str]]:
+        released_now: list[str] = []
+        errors: list[str] = []
+        if self.leases is None:
+            return released_now, errors, []
+        try:
+            report = getattr(self.leases, "release_with_report", None)
+            if callable(report):
+                result = report()
+                released_now = list(getattr(result, "released", ()))
+                for resource_id, message in getattr(result, "errors", ()):
+                    errors.append(f"leases: {resource_id}: {message}")
+                residual = list(getattr(result, "residual", ()))
+            else:
+                self.leases.release()
+                residual = []
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - cleanup must not strand the session
+            errors.append(f"leases: {exc}")
+            residual = list(getattr(self.leases, "resource_ids", ()))
+        self._released_resource_ids.update(released_now)
+        remaining = getattr(self.leases, "resource_ids", None)
+        if not errors and not residual and not remaining:
+            self.leases = None
+        return released_now, errors, residual
+
+    async def _run_cleanup(self, *, retry: bool = False) -> SessionCloseReport:
+        owners_closed, _ = await self._close_cleanup_owners()
+        entries = self._participant_entries()
+        participants_closed, failed = await self._close_participants(entries)
+        closed_now = [*owners_closed, *participants_closed]
+        if failed:
+            self._cleanup_state = CleanupState.RETRYABLE
+            self._state = SessionState.CLOSED
+            report = self._report()
+            self.last_close_report = report
+            return report
+        released_now, lease_errors, residual = await self._cleanup_leases()
+        self._close_errors.extend(lease_errors)
+        if lease_errors or residual:
+            self._cleanup_state = CleanupState.RETRYABLE
+        else:
+            self._cleanup_state = CleanupState.COMPLETE
+            self._cleanup_attempt = max(1, self._cleanup_attempt)
+        self._state = SessionState.CLOSED
+        report = SessionCloseReport(
+            session_id=str(self.session_id or ""),
+            session_state=self._state,
+            cleanup_state=self._cleanup_state,
+            attempt=self._cleanup_attempt,
+            closed_participants_now=tuple(closed_now),
+            closed_participants_total=tuple(sorted(self._closed_participants)),
+            failed_participants=tuple(sorted(failed)),
+            released_now=tuple(released_now),
+            released_total=tuple(sorted(self._released_resource_ids)),
+            retained=tuple(getattr(self.leases, "resource_ids", ())) if self.leases is not None else (),
+            cleanup_complete=self._cleanup_state is CleanupState.COMPLETE,
+            retryable=self._cleanup_state is CleanupState.RETRYABLE,
+            errors=tuple(self._close_errors),
+        )
+        self.last_close_report = report
+        return report
+
+    async def close(self) -> SessionCloseReport:
+        """Close business operations and run one cleanup attempt.
+
+        ``CLOSED`` means no new work is accepted. Physical cleanup is reported by
+        ``SessionCloseReport``; a retry uses :meth:`retry_cleanup`.
+        """
+        async with self._cleanup_lock:
+            if self._state is SessionState.CLOSED:
+                return self.last_close_report or self._report()
+            if self._state is SessionState.CLOSING:
+                return self.last_close_report or self._report()
+            self._state = SessionState.CLOSING
+            self._cleanup_state = CleanupState.IN_PROGRESS
+            self._cleanup_attempt += 1
+            self._close_errors.clear()
+            self._cancel_signal = None
+            try:
+                report = await self._run_cleanup()
+            except asyncio.CancelledError as exc:
+                self._state = SessionState.CLOSED
+                self._cleanup_state = CleanupState.RETRYABLE
+                report = self._report()
+                self.last_close_report = report
+                raise
+            if self._cancel_signal is not None:
+                cancelled = self._cancel_signal
+                self._cancel_signal = None
+                raise cancelled
+            if self._close_errors:
+                logger.warning(
+                    f"Device session closed with {len(self._close_errors)} cleanup failure(s): "
+                    f"{'; '.join(self._close_errors)}"
+                )
+            return report
+
+    async def retry_cleanup(self) -> SessionCloseReport:
+        """Retry only failed cleanup work; never reopens the Session."""
+        async with self._cleanup_lock:
+            if self._state is not SessionState.CLOSED:
+                raise DeviceSessionError("cleanup retry requires a closed session")
+            if self._cleanup_state is CleanupState.COMPLETE:
+                return self.last_close_report or self._report()
+            if self._cleanup_state not in (
+                CleanupState.RETRYABLE,
+                CleanupState.MANUAL_REQUIRED,
+            ):
+                raise DeviceSessionError("cleanup is not retryable")
+            self._cleanup_state = CleanupState.IN_PROGRESS
+            self._cleanup_attempt += 1
+            self._cancel_signal = None
+            report = await self._run_cleanup(retry=True)
+            if self._cancel_signal is not None:
+                cancelled = self._cancel_signal
+                self._cancel_signal = None
+                raise cancelled
+            return report
 
     async def snapshot(self) -> Frame:
         self._ensure_usable()
@@ -259,6 +466,9 @@ class DeviceSession:
         for source in self.perception:
             try:
                 frame = await source.snapshot()
+            except DeviceFault as exc:
+                self.record_fault(exc)
+                raise
             except Exception as exc:  # noqa: BLE001 - preserve source failures
                 errors.append(f"{type(source).__name__}: {exc}")
                 continue

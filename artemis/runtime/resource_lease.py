@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 
 __all__ = [
     "LeaseReleaseReport",
+    "ResourceLeaseReleaseError",
     "LeaseSet",
     "ResourceBusyError",
     "ResourceLease",
@@ -367,26 +368,30 @@ class ResourceLease:
                 )
                 self._owner = None
                 return
-            hold.refs -= 1
-            remaining = hold.refs
-        if remaining > 0:
-            self._owner = None
-            return
-
-        with _HELD_LOCK:
-            hold = _HELD.get(self.path)
-            if hold is None or hold.refs > 0:
+            if hold.refs > 1:
+                hold.refs -= 1
                 self._owner = None
                 return
-            _HELD.pop(self.path, None)
 
-        current = _read_owner(self.path)
-        if current is None or _same_owner(
-            current, pid=os.getpid(), token=self.token, session_id=self.session_id
-        ):
-            lease_primitives.safe_unlink(self.path)
-        self._owner = None
-        logger.info(f"Resource lease released: {self.resource_id}")
+            # Last local reference: keep _HELD and _owner intact until the lock
+            # file is actually gone. A failed unlink is retryable and must not
+            # leave a live file with no in-process owner state.
+            current = _read_owner(self.path)
+            if current is None or _same_owner(
+                current, pid=os.getpid(), token=self.token, session_id=self.session_id
+            ):
+                if not lease_primitives.safe_unlink(self.path):
+                    raise ResourceLeaseReleaseError(
+                        f"could not remove resource lease file for {self.resource_id}"
+                    )
+            else:
+                logger.warning(
+                    f"Resource lease file was replaced by another owner; "
+                    f"not deleting it: {self.resource_id}"
+                )
+            _HELD.pop(self.path, None)
+            self._owner = None
+            logger.info(f"Resource lease released: {self.resource_id}")
 
     def touch(self) -> bool:
         if self._owner is None:
@@ -406,6 +411,10 @@ class ResourceLease:
 
     def __exit__(self, *exc_info: Any) -> None:
         self.release()
+
+
+class ResourceLeaseReleaseError(RuntimeError):
+    """The local ownership state could not be durably removed."""
 
 
 @dataclass(frozen=True)
@@ -461,6 +470,8 @@ class LeaseSet:
         self.lease_dir = lease_dir
         self.metadata = metadata or {}
         self._leases: list[ResourceLease] = []
+        self._operation_lock = threading.RLock()
+        self._releasing = False
 
     @property
     def resource_ids(self) -> tuple[str, ...]:
@@ -477,6 +488,18 @@ class LeaseSet:
         wanted = sorted({str(resource_id).strip() for resource_id in resource_ids if resource_id})
         if not wanted:
             return self
+        with self._operation_lock:
+            if self._releasing:
+                raise RuntimeError("cannot acquire resources while a LeaseSet is releasing")
+            return self._acquire_locked(wanted, blocking, timeout, cancel_event)
+
+    def _acquire_locked(
+        self,
+        wanted: list[str],
+        blocking: bool,
+        timeout: float | None,
+        cancel_event: Any | None,
+    ) -> LeaseSet:
         acquired: list[ResourceLease] = []
         completed = False
         try:
@@ -500,33 +523,43 @@ class LeaseSet:
         return self
 
     def release_with_report(self) -> LeaseReleaseReport:
-        """Release every lease and report failures/residual locks without raising."""
+        """Release all currently held leases and retain failures for retry."""
 
         errors: list[tuple[str, str]] = []
         exceptions: list[Exception] = []
         released: list[str] = []
         residual: list[str] = []
-        leases = list(self._leases)
-        self._leases.clear()
-        for lease in reversed(leases):
-            resource_id = getattr(lease, "resource_id", repr(lease))
-            lease_errors: list[Exception] = []
-            with _CollectCleanupErrors(lease_errors):
-                lease.release()
-            if lease_errors:
-                exc = lease_errors[0]
-                exceptions.append(exc)
-                errors.append((str(resource_id), str(exc)))
-                logger.warning(f"Releasing resource lease {resource_id} failed: {exc}")
-            else:
-                released.append(str(resource_id))
-            path = getattr(lease, "path", None)
-            if path is not None:
-                try:
-                    if path.exists():
-                        residual.append(str(resource_id))
-                except OSError:
-                    residual.append(str(resource_id))
+        with self._operation_lock:
+            self._releasing = True
+            try:
+                leases = list(self._leases)
+                for lease in reversed(leases):
+                    resource_id = getattr(lease, "resource_id", repr(lease))
+                    lease_errors: list[Exception] = []
+                    with _CollectCleanupErrors(lease_errors):
+                        lease.release()
+                    if lease_errors:
+                        exc = lease_errors[0]
+                        exceptions.append(exc)
+                        errors.append((str(resource_id), str(exc)))
+                        logger.warning(
+                            f"Releasing resource lease {resource_id} failed: {exc}"
+                        )
+                    else:
+                        released.append(str(resource_id))
+                        self._leases.remove(lease)
+                    path = getattr(lease, "path", None)
+                    if path is not None:
+                        try:
+                            if path.exists():
+                                residual.append(str(resource_id))
+                        except OSError:
+                            residual.append(str(resource_id))
+                if not self._leases:
+                    self._releasing = False
+            finally:
+                if not self._leases:
+                    self._releasing = False
         return LeaseReleaseReport(
             released=tuple(released),
             errors=tuple(errors),

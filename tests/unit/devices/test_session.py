@@ -141,8 +141,10 @@ def test_close_continues_after_a_failing_participant():
     )
     asyncio.run(session.close())
 
-    assert events == ["perception", "leases"]
+    assert events == ["perception"]
     assert session.state.value == "closed"
+    assert session.cleanup_state.value == "retryable"
+    assert session.leases is not None
 
 
 def test_pointer_is_a_read_only_adapter_state_view():
@@ -324,8 +326,10 @@ def test_close_continues_after_an_arbitrary_adapter_exception():
 
     asyncio.run(session.close())
 
-    assert events == ["perception", "leases"]
+    assert events == ["perception"]
     assert session.state.value == "closed"
+    assert session.cleanup_state.value == "retryable"
+    assert session.leases is not None
 
 
 def test_close_swallows_an_arbitrary_lease_exception_and_marks_closed():
@@ -350,8 +354,9 @@ def test_close_swallows_an_arbitrary_lease_exception_and_marks_closed():
     asyncio.run(session.close())
 
     assert events == ["perception", "leases"]
-    assert session.leases is None
+    assert session.leases is not None
     assert session.state.value == "closed"
+    assert session.cleanup_state.value == "retryable"
 
 
 def test_close_finishes_cleanup_when_both_adapter_and_lease_raise():
@@ -371,8 +376,10 @@ def test_close_finishes_cleanup_when_both_adapter_and_lease_raise():
 
     asyncio.run(session.close())
 
-    assert events == ["control", "leases"]
+    assert events == ["control"]
     assert session.state.value == "closed"
+    assert session.cleanup_state.value == "retryable"
+    assert session.leases is not None
 
 
 def test_close_preserves_cancellation_from_a_lease_release():
@@ -385,5 +392,124 @@ def test_close_preserves_cancellation_from_a_lease_release():
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(session.close())
 
-    assert session.leases is None
+    assert session.leases is not None
     assert session.state.value == "closed"
+    assert session.cleanup_state.value == "retryable"
+
+
+def test_close_reports_failure_and_retry_releases_leases():
+    events: list[str] = []
+
+    class FailingSink(Sink):
+        def __init__(self):
+            super().__init__(absolute=True)
+            self.fail = True
+
+        def close(self):
+            events.append("control")
+            if self.fail:
+                raise RuntimeError("still open")
+
+    class Leases:
+        def __init__(self):
+            self.released = 0
+            self.resource_ids = ("uvc:host:one/capture",)
+
+        def release_with_report(self):
+            from artemis.runtime.resource_lease import LeaseReleaseReport
+
+            self.released += 1
+            self.resource_ids = ()
+            events.append("leases")
+            return LeaseReleaseReport(released=("uvc:host:one/capture",))
+
+    sink = FailingSink()
+    leases = Leases()
+    session = DeviceSession([], [sink], geometry(), leases=leases)
+
+    first = asyncio.run(session.close())
+    assert first.cleanup_complete is False
+    assert first.retryable is True
+    assert first.retained == ("uvc:host:one/capture",)
+    assert events == ["control"]
+    assert leases.released == 0
+
+    sink.fail = False
+    second = asyncio.run(session.retry_cleanup())
+    assert second.cleanup_complete is True
+    assert session.cleanup_state.value == "complete"
+    assert session.leases is None
+    assert events == ["control", "control", "leases"]
+    assert leases.released == 1
+    assert asyncio.run(session.close()) is not None
+
+
+def test_external_cleanup_owner_runs_before_hardware_and_blocks_leases_on_failure():
+    events: list[str] = []
+
+    class Owner:
+        def __init__(self):
+            self.fail = False
+
+        async def close(self):
+            events.append("action")
+            if self.fail:
+                raise RuntimeError("action still open")
+
+    class LocalSink(Sink):
+        def close(self):
+            events.append("control")
+
+    class Leases:
+        resource_ids = ("uvc:host:one/capture",)
+
+        def release_with_report(self):
+            from artemis.runtime.resource_lease import LeaseReleaseReport
+
+            events.append("leases")
+            self.resource_ids = ()
+            return LeaseReleaseReport(released=("uvc:host:one/capture",))
+
+    owner = Owner()
+    owner.fail = True
+    leases = Leases()
+    session = DeviceSession([], [LocalSink(absolute=True)], geometry(), leases=leases)
+    session.register_cleanup_owner("action", owner.close)
+
+    first = asyncio.run(session.close())
+    assert events == ["action", "control"]
+    assert first.retryable is True
+    assert first.retained == ("uvc:host:one/capture",)
+
+    owner.fail = False
+    second = asyncio.run(session.retry_cleanup())
+    assert events == ["action", "control", "action", "leases"]
+    assert second.cleanup_complete is True
+
+
+def test_fatal_device_fault_marks_the_session_failed():
+    from artemis.core.errors import DeviceDisconnectedError
+
+    class LostSource(Source):
+        async def snapshot(self):
+            raise DeviceDisconnectedError("uvc unplugged", source="uvc")
+
+    session = DeviceSession([LostSource()], [], geometry())
+    session.open()
+
+    with pytest.raises(DeviceDisconnectedError):
+        asyncio.run(session.snapshot())
+
+    assert session.state.value == "failed"
+    assert session.fault_source == "uvc"
+    assert "device_disconnected" in (session.fault_reason or "")
+
+
+def test_non_fatal_source_error_does_not_fail_the_session():
+    session = DeviceSession([Source(error=RuntimeError("ocr parse"))], [], geometry())
+    session.open()
+
+    with pytest.raises(DeviceSessionError):
+        asyncio.run(session.snapshot())
+
+    assert session.state.value == "ready"

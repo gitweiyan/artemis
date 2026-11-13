@@ -261,7 +261,7 @@ def test_lease_set_releases_later_leases_after_one_release_error(tmp_path):
 
     assert broken.released == 1
     assert healthy.released == 1
-    assert leases.resource_ids == ()
+    assert leases.resource_ids == (RESOURCE,)
 
 
 def test_lease_release_report_names_errors_and_residual_locks(tmp_path):
@@ -288,3 +288,23 @@ def test_lease_release_report_names_errors_and_residual_locks(tmp_path):
     assert report.errors[0][0] == "uvc:host:one/capture"
     assert "bad closer" in report.errors[0][1]
     assert report.residual == ("uvc:host:one/capture",)
+
+
+def test_safe_unlink_failure_keeps_owner_and_can_retry(tmp_path, monkeypatch):
+    from artemis.runtime.resource_lease import ResourceLeaseReleaseError
+
+    lease = _lease(tmp_path)
+    lease.acquire()
+    original = lease_primitives.safe_unlink
+    monkeypatch.setattr(lease_primitives, "safe_unlink", lambda path: False)
+    try:
+        with pytest.raises(ResourceLeaseReleaseError):
+            lease.release()
+        assert lease._owner is not None
+        assert lease.path.exists()
+    finally:
+        monkeypatch.setattr(lease_primitives, "safe_unlink", original)
+
+    lease.release()
+    assert lease._owner is None
+    assert not lease.path.exists()
