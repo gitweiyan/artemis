@@ -111,9 +111,7 @@ def test_multiple_matching_candidates_require_a_port_hint():
         UsbEntry("USB Video", "DUP-1", "1-2.4"),
     )
     with pytest.raises(AmbiguousDeviceIdentityError):
-        resolve_uvc_identity(
-            "USB Video", host_id="host-a", inventory_probe=lambda _: entries
-        )
+        resolve_uvc_identity("USB Video", host_id="host-a", inventory_probe=lambda _: entries)
 
     selected = resolve_uvc_identity(
         "USB Video",

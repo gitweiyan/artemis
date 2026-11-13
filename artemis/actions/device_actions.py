@@ -311,11 +311,7 @@ class DeviceActionService:
                     and float(getattr(res, "metrics", {}).get("crop_change", 0) or 0) > 0
                     else {}
                 ),
-                **(
-                    {"action_receipt": receipt.as_dict()}
-                    if receipt is not None
-                    else {}
-                ),
+                **({"action_receipt": receipt.as_dict()} if receipt is not None else {}),
             },
         )
 

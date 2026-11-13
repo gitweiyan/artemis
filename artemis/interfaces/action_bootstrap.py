@@ -48,9 +48,7 @@ def attach_action_service(ctx: Any) -> None:
     )
     if getattr(ctx, "device_session", None) is not None:
         try:
-            ctx.device_session.register_cleanup_owner(
-                "action_service", ctx.action_service.close
-            )
+            ctx.device_session.register_cleanup_owner("action_service", ctx.action_service.close)
         except ValueError:
             # Already registered by an earlier composition pass.
             pass

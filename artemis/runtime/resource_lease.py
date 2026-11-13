@@ -542,9 +542,7 @@ class LeaseSet:
                         exc = lease_errors[0]
                         exceptions.append(exc)
                         errors.append((str(resource_id), str(exc)))
-                        logger.warning(
-                            f"Releasing resource lease {resource_id} failed: {exc}"
-                        )
+                        logger.warning(f"Releasing resource lease {resource_id} failed: {exc}")
                     else:
                         released.append(str(resource_id))
                         self._leases.remove(lease)

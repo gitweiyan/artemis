@@ -32,11 +32,7 @@ class SessionCleanupRegistry:
             self._reports[key] = report
 
     def pending(self) -> list[SessionCloseReport]:
-        return [
-            report
-            for key, report in self._reports.items()
-            if key in self._sessions
-        ]
+        return [report for key, report in self._reports.items() if key in self._sessions]
 
     async def retry(self, session_id: str) -> SessionCloseReport:
         session = self._sessions.get(str(session_id))

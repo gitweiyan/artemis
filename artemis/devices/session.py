@@ -263,7 +263,9 @@ class DeviceSession:
         ]
 
     def _report(self) -> SessionCloseReport:
-        retained = tuple(getattr(self.leases, "resource_ids", ())) if self.leases is not None else ()
+        retained = (
+            tuple(getattr(self.leases, "resource_ids", ())) if self.leases is not None else ()
+        )
         return SessionCloseReport(
             session_id=str(self.session_id or ""),
             session_state=self._state,
@@ -300,7 +302,9 @@ class DeviceSession:
             closed_now.append(participant_id)
         return closed_now, list(self._failed_participants)
 
-    async def _close_participants(self, entries: list[tuple[str, Any]]) -> tuple[list[str], list[str]]:
+    async def _close_participants(
+        self, entries: list[tuple[str, Any]]
+    ) -> tuple[list[str], list[str]]:
         cancelled: asyncio.CancelledError | None = None
         closed_now: list[str] = []
         current = asyncio.current_task()
@@ -395,7 +399,9 @@ class DeviceSession:
             failed_participants=tuple(sorted(failed)),
             released_now=tuple(released_now),
             released_total=tuple(sorted(self._released_resource_ids)),
-            retained=tuple(getattr(self.leases, "resource_ids", ())) if self.leases is not None else (),
+            retained=tuple(getattr(self.leases, "resource_ids", ()))
+            if self.leases is not None
+            else (),
             cleanup_complete=self._cleanup_state is CleanupState.COMPLETE,
             retryable=self._cleanup_state is CleanupState.RETRYABLE,
             errors=tuple(self._close_errors),

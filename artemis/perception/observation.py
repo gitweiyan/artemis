@@ -174,9 +174,7 @@ async def get_screen_data(
     if controller is not None:
         return await ControllerObservationPort(ctx, controller).screen_data()
 
-    raise RuntimeError(
-        "no observation source: an ObservationPort or a DeviceSession is required"
-    )
+    raise RuntimeError("no observation source: an ObservationPort or a DeviceSession is required")
 
 
 @runtime_checkable

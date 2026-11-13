@@ -25,9 +25,7 @@ class McpActionTransport:
     @property
     def action_tool_names(self) -> frozenset[str]:
         extensions = getattr(self._actuator, "extensions", lambda: ())()
-        return (REQUIRED_ACTIONS | OPTIONAL_ACTIONS) | {
-            item.name for item in extensions
-        }
+        return (REQUIRED_ACTIONS | OPTIONAL_ACTIONS) | {item.name for item in extensions}
 
     async def _session_or_start(self):
         if self._session is None or not self._session.started:

@@ -240,9 +240,7 @@ def resolve_uvc_identity(
         result = inventory_result_probe()
         if result.status is UsbInventoryStatus.UNAVAILABLE:
             if strict or port_hint:
-                raise UVCInventoryUnavailableError(
-                    result.diagnostic or "USB inventory unavailable"
-                )
+                raise UVCInventoryUnavailableError(result.diagnostic or "USB inventory unavailable")
             fallback = _config_hint_identity(device_name, explicit_key, metadata)
             if fallback is not None:
                 return fallback
@@ -261,9 +259,7 @@ def resolve_uvc_identity(
         result = probe_usb_inventory_result()
         if result.status is UsbInventoryStatus.UNAVAILABLE:
             if strict or port_hint:
-                raise UVCInventoryUnavailableError(
-                    result.diagnostic or "USB inventory unavailable"
-                )
+                raise UVCInventoryUnavailableError(result.diagnostic or "USB inventory unavailable")
             fallback = _config_hint_identity(device_name, explicit_key, metadata)
             if fallback is not None:
                 return fallback
