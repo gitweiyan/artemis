@@ -23,6 +23,7 @@ import pytest
 
 from artemis.graph.perception import perception_node
 from artemis.graph.state import State
+from artemis.perception.observation import ControllerObservationPort
 
 
 async def _run_perception(ctx, payload):
@@ -40,6 +41,7 @@ async def _run_perception(ctx, payload):
         controller.get_screen_data = AsyncMock(return_value=device_data)
         controller_cls.return_value = controller
         ctx.controller = controller
+        ctx.observation_port = ControllerObservationPort(ctx, controller)
 
         state = MagicMock(spec=State)
         state.structured_decisions = []

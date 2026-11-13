@@ -29,11 +29,10 @@ from artemis.agents.validator.tool_declarations import (
 from artemis.context import ArtemisContext
 from artemis.actions.results import ToolExecutionResult as ActionToolResult
 from artemis.actions.service import ActionService
+from artemis.perception.observation import ControllerObservationPort
 
 
 class _ActionPort:
-    controller = None
-
     action_tool_names = frozenset(
         {
             "click",
@@ -81,6 +80,9 @@ def mock_context():
     ctx.adb_client = None
     ctx.driver = Mock()
     ctx.action_service = ActionService(None, _ActionPort(), helper_port=_ActionPort())
+    ctx.observation_port = ControllerObservationPort(
+        ctx, SimpleNamespace(get_screen_data=AsyncMock(return_value=_screen([])))
+    )
     return ctx
 
 
@@ -134,20 +136,22 @@ async def test_fallback_observation_renders_the_indexed_ui_list(mock_context, tm
     (never the raw element dict repr) and refresh the state like it."""
     with patch("artemis.controllers.unified_controller.get_driver"):
         runner = FlashRunner(mock_context, goal="g")
-    runner.controller = Mock()
-    runner.controller.get_screen_data = AsyncMock(
-        return_value=_screen(
-            [
-                {
-                    "text": "Settings",
-                    "content-desc": "",
-                    "bounds": "[40,120][1040,270]",
-                    "class": "android.widget.TextView",
-                    "resource-id": "android:id/title",
-                }
-            ]
+    controller = SimpleNamespace(
+        get_screen_data=AsyncMock(
+            return_value=_screen(
+                [
+                    {
+                        "text": "Settings",
+                        "content-desc": "",
+                        "bounds": "[40,120][1040,270]",
+                        "class": "android.widget.TextView",
+                        "resource-id": "android:id/title",
+                    }
+                ]
+            )
         )
     )
+    runner.observation_port = ControllerObservationPort(runner.ctx, controller)
     state = Mock()
     state.latest_screenshot = "old.jpg"
     exec_result = _failed_click()
@@ -174,8 +178,8 @@ async def test_fallback_observation_renders_the_indexed_ui_list(mock_context, tm
 async def test_fallback_observation_is_skipped_for_non_action_tools(mock_context):
     with patch("artemis.controllers.unified_controller.get_driver"):
         runner = FlashRunner(mock_context, goal="g")
-    runner.controller = Mock()
-    runner.controller.get_screen_data = AsyncMock(return_value=_screen([]))
+    controller = SimpleNamespace(get_screen_data=AsyncMock(return_value=_screen([])))
+    runner.observation_port = ControllerObservationPort(runner.ctx, controller)
     state = Mock()
     exec_result = ToolExecutionResult(
         tool_call_id="tc", tool_name="ask_explorer", status="success", text_summary="found"
@@ -187,7 +191,7 @@ async def test_fallback_observation_is_skipped_for_non_action_tools(mock_context
 
     assert post is None
     assert exec_result.ui_elements_text is None
-    runner.controller.get_screen_data.assert_not_awaited()
+    controller.get_screen_data.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -195,10 +199,12 @@ async def test_fallback_observation_keeps_the_executors_ui_list(mock_context, tm
     """An action that reported a UI list but no screenshot keeps its own list."""
     with patch("artemis.controllers.unified_controller.get_driver"):
         runner = FlashRunner(mock_context, goal="g")
-    runner.controller = Mock()
-    runner.controller.get_screen_data = AsyncMock(
-        return_value=_screen([{"text": "Other", "bounds": "[0,0][100,100]"}])
+    controller = SimpleNamespace(
+        get_screen_data=AsyncMock(
+            return_value=_screen([{"text": "Other", "bounds": "[0,0][100,100]"}])
+        )
     )
+    runner.observation_port = ControllerObservationPort(runner.ctx, controller)
     exec_result = ToolExecutionResult(
         tool_call_id="tc",
         tool_name="click",
@@ -220,8 +226,8 @@ async def test_fallback_observation_keeps_the_executors_ui_list(mock_context, tm
 async def test_fallback_observation_failure_is_contained(mock_context):
     with patch("artemis.controllers.unified_controller.get_driver"):
         runner = FlashRunner(mock_context, goal="g")
-    runner.controller = Mock()
-    runner.controller.get_screen_data = AsyncMock(side_effect=RuntimeError("adb gone"))
+    controller = SimpleNamespace(get_screen_data=AsyncMock(side_effect=RuntimeError("adb gone")))
+    runner.observation_port = ControllerObservationPort(runner.ctx, controller)
     state = Mock()
     state.latest_screenshot = "old.jpg"
     exec_result = _failed_click()
@@ -318,7 +324,7 @@ def test_flash_action_evidence_never_promotes_an_ack_to_verified():
     from artemis.agents.flash.runner import FlashRunner
 
     success = SimpleNamespace(status="success")
-    assert FlashRunner._evidence_action_state(success, {}) == "adapter_acknowledged"
+    assert FlashRunner._evidence_action_state(success, {}) == "unknown"
     assert (
         FlashRunner._evidence_action_state(success, {"post_verification": {"ok": True}})
         == "observed_effect"
@@ -328,7 +334,12 @@ def test_flash_action_evidence_never_promotes_an_ack_to_verified():
     )
     assert (
         FlashRunner._evidence_action_state(
-            success, {"post_verification": {"ok": False, "incident": "no_effect"}}
+            success,
+            {
+                "post_verification": {"ok": False, "incident": "no_effect"},
+                "action_state": "adapter_acknowledged",
+                "action_receipt": {"state": "adapter_acknowledged"},
+            },
         )
         == "adapter_acknowledged"
     )
@@ -830,3 +841,74 @@ def test_high_value_action_without_effect_evidence_is_not_success():
 
     assert result.status == "error"
     assert metadata["incident"] == "target_unverified"
+
+
+def test_flash_runner_never_accesses_a_bomb_controller(mock_context):
+    class Bomb:
+        def __getattr__(self, name):
+            raise AssertionError(f"controller touched: {name}")
+
+    class FakePort:
+        async def observe(self, settle_ms=400, ocr_results=None):
+            from artemis.core.action_types import ObserveResult
+
+            return ObserveResult(ok=True, message="ok", elements=[]), b"img"
+
+        async def screen_data(self):
+            from artemis.perception.observation import ScreenData
+
+            return ScreenData(base64="", elements=[])
+
+    mock_context.controller = Bomb()
+    mock_context.observation_port = FakePort()
+    runner = FlashRunner(mock_context, goal="g")
+
+    assert not hasattr(runner, "controller")
+    assert runner.observation_port is mock_context.observation_port
+
+
+@pytest.mark.asyncio
+async def test_fallback_observation_uses_the_observation_port(mock_context):
+    from artemis.core.action_types import ObserveResult
+
+    seen = []
+
+    class FakePort:
+        async def observe(self, settle_ms=400, ocr_results=None):
+            seen.append(settle_ms)
+            return ObserveResult(
+                ok=True,
+                message="ok",
+                elements_text="[1] Text: 'Port'",
+                elements=[{"index": 1, "text": "Port", "center": [2, 3]}],
+                screenshot_path="/tmp/port.jpg",
+            ), b"PORT"
+
+        async def screen_data(self):
+            from artemis.perception.observation import ScreenData
+            import base64
+
+            return ScreenData(
+                base64=base64.b64encode(b"PORT").decode("ascii"),
+                elements=[
+                    {
+                        "text": "Port",
+                        "bounds": "[1,2][3,4]",
+                        "center": [2, 3],
+                    }
+                ],
+                width=1080,
+                height=2400,
+            )
+
+    mock_context.observation_port = FakePort()
+    runner = FlashRunner(mock_context, goal="g")
+    state = Mock()
+    result = _failed_click()
+
+    post = await runner._capture_post_screenshot(result, "click", frozenset({"click"}), state)
+
+    assert post == b"PORT"
+    assert seen == [0]
+    assert result.ui_elements_text == "[1] Text: 'Port'"
+    assert state.latest_screenshot == "/tmp/port.jpg"

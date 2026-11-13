@@ -6,6 +6,8 @@ import asyncio
 import base64
 from types import SimpleNamespace
 
+import pytest
+
 from artemis.mcp.observation import ControllerObservationPort, ObservationPort
 
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\nfake").decode("ascii")
@@ -170,3 +172,39 @@ def test_a_failed_session_cannot_bypass_the_controller_fallback():
 
     with pytest.raises(DeviceSessionError):
         asyncio.run(get_screen_data(ctx, controller=object()))
+
+
+def test_get_screen_data_does_not_discover_a_context_controller():
+    from artemis.perception.observation import get_screen_data
+
+    class Bomb:
+        def __getattr__(self, name):
+            raise AssertionError(f"unexpected controller access: {name}")
+
+    ctx = SimpleNamespace(device=None, data_engine=None, controller=Bomb(), driver=Bomb())
+    with pytest.raises(RuntimeError, match="ObservationPort"):
+        asyncio.run(get_screen_data(ctx))
+
+
+def test_session_port_has_no_controller_and_returns_screen_data():
+    from artemis.devices.session import DeviceSession
+    from artemis.perception.base import Frame
+    from artemis.perception.observation import SessionObservationPort
+
+    class Source:
+        name = "fake"
+
+        async def snapshot(self):
+            return Frame(b"x", 1.0, 10, 20, "fake")
+
+        async def ui_tree(self):
+            return None
+
+    session = DeviceSession(perception=[Source()], control=[])
+    ctx = SimpleNamespace(device=None, data_engine=None, device_session=session)
+    port = SessionObservationPort(ctx)
+
+    assert not hasattr(port, "controller")
+    data = asyncio.run(port.screen_data())
+    assert data.width == 10
+    assert data.height == 20

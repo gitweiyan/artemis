@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 
 from artemis.agents.planner.planner import PlannerNode
 from artemis.context import DevicePlatform, ArtemisContext
+from artemis.perception.observation import ControllerObservationPort
 import pytest
 
 
@@ -47,6 +48,7 @@ def mock_context():
     mock_screen_data.width = 1080
     mock_screen_data.height = 2400
     ctx.ui_adb_client.get_screen_data.return_value = mock_screen_data
+    ctx.observation_port = ControllerObservationPort(ctx, ctx.ui_adb_client)
     ctx.data_engine = None
 
     return ctx

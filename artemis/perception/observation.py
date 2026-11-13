@@ -18,6 +18,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from artemis.config import get_temp_dir
 from artemis.core.action_types import ActionCode, ObserveResult
+from artemis.core.errors import DeviceSessionError
 from artemis.utils.ocr_xml_fusion import fuse_ocr_with_xml
 from artemis.utils.visualization import format_minimal_list_with_elements
 from third_party.mobile_use.utils.logger import get_logger
@@ -104,33 +105,41 @@ def _coerce(data: Any, *, evidence: ObservationEvidence | None = None) -> Screen
 
 
 async def session_screen_data(ctx: Any) -> ScreenData | None:
-    """Read screen data through the Session, including its health/state guard."""
+    """Read screen data through the Session, including its health/state guard.
+
+    ``None`` means there is no Session at all. A Session that exists but has no
+    usable perception source is an error; callers must not treat that as a
+    reason to fall back to a legacy Controller.
+    """
 
     session = getattr(ctx, "device_session", None)
-    if session is None or not isinstance(getattr(session, "perception", None), (list, tuple)):
+    if session is None:
         return None
+    if not isinstance(getattr(session, "perception", None), (list, tuple)):
+        raise DeviceSessionError("device session has no perception sources")
+    if not session.perception:
+        raise DeviceSessionError("device session has no perception sources")
     frame = await session.snapshot()
-    source = session.perception[0] if session.perception else None
+    source = session.perception[0]
     evidence = _evidence_for_frame(frame, source, session)
     for source in session.perception:
         cached = getattr(source, "_last_data", None)
         if cached is not None:
             return _coerce(cached, evidence=evidence)
     elements: list[dict[str, Any]] = []
-    if source is not None:
-        tree = await source.ui_tree()
-        for item in tree or []:
-            bounds = getattr(item, "bounds", None)
-            if bounds and len(bounds) == 4:
-                left, top, right, bottom = (int(value) for value in bounds)
-                elements.append(
-                    {
-                        "text": getattr(item, "text", ""),
-                        "resource-id": getattr(item, "resource_id", ""),
-                        "bounds": f"[{left},{top}][{right},{bottom}]",
-                        "center": [(left + right) // 2, (top + bottom) // 2],
-                    }
-                )
+    tree = await source.ui_tree()
+    for item in tree or []:
+        bounds = getattr(item, "bounds", None)
+        if bounds and len(bounds) == 4:
+            left, top, right, bottom = (int(value) for value in bounds)
+            elements.append(
+                {
+                    "text": getattr(item, "text", ""),
+                    "resource-id": getattr(item, "resource_id", ""),
+                    "bounds": f"[{left},{top}][{right},{bottom}]",
+                    "center": [(left + right) // 2, (top + bottom) // 2],
+                }
+            )
     return ScreenData(
         base64=base64.b64encode(frame.image).decode("ascii"),
         elements=elements,
@@ -141,35 +150,40 @@ async def session_screen_data(ctx: Any) -> ScreenData | None:
     )
 
 
-async def get_screen_data(ctx: Any, controller: Any | None = None) -> ScreenData:
-    """Session first; controller is only used when no usable Session exists."""
+async def get_screen_data(
+    ctx: Any,
+    controller: Any | None = None,
+    observation_port: Any | None = None,
+) -> ScreenData:
+    """Return screen data from an explicit ObservationPort only.
 
-    data = await session_screen_data(ctx)
-    if data is not None:
-        return data
-    if controller is None:
-        # Explicit injection is preferred; context-attached compatibility
-        # controllers are accepted without importing their classes here.
-        controller = getattr(ctx, "controller", None)
-    if controller is None:
-        controller = getattr(ctx, "ui_adb_client", None)
-    if controller is None:
-        # Last compatibility source: the context's driver facade (a
-        # duck-typed get_screen_data), never an imported Controller class.
-        controller = getattr(ctx, "driver", None)
-    if controller is None:
-        raise RuntimeError(
-            "no observation source: a DeviceSession or an explicit controller is required"
-        )
-    result = controller.get_screen_data()
-    if inspect.isawaitable(result):
-        result = await result
-    return _coerce(result)
+    The legacy ``controller`` argument is an explicit L1 compatibility seam for
+    callers that have not been composed with a port. It is never discovered from
+    ``ctx`` and a present DeviceSession always wins over it.
+    """
+
+    if observation_port is None:
+        observation_port = getattr(ctx, "observation_port", None)
+    if observation_port is not None:
+        return await observation_port.screen_data()
+
+    session = getattr(ctx, "device_session", None)
+    if session is not None:
+        return await SessionObservationPort(ctx).screen_data()
+
+    if controller is not None:
+        return await ControllerObservationPort(ctx, controller).screen_data()
+
+    raise RuntimeError(
+        "no observation source: an ObservationPort or a DeviceSession is required"
+    )
 
 
 @runtime_checkable
 class ObservationPort(Protocol):
-    """Minimal observation surface consumed by the agent tool layer."""
+    """Stable observation surface consumed by Agent and Graph code."""
+
+    async def screen_data(self) -> ScreenData: ...
 
     async def observe(
         self, settle_ms: int = 400, ocr_results: list | None = None
@@ -177,44 +191,64 @@ class ObservationPort(Protocol):
 
 
 class SessionObservationPort:
-    """Observation through DeviceSession, with the controller path as fallback."""
+    """Observation through the authoritative DeviceSession; no Controller fallback."""
 
-    def __init__(self, ctx: Any, controller: Any | None = None) -> None:
+    def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
-        self.controller = controller
+
+    async def screen_data(self) -> ScreenData:
+        data = await session_screen_data(self.ctx)
+        if data is None:
+            raise DeviceSessionError("no DeviceSession observation source")
+        return data
 
     async def observe(
         self, settle_ms: int = 400, ocr_results: list | None = None
     ) -> tuple[ObserveResult, bytes | None]:
-        return await observe(self.ctx, self.controller, settle_ms, ocr_results)
+        return await _observe_from_port(self.ctx, self, settle_ms, ocr_results)
 
 
 class ControllerObservationPort:
-    """Compatibility adapter: a controller with ``get_screen_data`` as an Observation Port."""
+    """Explicit L1 compatibility adapter for a run without a DeviceSession."""
 
     def __init__(self, ctx: Any, controller: Any) -> None:
         self.ctx = ctx
         self.controller = controller
 
+    async def screen_data(self) -> ScreenData:
+        result = self.controller.get_screen_data()
+        if inspect.isawaitable(result):
+            result = await result
+        return _coerce(result)
+
     async def observe(
         self, settle_ms: int = 400, ocr_results: list | None = None
     ) -> tuple[ObserveResult, bytes | None]:
-        return await observe(self.ctx, self.controller, settle_ms, ocr_results)
+        return await _observe_from_port(self.ctx, self, settle_ms, ocr_results)
 
 
-async def observe(
+def _as_observation_port(ctx: Any, value: Any | None) -> ObservationPort:
+    if value is None:
+        port = getattr(ctx, "observation_port", None)
+        if port is not None:
+            return port
+        session = getattr(ctx, "device_session", None)
+        if session is not None:
+            return SessionObservationPort(ctx)
+        raise RuntimeError("no ObservationPort composed for this context")
+    if hasattr(value, "screen_data"):
+        return value
+    # Explicit compatibility for callers that still pass a Controller; this is
+    # resolved here, never discovered from ctx.
+    return ControllerObservationPort(ctx, value)
+
+
+async def _observe_from_port(
     ctx: Any,
-    controller: Any | None,
-    settle_ms: int = 400,
-    ocr_results: list | None = None,
+    port: ObservationPort,
+    settle_ms: int,
+    ocr_results: list | None,
 ) -> tuple[ObserveResult, bytes | None]:
-    """Captures and indexes the current screen.
-
-    Returns the structured observation plus the raw screenshot bytes (an in-process
-    convenience; the serialized ``ObserveResult`` carries only the persisted path).
-    A failed capture yields ``ok=False``; a failed hierarchy parse still returns the
-    screenshot with ``hierarchy_ok=False`` and keeps the Session evidence.
-    """
     evidence: ObservationEvidence | None = None
     try:
         if settle_ms > 0:
@@ -222,7 +256,7 @@ async def observe(
             await asyncio.sleep(settle_ms / 1000.0)
         else:
             logger.info("Retrieving screen data directly (skip settling)...")
-        device_data = await get_screen_data(ctx, controller)
+        device_data = await port.screen_data()
         evidence = getattr(device_data, "evidence", None)
         screenshot_bytes = base64.b64decode(
             getattr(device_data, "base64", None) or getattr(device_data, "screenshot_base64", "")
@@ -296,3 +330,15 @@ async def observe(
         ),
         screenshot_bytes,
     )
+
+
+async def observe(
+    ctx: Any,
+    observation_port: Any | None,
+    settle_ms: int = 400,
+    ocr_results: list | None = None,
+) -> tuple[ObserveResult, bytes | None]:
+    """Capture through an explicit ObservationPort (or explicit legacy controller)."""
+
+    port = _as_observation_port(ctx, observation_port)
+    return await _observe_from_port(ctx, port, settle_ms, ocr_results)

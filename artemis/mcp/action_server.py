@@ -66,7 +66,11 @@ def _wrap_exception(action: str, exc: Exception) -> CallToolResult:
     )
 
 
-def build_action_server(actuator: Actuator, name: str = "artemis_actions") -> FastMCP:
+def build_action_server(
+    actuator: Actuator,
+    name: str = "artemis_actions",
+    observation_port: Any | None = None,
+) -> FastMCP:
     """Builds a FastMCP server exposing exactly what ``actuator`` implements.
 
     Raises ``ActuatorContractError`` when the actuator violates the manifest, so a
@@ -99,9 +103,11 @@ def build_action_server(actuator: Actuator, name: str = "artemis_actions") -> Fa
         ) -> Annotated[CallToolResult, ObserveResult]:
             """Capture and index the current screen (adapter-internal)."""
             try:
+                ctx = getattr(actuator, "ctx", None)
+                port = observation_port or getattr(ctx, "observation_port", None)
                 obs, img_bytes = await observe_impl(
-                    getattr(actuator, "ctx", None),
-                    actuator.controller,
+                    ctx,
+                    port,
                     settle_ms=settle_ms,
                 )
                 content: list[Any] = [TextContent(type="text", text=obs.message)]

@@ -61,3 +61,17 @@ def test_path_report_names_the_full_transitive_dependency():
     # The graph itself must be able to report a path, even when current code is clean.
     path = graph.path_to("artemis.actions.service", "artemis.mcp")
     assert path is None or path[0] == "artemis.actions.service"
+
+
+def test_runtime_controller_passthrough_is_removed():
+    service = (ROOT / "actions" / "service.py").read_text()
+    port = (ROOT / "mcp" / "action_port.py").read_text()
+    transport = (ROOT / "mcp" / "action_transport.py").read_text()
+    flash = (ROOT / "agents" / "flash" / "runner.py").read_text()
+
+    assert "__getattr__" not in service
+    assert "__setattr__" not in service
+    assert "__getattr__" not in port
+    assert "def controller" not in transport
+    assert "self.controller" not in flash
+    assert "langchain_core.messages" not in (ROOT / "actions" / "results.py").read_text()

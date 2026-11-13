@@ -20,6 +20,7 @@ import pytest
 from artemis.agents.explorer.explorer import Explorer
 from artemis.config.settings import Settings
 from artemis.graph.perception import perception_node
+from artemis.perception.observation import ControllerObservationPort
 from artemis.graph.state import State
 from artemis.tools.index import get_tools_from_wrappers
 from artemis.tools.mobile.ocr import (
@@ -176,6 +177,7 @@ async def test_perception_node_runs_smoothly_without_ocr():
         mock_ctx.device.device_width = 1080
         mock_ctx.device.device_height = 2400
         mock_ctx.controller = mock_controller
+        mock_ctx.observation_port = ControllerObservationPort(mock_ctx, mock_controller)
 
         mock_state = MagicMock(spec=State)
         mock_state.structured_decisions = []

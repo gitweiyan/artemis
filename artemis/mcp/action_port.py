@@ -22,11 +22,6 @@ class McpActionPort:
     def action_tool_names(self) -> frozenset[str]:
         return frozenset(getattr(self.session, "action_tool_names", ()))
 
-    def __getattr__(self, name: str) -> Any:
-        # Flash still reads the compatibility controller for observation; keep
-        # that legacy attribute behind the adapter rather than in L3.
-        return getattr(self.session, name)
-
     async def dispatch(self, command: ActionCommand) -> ActionDispatchResult:
         result = await self.session.call(command.adapter_id, dict(command.parameters))
         if not isinstance(result, ActionResult):

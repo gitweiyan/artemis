@@ -754,7 +754,9 @@ async def _capture_final_screen(ctx: ArtemisContext) -> tuple[str | None, str]:
     try:
         from artemis.perception.observation import get_screen_data
 
-        device_data = await get_screen_data(ctx)
+        device_data = await get_screen_data(
+            ctx, observation_port=getattr(ctx, "observation_port", None)
+        )
         screenshot_b64 = device_data.base64
         xml_hierarchy = device_data.elements
         width = device_data.width

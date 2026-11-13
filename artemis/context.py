@@ -199,6 +199,10 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
     """In-process unified action MCP session (artemis.mcp.action_session)."""
     action_service: Any | None = None
     """L3 application service used by agents for device actions."""
+    observation_port: Any | None = None
+    """L1-composed ObservationPort; no Agent may discover a Controller instead."""
+    cleanup_registry: Any | None = None
+    """Host Runtime cleanup registry for incomplete DeviceSession close reports."""
     actuator: Any | None = None
     """Optional actuator backend override (artemis.mcp.actuators). ``None`` selects
     the default AdbActuator; installing e.g. a robot-arm backend happens here."""
@@ -243,23 +247,28 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # Close the in-process action session before draining background tasks so its
-        # owner task exits cleanly rather than being cancelled below.
-        if self.action_session is not None:
+        # When a DeviceSession owns the action transport, it closes that owner in
+        # its cleanup barrier. Only a run without a Session closes ActionSession
+        # directly. This keeps the Lease-release decision tied to one owner.
+        if self.device_session is not None:
+            try:
+                report = await self.device_session.close()
+                if not getattr(report, "cleanup_complete", True):
+                    registry = getattr(self, "cleanup_registry", None)
+                    if registry is not None:
+                        registry.register(self.device_session)
+            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                logger.debug(f"Device session close failed; skipped: {exc}", exc_info=True)
+            finally:
+                self.action_session = None
+                self.device_session = None
+        elif self.action_session is not None:
             try:
                 await self.action_session.aclose()
             except Exception as exc:
                 logger.debug(f"Action session close failed; skipped: {exc}", exc_info=True)
             finally:
                 self.action_session = None
-
-        if self.device_session is not None:
-            try:
-                await self.device_session.close()
-            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
-                logger.debug(f"Device session close failed; skipped: {exc}", exc_info=True)
-            finally:
-                self.device_session = None
 
         # Drain in-flight step-summary jobs before the generic background-task
         # sweep: the shared service owns its own bounded flush semantics. On an

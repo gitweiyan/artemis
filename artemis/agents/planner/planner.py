@@ -258,7 +258,10 @@ class PlannerNode:
             try:
                 from artemis.perception.observation import get_screen_data
 
-                screenshot_b64 = (await get_screen_data(self.ctx)).base64
+                observation_port = getattr(self.ctx, "observation_port", None)
+                screenshot_b64 = (
+                    await get_screen_data(self.ctx, observation_port=observation_port)
+                ).base64
 
                 # Save to Data Engine if available to keep trace
                 if self.ctx.data_engine:

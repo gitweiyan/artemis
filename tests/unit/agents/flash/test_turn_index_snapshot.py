@@ -106,7 +106,8 @@ def _runner(mock_context, observations):
         runner = FlashRunner(mock_context, goal="Open Wi-Fi and Display")
     runner.executor.helper_port = runner.executor.port
     runner.summarizer = None
-    runner.executor._session = _FakeSession(observations)
+    mock_context.observation_port = Mock()
+    runner.executor.port._session = _FakeSession(observations)
     # No device: the executor's observation already refreshed the state.
     runner._capture_post_screenshot = AsyncMock(return_value=None)
     return runner
@@ -187,7 +188,7 @@ async def test_two_index_clicks_in_one_turn_resolve_against_the_original_list(mo
     )
 
     assert final is None
-    session = runner.executor._session
+    session = runner.executor.port._session
     assert [args["target"] for _, args in session.calls] == [[500, 417], [500, 750]]
     assert [status for _, status, _ in turn.actions] == ["success", "success"]
     tool_msgs = [m for m in messages if isinstance(m, ToolMessage)]
@@ -217,7 +218,7 @@ async def test_second_index_beyond_the_refreshed_list_is_still_valid(mock_contex
         _TurnRecord(),
     )
 
-    session = runner.executor._session
+    session = runner.executor.port._session
     assert [args["target"] for _, args in session.calls] == [[500, 583], [500, 750]]
 
 
@@ -234,7 +235,7 @@ async def test_explorer_candidates_registered_before_an_action_join_the_snapshot
         st.indexed_elements.append(_el(6, "Hidden gear", 540, 2200))
         return "Found 'gear' at index 6.", True
 
-    runner.executor._ask_explorer = fake_explorer
+    runner.executor.port._ask_explorer = fake_explorer
 
     await runner._process_tool_calls(
         [
@@ -251,7 +252,7 @@ async def test_explorer_candidates_registered_before_an_action_join_the_snapshot
         _TurnRecord(),
     )
 
-    session = runner.executor._session
+    session = runner.executor.port._session
     assert [args["target"] for _, args in session.calls] == [[500, 917]]
     assert [e["text"] for e in state.indexed_elements] == ["Back", "Wi-Fi toggle"]
 
@@ -269,7 +270,7 @@ async def test_explorer_after_an_action_moves_the_snapshot_to_the_list_it_number
         st.indexed_elements.append(_el(len(st.indexed_elements) + 1, "Gear", 200, 2000))
         return "Found.", True
 
-    runner.executor._ask_explorer = fake_explorer
+    runner.executor.port._ask_explorer = fake_explorer
 
     await runner._process_tool_calls(
         [
@@ -287,7 +288,7 @@ async def test_explorer_after_an_action_moves_the_snapshot_to_the_list_it_number
         _TurnRecord(),
     )
 
-    session = runner.executor._session
+    session = runner.executor.port._session
     assert [args["target"] for _, args in session.calls] == [[500, 417], [185, 833]]
 
 
@@ -312,6 +313,6 @@ async def test_a_turn_cannot_dispatch_more_than_the_flash_high_risk_budget(mock_
         turn,
     )
 
-    assert len(runner.executor._session.calls) == MAX_FLASH_CLICKS_PER_TURN
+    assert len(runner.executor.port._session.calls) == MAX_FLASH_CLICKS_PER_TURN
     assert turn.actions[-1][1] == "error"
     assert "click budget" in turn.actions[-1][2].lower()

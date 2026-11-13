@@ -173,8 +173,8 @@ class FlashRunner:
             self.transcript_cfg = MemoryTranscriptConfig()
             self.chunking_cfg = None
 
-        # The executor's actuator owns the legacy controller; Flash keeps the
-        # attribute only as a compatibility seam for observation tests.
+        # The Agent receives only the two explicit services. Observation is
+        # independent from action dispatch; no Controller is handed to Flash.
         # ``agent_name="flash"`` makes ask_explorer follow ``explorer.flash_mode``
         # (the Flash profile knob) instead of the Pro profile's tier.
         self.executor = getattr(ctx, "action_service", None)
@@ -183,7 +183,7 @@ class FlashRunner:
                 "FlashRunner requires a composed ActionService; "
                 "set ctx.action_service before constructing the runner"
             )
-        self.controller = self.executor.controller
+        self.observation_port = getattr(ctx, "observation_port", None)
         # Batch item 5: Flash has no Operator similarity component. The guard
         # folds the driver's incident / crop_change and the pre/post dHash into
         # one cross-turn counter; run() turns its verdict into an ephemeral tail
@@ -701,7 +701,9 @@ class FlashRunner:
         if name not in action_names:
             return post_img_bytes
         try:
-            obs, screenshot_bytes = await observe(self.ctx, self.controller, settle_ms=0)
+            if self.observation_port is None:
+                raise RuntimeError("FlashRunner has no ObservationPort")
+            obs, screenshot_bytes = await self.observation_port.observe(settle_ms=0)
         except Exception as shot_err:
             logger.warning(f"Failed to capture fallback screenshot in FlashRunner: {shot_err}")
             return post_img_bytes
@@ -836,7 +838,12 @@ class FlashRunner:
         post = metadata.get("post_verification") or {}
         if post.get("ok") is True and not post.get("skipped"):
             return ActionState.OBSERVED_EFFECT.value
-        return ActionState.ADAPTER_ACKNOWLEDGED.value
+        if (
+            str(metadata.get("action_state") or "") == ActionState.ADAPTER_ACKNOWLEDGED.value
+            and metadata.get("action_receipt")
+        ):
+            return ActionState.ADAPTER_ACKNOWLEDGED.value
+        return ActionState.UNKNOWN.value
 
     @staticmethod
     def _require_effect_evidence(name: str, exec_result, metadata: dict) -> None:
@@ -1470,8 +1477,10 @@ class FlashRunner:
         )
 
         # Capture Initial State (Screenshot + UI Tree)
+        if self.observation_port is None:
+            raise RuntimeError("FlashRunner has no ObservationPort")
         shot_path, img_bytes, xml_list = await capture_screenshot_and_parse_ui(
-            self.ctx, state, self.controller, skip_settling=False
+            self.ctx, state, self.observation_port, skip_settling=False
         )
         state.latest_screenshot = shot_path
         if img_bytes:

@@ -151,11 +151,15 @@ async def perception_node(state: State, ctx: ArtemisContext) -> dict:
     # controller fallback lives inside that service, not in L2.
     if _should_skip_settling(state):
         logger.info("Skipping settling. Retrieving screen data directly...")
-        device_data = await get_screen_data(ctx)
+        device_data = await get_screen_data(
+            ctx, observation_port=getattr(ctx, "observation_port", None)
+        )
     else:
         logger.info("Screen settling required. Delaying 0.4s and capturing screen data...")
         await asyncio.sleep(0.4)
-        device_data = await get_screen_data(ctx)
+        device_data = await get_screen_data(
+            ctx, observation_port=getattr(ctx, "observation_port", None)
+        )
     latest_screenshot_b64 = getattr(device_data, "base64", None) or getattr(
         device_data, "screenshot_base64", ""
     )

@@ -252,7 +252,9 @@ class McpActionExecutor:
                     " the next step."
                 )
 
-            action_state = "adapter_acknowledged" if res.ok else "unknown"
+            # This legacy executor has no ActionDispatchResult; tool success is
+            # not an adapter ACK. Real receipt state is owned by DeviceActionService.
+            action_state = "unknown"
             status = "success" if res.ok else "error"
             post_image_name = None
             if shot_path:

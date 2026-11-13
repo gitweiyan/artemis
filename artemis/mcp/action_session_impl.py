@@ -213,7 +213,9 @@ class ActionSession:
             self._ready = asyncio.Event()
 
 
-async def get_action_session(ctx: Any, actuator: Any = None) -> ActionSession:
+async def get_action_session(
+    ctx: Any, actuator: Any = None, observation_port: Any | None = None
+) -> ActionSession:
     """Returns the context's action session, creating and starting it on first use.
 
     Contract validation happens here (inside ``build_action_server``), so a backend
@@ -234,7 +236,10 @@ async def get_action_session(ctx: Any, actuator: Any = None) -> ActionSession:
     from artemis.mcp.actuators.adb import AdbActuator
 
     actuator = actuator or getattr(ctx, "actuator", None) or AdbActuator(ctx)
-    server = build_action_server(actuator)
+    server = build_action_server(
+        actuator,
+        observation_port=observation_port or getattr(ctx, "observation_port", None),
+    )
     session = ActionSession(server)
     await session.start()
     try:

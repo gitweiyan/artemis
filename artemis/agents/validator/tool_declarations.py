@@ -128,7 +128,7 @@ def prune_intermediate_screenshots(messages: list[Any]) -> None:
 async def capture_screenshot_and_parse_ui(
     ctx: ArtemisContext,
     state: State,
-    controller: Any,
+    observation_port: Any,
     skip_settling: bool = False,
 ) -> tuple[str | None, bytes | None, str | None]:
     """Captures screenshot and parses fused XML tree after optional screen settling delay.
@@ -136,7 +136,9 @@ async def capture_screenshot_and_parse_ui(
     Thin adapter over :func:`artemis.perception.observation.observe` that adds the LangGraph
     ``State`` write-back (indexed points/elements) the agents rely on.
     """
-    obs, screenshot_bytes = await observe(ctx, controller, settle_ms=0 if skip_settling else 400)
+    obs, screenshot_bytes = await observation_port.observe(
+        settle_ms=0 if skip_settling else 400
+    )
     if not obs.ok:
         return None, None, None
 

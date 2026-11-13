@@ -46,6 +46,7 @@ from artemis.data_engine.trace import TraceSpan
 from artemis.actions.manifest import OPTIONAL_ACTIONS, REQUIRED_ACTIONS
 from artemis.actions.specs import exception_prefix
 from artemis.core.action_types import ActionCode, ActionResult
+from artemis.core.errors import DeviceFault
 from artemis.actions.normalization import normalize_coordinate_target
 from artemis.core.action_port import ActionDispatchResult
 from artemis.core.actions import ActionCommand, ActionReceipt, ActionState
@@ -72,9 +73,16 @@ class _ArgError(ValueError):
 class DeviceActionService:
     """Routes agent tool calls through the unified action MCP session."""
 
-    def __init__(self, ctx: ArtemisContext, port: Any):
+    def __init__(
+        self,
+        ctx: ArtemisContext,
+        port: Any,
+        *,
+        observation_port: Any | None = None,
+    ):
         self.ctx = ctx
         self.port = port
+        self.observation_port = observation_port
 
     @property
     def action_tool_names(self) -> frozenset[str]:
@@ -97,6 +105,8 @@ class DeviceActionService:
         return await (await self._session_or_start()).ui_hierarchy(timeout)
 
     async def observe(self, settle_ms: int = 400, include_image: bool = False):
+        if self.observation_port is not None:
+            return await self.observation_port.observe(settle_ms=settle_ms)
         return await (await self._session_or_start()).observe(settle_ms, include_image)
 
     # --- Public entry ----------------------------------------------------------------
@@ -154,6 +164,7 @@ class DeviceActionService:
         message = ""
         res: ActionResult | None = None
         receipt: ActionReceipt | None = None
+        legacy_execution = False
         img_bytes: bytes | None = None
         shot_path: str | None = None
         xml_list: str | None = None
@@ -183,6 +194,7 @@ class DeviceActionService:
                         f"Extension tool '{raw_name}' completed.",
                     )
                     res = ActionResult.success(raw_name, message)
+                    legacy_execution = True
                 else:
                     if hasattr(session, "dispatch"):
                         command = ActionCommand(
@@ -198,12 +210,14 @@ class DeviceActionService:
                             res = dispatched.result
                         else:  # compatibility with an older adapter
                             res = dispatched
+                            legacy_execution = True
                     else:
                         res = await session.call(wire_name, wire_args)
+                        legacy_execution = True
                     message = finalize(res) if finalize else res.message
 
                 if res.ok or self._observe_despite_failure(raw_name, res):
-                    obs = await session.observe(settle_ms=400)
+                    obs = await self.observe(settle_ms=400)
                     if obs.ok:
                         shot_path = obs.screenshot_path
                         xml_list = obs.elements_text
@@ -218,6 +232,20 @@ class DeviceActionService:
             except _ArgError as e:
                 res = ActionResult.failure(raw_name, str(e), code=ActionCode.INVALID_ARGS)
                 message = str(e)
+            except DeviceFault as e:
+                session = getattr(self.ctx, "device_session", None)
+                recorder = getattr(session, "record_fault", None)
+                if callable(recorder):
+                    recorder(e)
+                message = f"{exception_prefix(raw_name)}: {e}"
+                res = ActionResult.failure(
+                    raw_name,
+                    message,
+                    incident=getattr(e, "kind", None).value
+                    if getattr(e, "kind", None) is not None
+                    else None,
+                    detail=repr(e),
+                )
             except (OSError, RuntimeError, ValueError, TypeError, KeyError, AttributeError) as e:
                 message = f"{exception_prefix(raw_name)}: {e}"
                 res = ActionResult.failure(raw_name, message, detail=repr(e))
@@ -238,7 +266,7 @@ class DeviceActionService:
                     " the next step."
                 )
 
-            action_state = "adapter_acknowledged" if res.ok else "unknown"
+            action_state = "adapter_acknowledged" if receipt is not None else "unknown"
             status = "success" if res.ok else "error"
             post_image_name = None
             if shot_path:
@@ -276,6 +304,7 @@ class DeviceActionService:
                 "action_id": action_id,
                 "action_attempt": attempt,
                 "action_state": action_state,
+                **({"legacy_execution": True} if legacy_execution else {}),
                 **(
                     {"effect_observed": True}
                     if isinstance(getattr(res, "metrics", None), dict)

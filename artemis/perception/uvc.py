@@ -17,6 +17,8 @@ from artemis.core.capabilities import (
 )
 from artemis.core.capability_registry import ProbeResult
 from artemis.core.capabilities import CapabilitySet
+from artemis.core.errors import DeviceDisconnectedError
+from artemis.core.reflex_contract import CaptureError
 from artemis.perception.base import Frame, Target, TextBox
 from third_party.mobile_use.utils.logger import get_logger
 
@@ -69,7 +71,12 @@ class UvcSource:
         self.capabilities = CapabilitySet(supports_ocr=ocr_engine is not None)
 
     async def snapshot(self) -> Frame:
-        raw = await asyncio.to_thread(self.capture.grab)
+        try:
+            raw = await asyncio.to_thread(self.capture.grab)
+        except CaptureError as exc:
+            if exc.incident in {"device_disconnected", "transport_error"}:
+                raise DeviceDisconnectedError(str(exc), source=self.name) from exc
+            raise
         return Frame(
             image=raw.image,
             captured_at=raw.captured_at,

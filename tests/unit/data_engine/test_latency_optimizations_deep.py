@@ -24,6 +24,7 @@ from langchain_core.messages import HumanMessage
 from artemis.context import ArtemisContext
 from artemis.data_engine.engine import DataEngine
 from artemis.graph.state import State
+from artemis.perception.observation import ControllerObservationPort
 from third_party.mobile_use.utils.logger import DataEngineHandler
 import pytest
 
@@ -224,6 +225,9 @@ async def test_perception_node_async_offloading(mock_artemis_ctx, tmp_path):
         mock_controller = mock_controller_cls.return_value
         mock_controller.get_screen_data = AsyncMock(return_value=mock_screen_data)
         mock_artemis_ctx.controller = mock_controller
+        mock_artemis_ctx.observation_port = ControllerObservationPort(
+            mock_artemis_ctx, mock_controller
+        )
         mock_ocr.return_value = [{"text": "Home", "box": [100, 100, 200, 200]}]
 
         state = State(

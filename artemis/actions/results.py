@@ -10,7 +10,6 @@ from __future__ import annotations
 import base64
 from typing import Any, Literal
 
-from langchain_core.messages import ToolMessage
 from pydantic import BaseModel, Field
 
 __all__ = ["ToolExecutionResult"]
@@ -28,30 +27,3 @@ class ToolExecutionResult(BaseModel):
     ui_elements_text: str | None = None
     raw_result: Any = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-    def to_langchain_tool_message(self) -> ToolMessage:
-        """Converts execution result into a standardized multimodal LangChain ToolMessage."""
-        content_blocks: list[dict[str, Any]] = [
-            {"type": "text", "text": self.text_summary or f"Action '{self.tool_name}' dispatched."}
-        ]
-        if self.ui_elements_text:
-            content_blocks.append(
-                {
-                    "type": "text",
-                    "text": f"--- UI Element List ---\n{self.ui_elements_text}",
-                }
-            )
-        if self.screenshot_bytes:
-            b64_img = base64.b64encode(self.screenshot_bytes).decode("utf-8")
-            content_blocks.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"},
-                }
-            )
-        return ToolMessage(
-            tool_call_id=self.tool_call_id,
-            name=self.tool_name,
-            content=content_blocks,
-            status=self.status,
-        )

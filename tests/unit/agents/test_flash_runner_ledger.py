@@ -60,8 +60,6 @@ FAILED_RESULT_RE = re.compile(
 
 
 class _ActionPort:
-    controller = None
-
     action_tool_names = frozenset({"click", "swipe", "manage_app", "wait_for_delay"})
 
     async def execute(self, name, args, tool_call_id, state, *, index_elements=None):
@@ -101,6 +99,7 @@ def mock_context():
     ctx.adb_client = None
     ctx.driver = Mock()
     ctx.action_service = ActionService(None, _ActionPort(), helper_port=_ActionPort())
+    ctx.observation_port = Mock()
     return ctx
 
 

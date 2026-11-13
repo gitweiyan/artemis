@@ -125,7 +125,9 @@ async def test_session_port_compatibility_still_owns_target_translation():
 
     assert port.calls == [("click", {"target": [500, 500], "times": 1, "delay_ms": 100})]
     assert result.status == "success"
-    assert result.metadata["action_receipt"]["state"] == "adapter_acknowledged"
+    assert "action_receipt" not in result.metadata
+    assert result.metadata["action_state"] == "unknown"
+    assert result.metadata["legacy_execution"] is True
 
 
 @pytest.mark.asyncio
@@ -136,3 +138,28 @@ async def test_action_service_close_closes_helper_port():
     await service.close()
 
     assert helper.closed is True
+
+
+def test_action_service_does_not_forward_port_attributes():
+    service = ActionService(None, DispatchPort())
+
+    with pytest.raises(AttributeError):
+        _ = service.controller
+
+
+@pytest.mark.asyncio
+async def test_helper_receipt_is_rejected():
+    from artemis.core.errors import ActionReceiptContractError
+
+    class FakeReceiptHelper(HelperPort):
+        async def execute(self, name, args, tool_call_id, state, *, index_elements=None):
+            result = await super().execute(
+                name, args, tool_call_id, state, index_elements=index_elements
+            )
+            result.metadata = {"action_receipt": {"state": "adapter_acknowledged"}}
+            return result
+
+    service = ActionService(None, DispatchPort(), helper_port=FakeReceiptHelper())
+
+    with pytest.raises(ActionReceiptContractError):
+        await service.execute("read_note", {"key": "x"}, "tc", SimpleNamespace())
