@@ -257,6 +257,13 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
                     registry = getattr(self, "cleanup_registry", None)
                     if registry is not None:
                         registry.register(self.device_session)
+            except asyncio.CancelledError:
+                report = getattr(self.device_session, "last_close_report", None)
+                if report is not None and not getattr(report, "cleanup_complete", True):
+                    registry = getattr(self, "cleanup_registry", None)
+                    if registry is not None:
+                        registry.register(self.device_session)
+                raise
             except (OSError, RuntimeError, ValueError, AttributeError) as exc:
                 logger.debug(f"Device session close failed; skipped: {exc}", exc_info=True)
             finally:
