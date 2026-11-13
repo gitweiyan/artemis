@@ -130,6 +130,21 @@ Graph Perception failed closed on the failed Session; the Agent did not dispatch
 another action against the dead Session. Recovery: after reconnecting UVC,
 `ios-smoke --target 设置` passed all seven stages again.
 
+## In-task Android Pro run — USB unplug
+
+Pro session `28b423a1-4956-4f6e-8847-c40bbec397e7` was started, then the Android
+USB cable was unplugged while it was running.
+
+```text
+status: failed
+steps: 0
+reason: Device EUWSOBXCZLPFNJF6 is not available (adb does not list it)
+```
+
+No action was dispatched against the old device after loss. Recovery: after
+reconnecting, Flash session `e00216ec-61b5-4ed8-abd1-6328eb464952` completed
+(`Pressed key 'HOME'`, report task status).
+
 ## Not yet injected
 
 - Real multi-capture-card `port_hint` selection.
