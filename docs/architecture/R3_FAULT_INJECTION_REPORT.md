@@ -95,6 +95,19 @@ RESULT: PASS
 This is the explicit Profile/backend fallback, not a Controller fallback. The helper
 tunnel lease was released and UIAutomator2 was stopped during disconnect.
 
+## AND-04 — Helper process force-stop
+
+Runner: `scripts/qa/r3_fault_injection/android_helper_process_fault.py`.
+
+The helper answered first, then the helper package was force-stopped. The next
+observation degraded to UIAutomator2:
+
+```text
+before='helper' after='uiautomator'
+history=[helper, uiautomator (HelperRequestError: HTTP 502)]
+RESULT: PASS
+```
+
 ## AND-02 — TCP/IP ADB
 
 **NOT AVAILABLE**: the attached Android target is USB-only; no network ADB endpoint
@@ -104,7 +117,7 @@ was available. No USB test is being presented as a TCP test.
 
 - Real multi-capture-card `port_hint` selection.
 - Real `safe_unlink` failure / residual lock retry.
-- Helper process force-stop (tunnel removal was tested; service process not).
+- Helper process force-stop is covered separately (AND-04); tunnel removal is AND-03.
 - Physical UVC unplug while an Agent task (rather than the Session runner) is
   executing; the Session runner is the controlled isolation test.
 

@@ -12,7 +12,7 @@
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **27 files would be reformatted**（既有文件；非新增；本轮改动文件已格式检查通过） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18；1 below） |
-| 真实设备 | iOS smoke/Flash/Pro 与 Android Flash/Pro 通过；IOS-01/02、AND-01/03 故障注入通过；详见 `R3_FAULT_INJECTION_REPORT.md` |
+| 真实设备 | iOS smoke/Flash/Pro 与 Android Flash/Pro 通过；IOS-01/02、AND-01/03/04 故障注入通过；详见 `R3_FAULT_INJECTION_REPORT.md` |
 
 ### 当前失败清单
 
