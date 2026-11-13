@@ -154,7 +154,7 @@ reconnecting, Flash session `e00216ec-61b5-4ed8-abd1-6328eb464952` completed
 
 ```text
 uv run pytest tests/unit -q
-  3923 passed, 5 skipped
+  3926 passed, 5 skipped
 
 uv run pytest tests/unit/architecture -q
   15 passed
