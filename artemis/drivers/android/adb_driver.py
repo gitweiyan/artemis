@@ -98,6 +98,8 @@ class AndroidAdbDriver(BaseDeviceDriver):
         self._recording_output_path: Path | None = None
         #: ADR-006 3b re-entrancy guard: session sinks call the legacy implementation.
         self._session_dispatch_depth = 0
+        #: Last observation used the headless 1x1 fallback instead of a real frame.
+        self.last_capture_error = False
 
     @property
     def device_id(self) -> str:
@@ -151,6 +153,7 @@ class AndroidAdbDriver(BaseDeviceDriver):
             await asyncio.sleep(0.3)
 
         # 1. Capture raw screenshot
+        self.last_capture_error = False
         screenshot_bytes: bytes = b""
         screenshot_base64: str = ""
         ui_hierarchy_xml: str | None = None
@@ -194,10 +197,13 @@ class AndroidAdbDriver(BaseDeviceDriver):
                     self._width, self._height = pil_img.size
                     screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
             except Exception as e:
+                self.last_capture_error = True
                 logger.warning(f"Device screenshot capture failed on {self._device_id}: {e}")
 
         if not screenshot_base64 or not isinstance(screenshot_base64, str):
-            # Fallback for headless testing environments
+            # Fallback for headless testing environments. The source reports it via
+            # ``last_capture_error`` so a live Session can fail closed.
+            self.last_capture_error = True
             screenshot_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
             screenshot_bytes = base64.b64decode(screenshot_base64)
 

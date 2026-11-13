@@ -17,6 +17,7 @@ import asyncio
 import uuid
 
 from artemis.core.capabilities import CapabilitySet
+from artemis.core.errors import DeviceDisconnectedError
 from artemis.perception.base import Frame, UIElement
 
 __all__ = ["AppAutomationSource"]
@@ -35,6 +36,11 @@ class AppAutomationSource:
         """Raw driver observation for the Session-backed observation port."""
 
         self._last_data = await self.driver.get_screen_data()
+        if getattr(self.driver, "last_capture_error", False):
+            raise DeviceDisconnectedError(
+                f"Android screenshot capture failed for {getattr(self.driver, 'device_id', 'device')}",
+                source=self.name,
+            )
         return self._last_data
 
     async def snapshot(self) -> Frame:
