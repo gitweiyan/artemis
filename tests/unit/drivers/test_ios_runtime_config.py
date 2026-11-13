@@ -146,3 +146,17 @@ def test_uvc_port_hint_is_optional_and_loaded_from_the_environment():
 
     assert base.uvc_port_hint is None
     assert hinted.uvc_port_hint == "1-2.4"
+
+
+def test_profile_config_supplies_port_hint_but_env_wins(tmp_path, monkeypatch):
+    config_file = tmp_path / "artemis.jsonc"
+    config_file.write_text('{"ios": {"uvc_port_hint": "1-2.4"}}', encoding="utf-8")
+    monkeypatch.setattr("artemis.config.paths.get_config_path", lambda _name: config_file)
+
+    profile = IosRuntimeConfig.from_env({"ARTEMIS_ESP32_PORT": "/dev/fake"})
+    env = IosRuntimeConfig.from_env(
+        {"ARTEMIS_ESP32_PORT": "/dev/fake", "ARTEMIS_UVC_PORT_HINT": "1-2.5"}
+    )
+
+    assert profile.uvc_port_hint == "1-2.4"
+    assert env.uvc_port_hint == "1-2.5"

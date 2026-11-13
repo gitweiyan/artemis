@@ -156,6 +156,27 @@ class IosRuntimeConfig:
         left, top, right, bottom = self.uvc_crop
         object.__setattr__(self, "frame_size", (right - left, bottom - top))
 
+    @staticmethod
+    def _profile_port_hint() -> str | None:
+        """Optional ``ios.uvc_port_hint`` from the workspace JSONC config."""
+
+        try:
+            from artemis.config.paths import get_config_path
+            from third_party.mobile_use.utils.file import load_jsonc
+
+            path = get_config_path("artemis.jsonc")
+            if not path.is_file():
+                return None
+            with path.open(encoding="utf-8") as handle:
+                payload = load_jsonc(handle)
+            ios = payload.get("ios") if isinstance(payload, dict) else None
+            hint = ios.get("uvc_port_hint") if isinstance(ios, dict) else None
+            if hint is None:
+                return None
+            return str(hint).strip() or None
+        except (OSError, ValueError, TypeError):
+            return None
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> IosRuntimeConfig:
         """Reads the rig description from ``env`` (defaults to ``os.environ``)."""
@@ -174,7 +195,7 @@ class IosRuntimeConfig:
         return cls(
             esp32_port=port,
             uvc_device=_env(env, ENV_UVC_DEVICE) or "USB Video",
-            uvc_port_hint=_env(env, ENV_UVC_PORT_HINT),
+            uvc_port_hint=_env(env, ENV_UVC_PORT_HINT) or cls._profile_port_hint(),
             uvc_crop=_crop(env),
             uvc_crop_explicit=_env(env, ENV_UVC_CROP) is not None,
             screen_size=_size(env, ENV_SCREEN_SIZE) or DEFAULT_SCREEN_SIZE,
