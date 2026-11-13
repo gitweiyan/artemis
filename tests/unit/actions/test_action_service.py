@@ -187,3 +187,33 @@ async def test_helper_receipt_is_rejected():
 
     with pytest.raises(ActionReceiptContractError):
         await service.execute("read_note", {"key": "x"}, "tc", SimpleNamespace())
+
+
+@pytest.mark.asyncio
+async def test_a_control_transport_fault_is_reported_to_the_session():
+    from artemis.core.errors import DeviceDisconnectedError
+
+    class FaultPort(DispatchPort):
+        async def dispatch(self, command):
+            raise DeviceDisconnectedError("serial link lost", source="control")
+
+    class Session:
+        def __init__(self):
+            self.faults = []
+
+        def record_fault(self, fault):
+            self.faults.append(fault)
+
+    session = Session()
+    ctx = SimpleNamespace(device_session=session, indexed_elements=[], data_engine=None)
+    service = ActionService(ctx, FaultPort())
+    result = await service.execute(
+        "click",
+        {"target": [500, 500], "target_description": "button"},
+        "tc-fault",
+        SimpleNamespace(indexed_elements=[]),
+    )
+
+    assert result.status == "error"
+    assert len(session.faults) == 1
+    assert session.faults[0].source == "control"

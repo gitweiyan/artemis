@@ -22,8 +22,10 @@ from artemis.core.errors import (
     DeviceFault,
     DeviceFaultKind,
     DeviceSessionError,
+    ObservationProcessingError,
     SessionClosedError,
 )
+from artemis.core.reflex_contract import CaptureError
 from artemis.devices.capabilities import CapabilitySet
 from artemis.devices.capabilities_compat import manifest_from_capability_set
 from artemis.devices.geometry import ScreenGeometry
@@ -519,28 +521,45 @@ class DeviceSession:
     async def snapshot(self) -> Frame:
         self._ensure_usable()
         errors: list[str] = []
+        capture_unhealthy = False
         for source in self.perception:
             try:
                 frame = await source.snapshot()
             except DeviceFault as exc:
                 self.record_fault(exc)
                 raise
-            except Exception as exc:  # noqa: BLE001 - preserve source failures
-                errors.append(f"{type(source).__name__}: {exc}")
+            except CaptureError as exc:
+                if exc.incident == "decode_error":
+                    errors.append(f"{type(source).__name__}: decode_error: {exc}")
+                else:
+                    capture_unhealthy = True
+                    errors.append(f"{type(source).__name__}: capture_error: {exc}")
+                continue
+            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
+                # A source-level processing failure is not proof the device vanished.
+                errors.append(f"{type(source).__name__}: observation_error: {exc}")
                 continue
             if frame.health == "ok":
                 self.last_frame_id = getattr(frame, "frame_id", None) or self.last_frame_id
                 self._unhealthy_snapshots = 0
                 return frame
+            if frame.health == "decode_error":
+                errors.append(f"{type(source).__name__}: frame decode_error")
+                continue
+            capture_unhealthy = True
             errors.append(f"{type(source).__name__}: frame health={frame.health!r}")
         detail = "; ".join(errors) or "no perception sources configured"
+        if not capture_unhealthy:
+            self._unhealthy_snapshots = 0
+            raise ObservationProcessingError(
+                f"no healthy perception frame: {detail}", source="perception"
+            )
         self._unhealthy_snapshots += 1
         if self._unhealthy_snapshots >= max(1, int(self.unhealthy_snapshot_limit)):
             self.record_fault(
                 DeviceFault(
-                    f"no healthy perception frame after {self._unhealthy_snapshots} attempts:"
-                    f" {detail}",
-                    kind=DeviceFaultKind.SESSION_FAILED,
+                    f"capture unhealthy after {self._unhealthy_snapshots} attempts: {detail}",
+                    kind=DeviceFaultKind.CAPTURE_UNHEALTHY,
                     source="perception",
                 )
             )

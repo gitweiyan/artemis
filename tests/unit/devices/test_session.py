@@ -598,3 +598,95 @@ def test_cancelled_retry_keeps_retryable_report():
     assert session.cleanup_state.value == "retryable"
     assert session.last_close_report is not None
     assert session.last_close_report.cleanup_state.value == "retryable"
+
+
+def test_processing_errors_do_not_fail_the_session():
+    class OcrSource(Source):
+        async def snapshot(self):
+            raise RuntimeError("OCR service unavailable")
+
+    session = DeviceSession([OcrSource()], [], geometry())
+    session.open()
+
+    from artemis.core.errors import ObservationProcessingError
+
+    for _ in range(3):
+        with pytest.raises(ObservationProcessingError):
+            asyncio.run(session.snapshot())
+        assert session.state.value == "ready"
+    assert session.fault_source is None
+
+
+def test_xml_parse_errors_are_not_device_disconnects():
+    class XmlSource(Source):
+        async def snapshot(self):
+            raise ValueError("XML parse failed: malformed hierarchy")
+
+    session = DeviceSession([XmlSource()], [], geometry())
+    session.open()
+
+    from artemis.core.errors import ObservationProcessingError
+
+    for _ in range(3):
+        with pytest.raises(ObservationProcessingError):
+            asyncio.run(session.snapshot())
+        assert session.state.value == "ready"
+    assert session.fault_source is None
+
+
+def test_a_fatal_source_fault_fails_even_if_another_source_is_healthy():
+    from artemis.core.errors import DeviceDisconnectedError
+
+    class LostSource(Source):
+        async def snapshot(self):
+            raise DeviceDisconnectedError("usb gone", source="adapter")
+
+    good = Frame(b"ok", 2.0, 10, 10, "good")
+    session = DeviceSession([LostSource(), Source(good)], [], geometry())
+    session.open()
+
+    with pytest.raises(DeviceDisconnectedError):
+        asyncio.run(session.snapshot())
+
+    assert session.state.value == "failed"
+    assert session.fault_source == "adapter"
+
+
+def test_black_frames_report_capture_unhealthy_fault_kind():
+    from artemis.core.errors import DeviceFaultKind
+
+    bad = Frame(b"black", 1.0, 10, 10, "uvc", health="black")
+    session = DeviceSession([Source(bad)], [], geometry())
+    session.open()
+
+    for _ in range(3):
+        with pytest.raises(DeviceSessionError):
+            asyncio.run(session.snapshot())
+
+    assert session.state.value == "failed"
+    assert session.fault_source == "perception"
+    assert session.fault_reason is not None
+    assert DeviceFaultKind.CAPTURE_UNHEALTHY.value in session.fault_reason
+
+
+def test_a_processing_failure_in_one_source_uses_the_healthy_source():
+    good = Frame(b"ok", 2.0, 10, 10, "good")
+    session = DeviceSession(
+        [Source(error=RuntimeError("OCR parse failed")), Source(good)],
+        [],
+        geometry(),
+    )
+
+    frame = asyncio.run(session.snapshot())
+    assert frame.image == b"ok"
+    assert session.state.value == "ready"
+
+
+def test_a_black_source_downshifts_to_the_healthy_source():
+    bad = Frame(b"black", 1.0, 10, 10, "uvc", health="black")
+    good = Frame(b"ok", 2.0, 10, 10, "camera")
+    session = DeviceSession([Source(bad), Source(good)], [], geometry())
+
+    frame = asyncio.run(session.snapshot())
+    assert frame.image == b"ok"
+    assert session.state.value == "ready"

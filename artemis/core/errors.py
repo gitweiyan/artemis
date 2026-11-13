@@ -10,6 +10,7 @@ __all__ = [
     "DeviceFault",
     "DeviceFaultKind",
     "DeviceSessionError",
+    "ObservationProcessingError",
     "SessionClosedError",
 ]
 
@@ -29,6 +30,7 @@ class ActionReceiptContractError(ValueError):
 class DeviceFaultKind(StrEnum):
     DISCONNECTED = "device_disconnected"
     TRANSPORT_FAILED = "transport_error"
+    CAPTURE_UNHEALTHY = "capture_unhealthy"
     SESSION_FAILED = "session_failed"
 
 
@@ -56,3 +58,13 @@ class DeviceDisconnectedError(DeviceFault):
             kind=DeviceFaultKind.DISCONNECTED,
             source=source,
         )
+
+
+class ObservationProcessingError(DeviceSessionError):
+    """A frame could not be processed; this is not evidence the device is gone."""
+
+    kind = "observation_processing_error"
+
+    def __init__(self, message: str, *, source: str = "perception") -> None:
+        super().__init__(message)
+        self.source = source
