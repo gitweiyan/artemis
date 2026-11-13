@@ -19,7 +19,6 @@ from pathlib import Path
 
 from artemis.context import ArtemisContext
 from artemis.data_engine.trace import trace
-from artemis.perception.observation import get_screen_data
 from artemis.graph.state import State
 from artemis.runtime import observation_clock
 from artemis.graph.visibility import strict_state
@@ -146,37 +145,21 @@ async def perception_node(state: State, ctx: ArtemisContext) -> dict:
                 # this moment stay protected until the next instruction.
                 _unprotect_current_check_lines(ctx)
 
-    # Graph observation goes through the explicit ObservationPort. The port's
-    # observe() is the single persistence owner; Graph only consumes its result.
+    # Graph observation goes through the explicit ObservationPort injected by
+    # the L1 composition root. The compatibility get_screen_data path is gone.
     observation_port = getattr(ctx, "observation_port", None)
-    if observation_port is not None:
-        settle_ms = 0 if _should_skip_settling(state) else 400
-        observed, image_bytes = await observation_port.observe(settle_ms=settle_ms)
-        if not observed.ok:
-            raise RuntimeError(f"perception observation failed: {observed.message}")
-        latest_screenshot_bytes = image_bytes or b""
-        latest_screenshot_b64 = base64.b64encode(latest_screenshot_bytes).decode("ascii")
-        xml_hierarchy = observed.elements or []
-        screenshot_path = observed.screenshot_path
-        width = int(observed.width or (ctx.device.device_width if ctx.device else 1080))
-        height = int(observed.height or (ctx.device.device_height if ctx.device else 2400))
-    else:
-        # Explicit compatibility only for tests/contexts without a composed port.
-        if _should_skip_settling(state):
-            logger.info("Skipping settling. Retrieving screen data directly...")
-        else:
-            await asyncio.sleep(0.4)
-        device_data = await get_screen_data(ctx)
-        latest_screenshot_b64 = getattr(device_data, "base64", None) or getattr(
-            device_data, "screenshot_base64", ""
-        )
-        xml_hierarchy = getattr(device_data, "elements", None)
-        if xml_hierarchy is None:
-            xml_hierarchy = getattr(device_data, "ui_elements", []) or []
-        latest_screenshot_bytes = base64.b64decode(latest_screenshot_b64)
-        screenshot_path = None
-        width = int(device_data.width or 1080)
-        height = int(device_data.height or 2400)
+    if observation_port is None:
+        raise RuntimeError("Graph perception requires an ObservationPort from L1")
+    settle_ms = 0 if _should_skip_settling(state) else 400
+    observed, image_bytes = await observation_port.observe(settle_ms=settle_ms)
+    if not observed.ok:
+        raise RuntimeError(f"perception observation failed: {observed.message}")
+    latest_screenshot_bytes = image_bytes or b""
+    latest_screenshot_b64 = base64.b64encode(latest_screenshot_bytes).decode("ascii")
+    xml_hierarchy = observed.elements or []
+    screenshot_path = observed.screenshot_path
+    width = int(observed.width or (ctx.device.device_width if ctx.device else 1080))
+    height = int(observed.height or (ctx.device.device_height if ctx.device else 2400))
 
     # The screen behind this turn is now in hand; every action planned from it is
     # dispatched against an observation that is already this old (I5).

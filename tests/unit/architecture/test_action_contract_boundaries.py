@@ -83,3 +83,16 @@ def test_planner_and_graph_do_not_persist_a_second_screenshot():
 
     assert "get_or_create_image" not in planner
     assert "get_or_create_image" not in graph
+
+
+def test_agents_do_not_discover_observation_through_generic_helpers():
+    files = [
+        ROOT / "agents" / "planner" / "planner.py",
+        ROOT / "agents" / "checker" / "checker.py",
+        ROOT / "graph" / "perception.py",
+        ROOT / "agents" / "flash" / "runner.py",
+        ROOT / "agents" / "validator" / "tool_declarations.py",
+    ]
+    for path in files:
+        source = path.read_text()
+        assert "get_screen_data(" not in source, path

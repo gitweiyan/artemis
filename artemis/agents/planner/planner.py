@@ -257,22 +257,20 @@ class PlannerNode:
             logger.info("No screenshot found in state. Taking screenshot for Initial Plan...")
             try:
                 observation_port = getattr(self.ctx, "observation_port", None)
-                if observation_port is not None:
-                    observed, image_bytes = await observation_port.observe(settle_ms=0)
-                    if not observed.ok:
-                        raise RuntimeError(observed.message)
-                    if image_bytes:
-                        screenshot_b64 = base64.b64encode(image_bytes).decode("ascii")
-                    elif observed.screenshot_path:
-                        screenshot_b64 = base64.b64encode(
-                            Path(observed.screenshot_path).read_bytes()
-                        ).decode("ascii")
-                    state.latest_screenshot = observed.screenshot_path
-                else:
-                    from artemis.perception.observation import get_screen_data
-
-                    device_data = await get_screen_data(self.ctx)
-                    screenshot_b64 = device_data.base64
+                if observation_port is None:
+                    raise RuntimeError(
+                        "Planner requires an ObservationPort from the L1 composition root"
+                    )
+                observed, image_bytes = await observation_port.observe(settle_ms=0)
+                if not observed.ok:
+                    raise RuntimeError(observed.message)
+                if image_bytes:
+                    screenshot_b64 = base64.b64encode(image_bytes).decode("ascii")
+                elif observed.screenshot_path:
+                    screenshot_b64 = base64.b64encode(
+                        Path(observed.screenshot_path).read_bytes()
+                    ).decode("ascii")
+                state.latest_screenshot = observed.screenshot_path
             except Exception as e:
                 logger.error(f"Failed to take screenshot for Initial Plan: {e}")
 

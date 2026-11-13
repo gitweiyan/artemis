@@ -32,6 +32,7 @@ The release decision is computed by the caller from the verdicts
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import re
 import time
@@ -752,15 +753,16 @@ async def run_checkpoint_check(
 async def _capture_final_screen(ctx: ArtemisContext) -> tuple[str | None, str]:
     """Best-effort capture of the final live screen (final entry only)."""
     try:
-        from artemis.perception.observation import get_screen_data
-
-        device_data = await get_screen_data(
-            ctx, observation_port=getattr(ctx, "observation_port", None)
-        )
-        screenshot_b64 = device_data.base64
-        xml_hierarchy = device_data.elements
-        width = device_data.width
-        height = device_data.height
+        observation_port = getattr(ctx, "observation_port", None)
+        if observation_port is None:
+            raise RuntimeError("Checker requires an ObservationPort from L1")
+        observed, image_bytes = await observation_port.observe(settle_ms=0)
+        if not observed.ok:
+            raise RuntimeError(observed.message)
+        screenshot_b64 = base64.b64encode(image_bytes or b"").decode("ascii")
+        xml_hierarchy = observed.elements or []
+        width = int(observed.width or 1080)
+        height = int(observed.height or 2400)
 
         ocr_results = []
         if is_ocr_configured():
