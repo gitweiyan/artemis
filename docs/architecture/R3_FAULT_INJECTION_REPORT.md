@@ -113,13 +113,28 @@ RESULT: PASS
 **NOT AVAILABLE**: the attached Android target is USB-only; no network ADB endpoint
 was available. No USB test is being presented as a TCP test.
 
+## In-task Pro run — UVC unplug
+
+Command: a Pro task (`打开设置，进入通用，再打开关于本机，最后回到主屏幕`) was
+started on the live iOS rig, then the operator unplugged UVC while it was running.
+
+```text
+Session: 3cacd953-e4f9-4315-b50f-a5bc4b71a21c
+Device session failed: device_disconnected
+Session ended: failed
+steps: 0
+UVC/serial leases released
+```
+
+Graph Perception failed closed on the failed Session; the Agent did not dispatch
+another action against the dead Session. Recovery: after reconnecting UVC,
+`ios-smoke --target 设置` passed all seven stages again.
+
 ## Not yet injected
 
 - Real multi-capture-card `port_hint` selection.
 - Real `safe_unlink` failure / residual lock retry.
 - Helper process force-stop is covered separately (AND-04); tunnel removal is AND-03.
-- Physical UVC unplug while an Agent task (rather than the Session runner) is
-  executing; the Session runner is the controlled isolation test.
 
 ## Automated evidence
 
