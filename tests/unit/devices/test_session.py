@@ -573,3 +573,28 @@ def test_cancelled_close_keeps_partial_progress_in_the_report():
     assert report.closed_participants_now == ("0:SlowSink", "1:ClosingSource")
     assert report.released_now == ("uvc:host:one/capture",)
     assert report.cleanup_complete is True
+
+
+def test_cancelled_retry_keeps_retryable_report():
+    class FlakySink(Sink):
+        def __init__(self):
+            super().__init__(absolute=True)
+            self.fail = True
+
+        def close(self):
+            if self.fail:
+                raise RuntimeError("not yet")
+            raise asyncio.CancelledError()
+
+    session = DeviceSession([], [FlakySink()], geometry())
+    first = asyncio.run(session.close())
+    assert first.retryable is True
+    assert session.cleanup_state.value == "retryable"
+
+    session.control[0].fail = False
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(session.retry_cleanup())
+
+    assert session.cleanup_state.value == "retryable"
+    assert session.last_close_report is not None
+    assert session.last_close_report.cleanup_state.value == "retryable"
