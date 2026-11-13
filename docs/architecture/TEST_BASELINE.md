@@ -10,7 +10,7 @@
 |---|---|
 | `uv run pytest tests/unit -q` | **0 failed, 3902 passed, 9 skipped**, 88 warnings, 146.59s |
 | `uv run ruff check` | All checks passed |
-| `uv run ruff format --check .` | **16 files would be reformatted**（既有文件；非新增） |
+| `uv run ruff format --check .` | **27 files would be reformatted**（既有文件；非新增；本轮改动文件已格式检查通过） |
 | `quality_ratchet` | broad_exception_handlers=773, silent=0, type_ignore_comments=18（当前基线 774/18；1 below） |
 | 真实设备 | 本轮改动后 iOS smoke **未完成**：机台 `/dev/cu.usbmodem5B140947461` 当前不存在；既有历史证据不等于本轮验证 |
 
