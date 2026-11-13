@@ -154,7 +154,7 @@ reconnecting, Flash session `e00216ec-61b5-4ed8-abd1-6328eb464952` completed
 
 ```text
 uv run pytest tests/unit -q
-  3913 passed, 9 skipped
+  3917 passed, 5 skipped
 
 uv run pytest tests/unit/architecture -q
   15 passed
@@ -165,3 +165,20 @@ quality_ratchet: 773 / 0 / 18
 
 The two real-device gaps found here were fixed before the final runs; the earlier
 failed attempts are retained as diagnostic evidence and not counted as passes.
+
+
+## Post-strict-observation verification (2026-11-13)
+
+After Agent/Graph observation was made strictly port-injected, the rig was
+reconnected and rechecked:
+
+```text
+iOS smoke --target 设置: PASS (7 capability records)
+iOS Flash c4c3deb8-125d-4907-9921-839ae311d9ac: completed
+Android Flash ab1ca8f5-24a1-417f-97e6-42863a67ad8c: completed
+UVC/serial leases released after each iOS run
+```
+
+The iOS Flash run encountered no_effect clicks first and then used the supported
+`manage_app` path; this was a hardware/click-path result, not a fallback to a
+Controller. The task completed on a new Session.
