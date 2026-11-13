@@ -143,6 +143,26 @@ def probe_usb_inventory(
     return tuple(entries)
 
 
+def _usb_payload_rows(payload: object) -> list[dict[str, object]] | None:
+    """Validate the system_profiler USB JSON envelope.
+
+    A valid envelope must be a dict carrying a list under ``SPUSBDataType``.
+    An empty list is valid EMPTY; anything else is UNAVAILABLE, never a guess.
+    """
+
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("SPUSBDataType")
+    if not isinstance(data, list):
+        return None
+    rows: list[dict[str, object]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            return None
+        rows.append(item)
+    return rows
+
+
 def probe_usb_inventory_result(
     *,
     runner: Callable[..., object] | None = None,
@@ -161,8 +181,16 @@ def probe_usb_inventory_result(
         return UsbInventoryResult(
             UsbInventoryStatus.UNAVAILABLE, diagnostic=f"USB inventory probe failed: {exc}"
         )
+    rows = _usb_payload_rows(payload)
+    if rows is None:
+        return UsbInventoryResult(
+            UsbInventoryStatus.UNAVAILABLE,
+            diagnostic="USB inventory JSON does not match the SPUSBDataType schema",
+        )
+    if not rows:
+        return UsbInventoryResult(UsbInventoryStatus.EMPTY)
     entries: list[UsbEntry] = []
-    for row in _usb_rows(payload):
+    for row in _usb_rows(rows):
         product = str(row.get("_name") or row.get("product_name") or "")
         if not product:
             continue

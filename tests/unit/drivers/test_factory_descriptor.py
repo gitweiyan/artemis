@@ -128,3 +128,27 @@ def test_android_factory_attaches_a_runtime_owned_session():
 
     assert isinstance(ctx.device_session, DeviceSession)
     assert driver.session is ctx.device_session
+
+
+def test_ios_factory_passes_the_profile_port_hint_to_the_resolver(monkeypatch, tmp_path):
+    from artemis.core.identity import IdentitySource
+    from artemis.drivers.ios.uvc_identity import UVCIdentity
+
+    monkeypatch.setenv("ARTEMIS_ESP32_PORT", "/dev/fake-esp32")
+    monkeypatch.setenv("ARTEMIS_UVC_PORT_HINT", "1-2.4")
+    monkeypatch.setenv("ARTEMIS_RESOURCE_LEASE", "0")
+    ctx = _ctx("ios", "ios-uvc")
+    identity = UVCIdentity("USB-Video", IdentitySource.CONFIG_HINT)
+
+    with (
+        patch("artemis.adapters.uvc.UvcCapture"),
+        patch("artemis.adapters.esp32_control.Esp32BridgeControl"),
+        patch("artemis.drivers.factory.default_ocr_engine"),
+        patch(
+            "artemis.drivers.ios.uvc_identity.resolve_uvc_identity",
+            return_value=identity,
+        ) as resolver,
+    ):
+        create_driver(ctx)
+
+    assert resolver.call_args.kwargs["port_hint"] == "1-2.4"

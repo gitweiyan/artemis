@@ -199,7 +199,10 @@ def test_usb_inventory_result_distinguishes_unavailable_empty_and_ok():
         raise OSError("system_profiler missing")
 
     def empty(*args, **kwargs):
-        return Result(b"")
+        return Result(b'{"SPUSBDataType": []}')
+
+    def invalid(*args, **kwargs):
+        return Result(b'{"NotUsb": []}')
 
     def ok(*args, **kwargs):
         return Result(
@@ -209,6 +212,7 @@ def test_usb_inventory_result_distinguishes_unavailable_empty_and_ok():
 
     assert probe_usb_inventory_result(runner=unavailable).status is UsbInventoryStatus.UNAVAILABLE
     assert probe_usb_inventory_result(runner=empty).status is UsbInventoryStatus.EMPTY
+    assert probe_usb_inventory_result(runner=invalid).status is UsbInventoryStatus.UNAVAILABLE
     result = probe_usb_inventory_result(runner=ok)
     assert result.status is UsbInventoryStatus.OK
     assert result.entries[0].serial == "S"

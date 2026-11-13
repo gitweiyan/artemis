@@ -160,3 +160,12 @@ def test_profile_config_supplies_port_hint_but_env_wins(tmp_path, monkeypatch):
 
     assert profile.uvc_port_hint == "1-2.4"
     assert env.uvc_port_hint == "1-2.5"
+
+
+def test_invalid_profile_config_is_an_error_not_a_silent_hint(tmp_path, monkeypatch):
+    config_file = tmp_path / "artemis.jsonc"
+    config_file.write_text('{"ios": {"uvc_port_hint": 42}}', encoding="utf-8")
+    monkeypatch.setattr("artemis.config.paths.get_config_path", lambda _name: config_file)
+
+    with pytest.raises(IosConfigError, match="uvc_port_hint"):
+        IosRuntimeConfig.from_env({"ARTEMIS_ESP32_PORT": "/dev/fake"})

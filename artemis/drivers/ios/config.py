@@ -18,6 +18,7 @@ from typing import Mapping
 __all__ = [
     "DEFAULT_UVC_CROP",
     "IosConfigError",
+    "IosProfileConfig",
     "IosRuntimeConfig",
     "ios_device_context",
 ]
@@ -130,6 +131,27 @@ def _crop(env: Mapping[str, str]) -> tuple[int, int, int, int]:
 
 
 @dataclass(frozen=True)
+class IosProfileConfig:
+    """Validated optional ``ios`` section from ``config/artemis.jsonc``."""
+
+    uvc_port_hint: str | None = None
+
+    @classmethod
+    def from_payload(cls, payload: object) -> IosProfileConfig:
+        if not isinstance(payload, dict):
+            raise IosConfigError("artemis.jsonc root must be a JSON object")
+        ios = payload.get("ios")
+        if ios is None:
+            return cls()
+        if not isinstance(ios, dict):
+            raise IosConfigError("ios config must be a JSON object")
+        hint = ios.get("uvc_port_hint")
+        if hint is not None and not isinstance(hint, str):
+            raise IosConfigError("ios.uvc_port_hint must be a string or null")
+        return cls(uvc_port_hint=(hint.strip() or None) if hint is not None else None)
+
+
+@dataclass(frozen=True)
 class IosRuntimeConfig:
     """Everything one iOS UVC + HID session needs, validated."""
 
@@ -158,7 +180,10 @@ class IosRuntimeConfig:
 
     @staticmethod
     def _profile_port_hint() -> str | None:
-        """Optional ``ios.uvc_port_hint`` from the workspace JSONC config."""
+        """Optional ``ios.uvc_port_hint`` from the workspace JSONC config.
+
+        Invalid JSON/config shape is a configuration error, not “no hint”.
+        """
 
         try:
             from artemis.config.paths import get_config_path
@@ -169,13 +194,9 @@ class IosRuntimeConfig:
                 return None
             with path.open(encoding="utf-8") as handle:
                 payload = load_jsonc(handle)
-            ios = payload.get("ios") if isinstance(payload, dict) else None
-            hint = ios.get("uvc_port_hint") if isinstance(ios, dict) else None
-            if hint is None:
-                return None
-            return str(hint).strip() or None
-        except (OSError, ValueError, TypeError):
-            return None
+        except (OSError, ValueError, TypeError) as exc:
+            raise IosConfigError(f"could not read ios profile config: {exc}") from exc
+        return IosProfileConfig.from_payload(payload).uvc_port_hint
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> IosRuntimeConfig:
