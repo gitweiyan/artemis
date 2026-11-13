@@ -149,16 +149,15 @@ reconnecting, Flash session `e00216ec-61b5-4ed8-abd1-6328eb464952` completed
 
 - Real multi-capture-card `port_hint` selection.
 - Real `safe_unlink` failure / residual lock retry.
-- Helper process force-stop is covered separately (AND-04); tunnel removal is AND-03.
 
 ## Automated evidence
 
 ```text
 uv run pytest tests/unit -q
-  3909 passed, 5 skipped
+  3913 passed, 5 skipped
 
 uv run pytest tests/unit/architecture -q
-  14 passed
+  15 passed
 
 uv run ruff check: pass
 quality_ratchet: 773 / 0 / 18
