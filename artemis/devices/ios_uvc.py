@@ -67,7 +67,12 @@ def build_ios_uvc_session(
     locate_url = os.environ.get("ARTEMIS_IOS_LOCATE_URL", DEFAULT_LOCATE_URL).strip()
     if locate_url.lower() in ("off", "none", "0"):
         locate_url = ""
-    pointer = PointerSession(control, frame_size=frame_size, gain=pointer_gain)
+    pointer = PointerSession(
+        control,
+        frame_size=frame_size,
+        gain=pointer_gain,
+        absolute_rotated=True,
+    )
     target_locator = None
     if detector is None:
         # Size/area windows follow the capture: the defaults were measured on a 449-wide

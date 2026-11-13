@@ -88,6 +88,7 @@ class PointerSession:
         frame_size: tuple[int, int] = (449, 974),
         gain: tuple[float, float] = (1.4, 1.4),
         home_settle_s: float = 0.8,
+        absolute_rotated: bool = False,
     ):
         if gain[0] <= 0 or gain[1] <= 0:
             raise ValueError("gain must be positive")
@@ -99,6 +100,10 @@ class PointerSession:
         self._y = 0.0
         self.connected = False
         self.home_settle_s = max(0.0, float(home_settle_s))
+        #: The ESP32 absolute HID report is rotated/mirrored by iOS on this portrait
+        #: rig: the report's X drives screen Y (inverted), report Y drives screen X.
+        #: The relative path is unaffected; only absolute placement needs this map.
+        self.absolute_rotated = bool(absolute_rotated)
 
     @property
     def position(self) -> tuple[float, float]:
@@ -126,7 +131,7 @@ class PointerSession:
         failures), so the absolute path never sends a relative home first.
         """
         if hasattr(self.control, "mouse_move_abs"):
-            self.control.mouse_move_abs(0, 0)
+            self._absolute_move(0.0, 0.0)
         else:
             self.control.mouse_home()
         self._x = 0.0
@@ -144,17 +149,27 @@ class PointerSession:
         """Place the pointer at an absolute frame position (no gain, no integration)."""
         if not self.connected:
             raise RuntimeError("pointer session is not connected; call connect() first")
+        self._absolute_move(float(x), float(y))
+        width, height = self.frame_size
+        self._x = max(0.0, min(float(width), float(x)))
+        self._y = max(0.0, min(float(height), float(y)))
+        return self.position
+
+    def _absolute_move(self, x: float, y: float) -> None:
+        """Send one absolute report in the control's native frame coordinates."""
+
         move = getattr(self.control, "mouse_move_abs", None)
         if move is None:
             raise AttributeError("control has no absolute pointer support")
         width, height = self.frame_size
-        move(
-            max(0, min(1000, round(float(x) / width * 1000))),
-            max(0, min(1000, round(float(y) / height * 1000))),
-        )
-        self._x = max(0.0, min(float(width), float(x)))
-        self._y = max(0.0, min(float(height), float(y)))
-        return self.position
+        x = max(0.0, min(float(width), float(x)))
+        y = max(0.0, min(float(height), float(y)))
+        nx = x / width * 1000
+        ny = y / height * 1000
+        if self.absolute_rotated:
+            # iOS maps report X to screen Y (inverted) and report Y to screen X.
+            nx, ny = (1.0 - y / height) * 1000, x / width * 1000
+        move(max(0, min(1000, round(nx))), max(0, min(1000, round(ny))))
 
     def click_abs(self) -> None:
         """Left-click at the absolute position (the absolute report's buttons)."""

@@ -1595,3 +1595,25 @@ def test_an_explicit_tolerance_is_not_scaled():
     )
 
     assert controller.tolerance_px == 5.0
+
+
+def test_rotated_ios_absolute_report_maps_frame_axes():
+    from artemis.reflex.mouse import SessionTapController
+
+    control = _AbsolutePointer()
+    session = PointerSession(
+        control,
+        frame_size=(449, 974),
+        gain=(2.0, 2.0),
+        absolute_rotated=True,
+    )
+    session.connect()
+    control.absolute_moves.clear()
+    controller = SessionTapController(
+        session, capture=_DotCamera(control), detector=_DotDetector(), settle_timeout_s=0.0
+    )
+
+    result = controller.tap(224, 487)
+
+    assert result.ok is True
+    assert control.absolute_moves == [(500, 499)]
