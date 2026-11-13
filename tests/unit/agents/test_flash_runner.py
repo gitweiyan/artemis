@@ -936,3 +936,14 @@ async def test_bomb_controller_is_untouched_by_fallback_observation(mock_context
     result = _failed_click()
 
     await runner._capture_post_screenshot(result, "click", frozenset({"click"}), state)
+
+
+def test_flash_stops_when_the_device_session_is_failed(mock_context):
+    from artemis.devices.session import SessionState
+
+    mock_context.device_session = SimpleNamespace(
+        state=SessionState.FAILED, fault_reason="uvc unplugged"
+    )
+    runner = FlashRunner(mock_context, goal="g")
+
+    assert "Device session failed" in runner._device_failure()

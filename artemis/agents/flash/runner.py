@@ -1497,6 +1497,19 @@ class FlashRunner:
             extra_step_keys=turn.step_keys[1:],
         )
 
+    def _device_failure(self) -> str | None:
+        """Stop the Agent loop as soon as its Session is no longer usable."""
+
+        session = getattr(self.ctx, "device_session", None)
+        if session is None:
+            return None
+        state = getattr(session, "state", None)
+        value = getattr(state, "value", state)
+        if value != "failed":
+            return None
+        reason = getattr(session, "fault_reason", None) or "device session failed"
+        return f"Device session failed: {reason}"
+
     @trace(type="agent", name="FlashRunner")
     async def run(self, state: State) -> dict:
         limit = self.turn_limit
@@ -1525,6 +1538,10 @@ class FlashRunner:
         while limit is None or turns < limit:
             turns += 1
             logger.info(f"--- Artemis Flash Turn {turns}{f'/{limit}' if limit else ''} ---")
+            if (device_failure := self._device_failure()) is not None:
+                logger.error(device_failure)
+                final_report = {"status": "failed", "explanation": device_failure}
+                break
 
             if self.ctx.data_engine:
                 self.ctx.data_engine.allocate_step_id()
@@ -1629,6 +1646,10 @@ class FlashRunner:
             )
             ledger.stage_turn(messages[turn_base:])
             previous_turn = turn
+            if (device_failure := self._device_failure()) is not None:
+                logger.error(device_failure)
+                final_report = {"status": "failed", "explanation": device_failure}
+                break
             if final_report_from_calls is not None:
                 return final_report_from_calls
             # Batch item 5: three consecutive no-ops is a stalled run, not a
