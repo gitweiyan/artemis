@@ -89,3 +89,19 @@ R4 is complete only when:
 2. Capability evidence, Session/Lease, Geometry and Action Receipt semantics are
    frozen in tests.
 3. Remaining platform knowledge is expressed by Profile/Adapter, not Agent branches.
+
+
+## R3.6/R3.7 contract additions (2026-11-13)
+
+- `ObservationPort` now has `screen_data() -> ScreenData` and
+  `observe() -> (ObserveResult, bytes)`; Agent/Graph observe only through the
+  L1-injected instance.
+- `DeviceFaultKind` adds `capture_unhealthy`; `ObservationProcessingError` is
+  explicitly non-fatal for Session lifecycle.
+- `SessionCloseReport`/`CleanupState` define released-now/total, retained,
+  failed participants and retryability.
+- `IosProfileConfig.uvc_port_hint` and `UsbInventoryStatus` are the UVC config
+  and inventory boundary.
+- Current test baseline and real-device evidence are linked from
+  `CURRENT_ARCHITECTURE.md`; fixture-only adapter tests do not claim hardware
+  verification.

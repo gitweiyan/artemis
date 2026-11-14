@@ -1,4 +1,8 @@
-# 导入依赖矩阵（2026-11-09）
+# 导入依赖矩阵（2026-11-09，historical）
+
+> **Historical snapshot.** Current import boundaries are enforced by
+> `tests/unit/architecture/`; current architecture is in
+> [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md).
 
 > 审计对象：`integration/10101205-all-fixes` @ `a82d58e`
 > 范围：`artemis/`、`mcp_server/`、`third_party/mobile_use/`、`apps/admin_console/`

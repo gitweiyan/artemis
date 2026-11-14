@@ -1,4 +1,7 @@
-# ARTEMIS 调用链审计（2026-11-09）
+# ARTEMIS 调用链审计（2026-11-09，historical）
+
+> **Historical snapshot.** This audit predates the R3 runtime cut. Current call
+> chains and module ownership are in [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md).
 
 > 审计对象：`integration/10101205-all-fixes` @ `a82d58e`（父 `e50bed0`，计划基线 `1281fc3`）
 > 审计范围：CLI / MCP / SDK 入口 → Agent 外壳 → Flash / Pro / Reflex → 设备动作 → 观测 → 记录

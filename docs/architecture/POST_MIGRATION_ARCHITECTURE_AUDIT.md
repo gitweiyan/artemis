@@ -1,4 +1,9 @@
-# Post-Migration Architecture Audit — 2026-11-11
+# Post-Migration Architecture Audit — 2026-11-11 (historical)
+
+> **Historical audit.** The sections describing Controller observation fallbacks,
+> Flash holding a controller, and the old test count are superseded. Current
+> implemented architecture is [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md);
+> current tests are in [`TEST_BASELINE.md`](TEST_BASELINE.md).
 
 - **Audit commit:** `b7360f9` (working tree also has user-owned `config/artemis.jsonc`; not part of this audit)
 - **Scope:** current Android/iOS call chains, Session/observation ownership, identity, import boundaries, test baseline.
@@ -219,6 +224,17 @@ Real-device evidence available:
 - R3.7.2 closure (2026-11-13): `SessionState` and `CleanupState` are separate; `SessionCloseReport` exposes released-now/total/retained; `retry_cleanup()` retries failures; Action/MCP owners register in the Session barrier; failed `safe_unlink` keeps `_owner`/`_HELD`; failed leases remain in `LeaseSet`.
 - R3 boundary caveat (2026-11-13): no real-device smoke after this cut because the iOS USB modem is offline. The earlier `CONFIG_HINT` / lease evidence is historical and must not be presented as verification of this code.
 
-- R3.6/R3.7 real-device evidence (2026-11-13): iOS `ios-smoke --target 设置` passed all seven stages; an absolute-HID axis-rotation hypothesis was initially applied (`943b70c`) but proved incorrect on the live device and was removed (`18d4a71`); native portrait mapping is now used. iOS Flash `d5587103-...` reported `observed_effect`, iOS Pro `bcb09b38-...` reported `goal_verified=true`, Android Flash `c69921eb-...` reported `observed_effect`, and Android Pro `7693c4ce-...` completed. Both iOS UVC/serial leases released after each run. No mid-task unplug, multi-card port hint, or real cleanup-retry injection was performed.
+- R3.6/R3.7 real-device evidence (2026-11-13): iOS `ios-smoke --target 设置` passed all seven stages; an absolute-HID axis-rotation hypothesis was initially applied (`943b70c`) but proved incorrect on the live device and was removed (`18d4a71`); native portrait mapping is now used. iOS Flash `d5587103-...` reported `observed_effect`, iOS Pro `bcb09b38-...` reported `goal_verified=true`, Android Flash `c69921eb-...` reported `observed_effect`, and Android Pro `7693c4ce-...` completed. Both iOS UVC/serial leases released after each run. Later in-task UVC and Android USB unplug evidence is recorded in `R3_FAULT_INJECTION_REPORT.md`; real multi-card port hint and real cleanup-retry injection remain unavailable.
 
 - UVC configuration hardening (2026-11-13): `system_profiler` output is validated against the `SPUSBDataType` envelope; malformed output is `UNAVAILABLE`, an empty list is `EMPTY`. `IosProfileConfig` validates optional `ios.uvc_port_hint`; malformed config raises `IosConfigError` instead of silently dropping the hint. CLI `--uvc-port-hint` and factory→resolver plumbing are covered by tests. Real multi-card selection remains unavailable on the one-card rig.
+
+
+---
+
+## Current snapshot pointer (2026-11-13)
+
+The implemented runtime now uses strict `ObservationPort` injection, explicit
+Action/MCP ports without Controller passthrough, real-dispatch ActionReceipts,
+and a retryable Session cleanup state machine. See
+[`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md) and
+[`R3_FAULT_INJECTION_REPORT.md`](R3_FAULT_INJECTION_REPORT.md).

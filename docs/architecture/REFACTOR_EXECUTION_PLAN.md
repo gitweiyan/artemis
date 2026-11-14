@@ -8,6 +8,8 @@
 > 配套规范：[`ARCHITECTURE_CONTRACT.md`](ARCHITECTURE_CONTRACT.md)  
 > Coding Agent 规则：仓库根目录 `AGENTS.md`  
 > 状态：基于上述 commit 的建议执行计划；开始每个批次前必须重新盘点分支状态。
+>
+> **2026-11-13 execution status:** 本文件仍是历史执行路线图。当前实际架构、代码路径和完成状态见 [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md)。R3.6.1/R3.6.2（Agent/Controller 运行时切断、ObservationPort、ActionReceipt）、R3.7.1（UVC Inventory/port_hint）、R3.7.2（Session cleanup/report/retry、Lease 保留）、R3.8 主要真机故障路径已完成；Phase 7/8 仍为 design-only。
 
 ---
 
@@ -716,3 +718,38 @@ ADR 的唯一索引与模板：[`docs/adr/README.md`](../adr/README.md)、[`docs
 9. 有完整 Trace/Artifact/Replay，可解释一次动作为什么执行、用的哪个 Adapter、收到什么结果、为什么判定成功或失败。
 10. 文档、AGENTS、测试与代码状态一致，不存在两个互相冲突的“架构事实源”。
 
+
+
+---
+
+## 2026-11-13 Execution Status (current)
+
+This section supersedes the historical checkboxes above for **current state only**;
+it does not rewrite the original phase history.
+
+| Phase | Current status | Notes |
+|---|---|---|
+| Phase 0 | complete | baseline now maintained in `TEST_BASELINE.md` |
+| Phase 1 | complete | identity/capability/session/observation contracts |
+| Phase 2 | complete | coordinate/action safety primitives |
+| Phase 3 | complete for Android/iOS paths | legacy Driver facade remains |
+| Phase 4 | complete | UVC/ESP32/Serial/Firmware adapters and profiles |
+| Phase 4.3 | complete | v2 firmware handshake and bridge control |
+| R3.1–R3.5 | complete | observation boundary, receipts, safety closure |
+| R3.6.1 | complete | strict L1 ObservationPort injection; no Agent/Graph `get_screen_data` |
+| R3.6.2 | complete | only `ActionDispatchResult` produces ActionReceipt |
+| R3.7.1 | complete for code; real two-card test unavailable | host inventory tri-state, schema validation, exact `port_hint` |
+| R3.7.2 | complete | cleanup state/report/retry, external owner barrier, Lease retention |
+| R3.8 | partial | iOS UVC/ESP32 and Android USB/Helper fault paths pass; TCP ADB unavailable; multi-card unavailable |
+| Phase 7 (macOS) | not started | ADR-012 Proposed |
+| Phase 8 (TV) | deferred | contract/design only |
+| P9-B | blocked | requires a real non-mobile Profile contract test |
+
+### Current call-chain authority
+
+- Action: `ActionService -> DeviceActionService -> ActionDispatchPort -> McpActionPort -> McpActionTransport -> ActionSession/actuator`
+- Observation: Agent/Graph -> `ctx.observation_port -> SessionObservationPort/ControllerObservationPort -> ObserveResult -> DataEngine`
+- Session: `DeviceSession -> external cleanup owners -> control -> perception -> LeaseSet -> SessionCloseReport`
+- UVC: `IosRuntimeConfig -> IosProfileConfig -> resolve_uvc_identity -> UsbInventoryResult -> exact port_hint/Port Path/Serial`
+
+See `CURRENT_ARCHITECTURE.md` for the actual modules, contracts and known boundaries.

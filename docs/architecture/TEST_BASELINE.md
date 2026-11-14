@@ -1,5 +1,7 @@
 # 测试与质量门禁基线（2026-11-09）
 
+> 当前实现架构见 [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md)。
+
 ## 2026-11-13 当前基线（最新）
 
 > 审计对象：`integration/10101205-all-fixes` @ `e9914c8`

@@ -4,7 +4,9 @@
 > 基线仓库：[`gitweiyan/artemis`](https://github.com/gitweiyan/artemis/tree/integration/10101205-all-fixes)  
 > 基线 Commit：`1281fc3ddf0d08ec8086d46111c2e6040a02b2d2`（2026-11-08）  
 > 执行计划：[`REFACTOR_EXECUTION_PLAN.md`](REFACTOR_EXECUTION_PLAN.md)  
-> 状态：目标契约；按执行计划渐进落地，不代表所有目标模块已经实现。
+> 状态：规范契约；按执行计划渐进落地，不代表所有目标模块已经实现。
+>
+> **实现快照（2026-11-13）：** 当前实际模块、调用链和完成/未完成边界见 [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md)。本文件仍是规范来源，不以实现快照替代。
 
 本文件中的 **MUST / MUST NOT / SHOULD / SHOULD NOT / MAY** 分别表示强制要求、禁止要求、建议要求、建议禁止和可选要求。偏离 MUST/MUST NOT 必须提交 ADR；不得通过改名、移动文件或新增兼容包装规避。
 

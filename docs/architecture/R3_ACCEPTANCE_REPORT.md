@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-11
 - **Branch:** `integration/10101205-all-fixes`
-- **Code under test:** `998a0c4` (docs commits after it do not change runtime code)
+- **Code under test (historical R3.1–R3.4 matrix):** `998a0c4`; current implementation snapshot is in `CURRENT_ARCHITECTURE.md` (`e9914c8` code baseline). The matrix below is historical, not the current R3.6–R3.8 status.
 - **Host:** macOS 26.4 (Darwin arm64)
 - **Rigs:** iPhone via UVC + ESP32-S3 HID (`/dev/cu.usbmodem5B140947461`); Android `EUWSOBXCZLPFNJF6` (PEMM00, Android 13)
 - **Android observation backend:** Accessibility Helper v1.3.1 (protocol 3) verified in `5eef9e4b...` / `19bce48e...`; UIAutomator2 verified earlier as the fallback
@@ -162,3 +162,28 @@ ruff format --check .: 16 files would be reformatted (pre-existing)
 R3.1–R3.3 runtime code paths are exercised on iOS and Android, including reconnect
 after replug and both Android observation backends. R3.4 remains **partial** only
 until a mid-task disconnect is verified.
+
+
+---
+
+## 2026-11-13 Update
+
+The historical matrix above is retained as the R3.1–R3.4 evidence snapshot. Since
+then the following were implemented and verified:
+
+- strict L1 `ObservationPort` injection for Planner/Checker/Graph/Flash/Validator;
+- no Agent/Graph `get_screen_data` compatibility call;
+- no ActionService/McpActionPort/McpActionTransport/Flash Controller passthrough;
+- real-dispatch ActionReceipt and helper/legacy no-ACK semantics;
+- Session cleanup state/report/retry, external owner barrier, lease retention;
+- DeviceFault classification (`device_disconnected`, `transport_error`,
+  `capture_unhealthy`, processing errors);
+- UVC inventory schema/tri-state, profile `ios.uvc_port_hint`, exact port hint;
+- iOS UVC/ESP32 and Android USB/Helper fault injection.
+
+Current automated baseline: `3926 passed, 5 skipped`; architecture `16 passed`.
+Current real-device details: `R3_FAULT_INJECTION_REPORT.md`.
+
+R3.8 remains **partial** only where the environment cannot provide the scenario
+(TCP/IP ADB, multiple UVC cards, real unlink failure). It is not marked fully
+passed.
