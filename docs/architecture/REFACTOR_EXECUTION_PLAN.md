@@ -735,6 +735,7 @@ it does not rewrite the original phase history.
 | Phase 3 | complete for Android/iOS paths | legacy Driver facade remains |
 | Phase 4 | complete | UVC/ESP32/Serial/Firmware adapters and profiles |
 | Phase 4.3 | complete | v2 firmware handshake and bridge control |
+| R4 | frozen for current mobile runtime | public Ports/DTOs/error/evidence contracts; macOS/TV pending |
 | R3.1–R3.5 | complete | observation boundary, receipts, safety closure |
 | R3.6.1 | complete | strict L1 ObservationPort injection; no Agent/Graph `get_screen_data` |
 | R3.6.2 | complete | only `ActionDispatchResult` produces ActionReceipt |

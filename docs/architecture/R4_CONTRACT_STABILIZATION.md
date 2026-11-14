@@ -1,6 +1,6 @@
 # R4 Device Runtime Contract Stabilization
 
-- **Status:** Started 2026-11-11
+- **Status:** Frozen for current Android/iOS runtime (2026-11-13); macOS/TV pending
 - **Scope:** freeze the Ports and DTOs that Android, iOS and future macOS/TV Profiles
   share; do not add a new platform-specific branch to Agent Core.
 - **Authority:** `ARCHITECTURE_CONTRACT.md` remains the specification; this file

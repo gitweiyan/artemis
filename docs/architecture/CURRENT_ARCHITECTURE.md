@@ -1,7 +1,7 @@
 # ARTEMIS Current Architecture Snapshot — 2026-11-13
 
 - **Branch:** `integration/10101205-all-fixes`
-- **Code baseline:** `a2323ea` (cleanup retry cancellation/manual recovery); docs HEAD may be newer
+- **Code baseline:** `0ebadf6` (R4 device runtime contract freeze); docs HEAD may be newer
 - **Normative contract:** [`ARCHITECTURE_CONTRACT.md`](ARCHITECTURE_CONTRACT.md)
 - **Historical execution plan:** [`REFACTOR_EXECUTION_PLAN.md`](REFACTOR_EXECUTION_PLAN.md)
 - **Current test baseline:** [`TEST_BASELINE.md`](TEST_BASELINE.md)
@@ -223,6 +223,7 @@ CREATED / DISPATCHED -> ADAPTER_ACKNOWLEDGED -> OBSERVED_EFFECT
 | Device fault classification | Complete | processing/capture/transport tests |
 | iOS/Android normal paths | Real-device PASS before latest minor docs | smoke/Flash/Pro, fault-injection report |
 | R3.8 real matrix | Partial | AND-02 TCP unavailable; multi-card/hardware unlink via one-card rig limited |
+| R4 public contract freeze | Complete for current Android/iOS runtime | `tests/unit/contracts/`; macOS/TV pending |
 | macOS / TV | Not started | ADR-012 Proposed; Phase 7/8 deferred |
 
 ## 4. Known boundaries
