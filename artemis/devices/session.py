@@ -557,6 +557,10 @@ class DeviceSession:
             if self._cancel_signal is not None:
                 cancelled = self._cancel_signal
                 self._cancel_signal = None
+                # A retry that was interrupted must remain resumable even if the
+                # physical work happened to finish before cancellation was observed.
+                self._cleanup_state = CleanupState.RETRYABLE
+                self.last_close_report = self._report()
                 raise cancelled
             return report
 

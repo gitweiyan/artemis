@@ -738,3 +738,36 @@ def test_unexpected_external_owner_error_still_produces_a_retryable_report():
     assert report.cleanup_complete is False
     assert report.retryable is True
     assert any("bad owner" in error for error in report.errors)
+
+
+def test_cancelled_retry_finishing_physical_cleanup_returns_retryable():
+    class SlowSink(Sink):
+        def __init__(self):
+            super().__init__(absolute=True)
+            self.fail = True
+
+        async def aclose(self):
+            if self.fail:
+                raise ValueError("first attempt")
+            await asyncio.sleep(0.05)
+
+    sink = SlowSink()
+    session = DeviceSession([], [sink], geometry())
+    first = asyncio.run(session.close())
+    assert first.retryable is True
+
+    sink.fail = False
+
+    async def scenario():
+        task = asyncio.create_task(session.retry_cleanup())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+    report = session.last_close_report
+    assert report is not None
+    assert report.cleanup_state.value == "retryable"
+    assert report.cleanup_complete is False

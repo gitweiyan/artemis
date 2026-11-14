@@ -137,7 +137,10 @@ async def test_real_context_session_and_lease_retry_closure(tmp_path, monkeypatc
 
     assert context.device_session is None
     assert registry.pending()
-    assert registry.pending()[0].cleanup_complete is False
+    first_report = registry.pending()[0]
+    assert first_report.cleanup_complete is False
+    assert first_report.released_now == ()
+    assert first_report.released_total == ()
     assert leases.resource_ids == ("uvc:host:one/capture",)
     assert sink.closes == 1
 
@@ -149,6 +152,8 @@ async def test_real_context_session_and_lease_retry_closure(tmp_path, monkeypatc
     reports = await registry.retry_pending(max_attempts=2)
 
     assert reports[-1].cleanup_complete is True
+    assert reports[-1].released_now == ("uvc:host:one/capture",)
+    assert reports[-1].released_total == ("uvc:host:one/capture",)
     assert leases.resource_ids == ()
     assert session.leases is None
     assert sink.closes == 1, "successful adapters must not be closed twice"
@@ -158,3 +163,33 @@ async def test_real_context_session_and_lease_retry_closure(tmp_path, monkeypatc
 
     await session.close()
     assert sink.closes == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_recover_is_the_explicit_manual_required_path():
+    class Report:
+        cleanup_complete = True
+        cleanup_state = type("State", (), {"value": "complete"})()
+        session_id = "runtime-manual"
+
+    class Session:
+        runtime_id = "runtime-manual"
+        last_close_report = type(
+            "State",
+            (),
+            {
+                "cleanup_complete": False,
+                "cleanup_state": type("State", (), {"value": "manual_required"})(),
+            },
+        )()
+
+        async def retry_cleanup(self):
+            return Report()
+
+    registry = SessionCleanupRegistry()
+    registry.register(Session())
+
+    report = await registry.manual_recover("runtime-manual")
+
+    assert report.cleanup_complete is True
+    assert registry.pending() == []

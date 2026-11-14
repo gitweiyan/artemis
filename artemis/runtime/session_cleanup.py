@@ -47,6 +47,31 @@ class SessionCleanupRegistry:
             self._sessions.pop(str(session_id), None)
         return report
 
+    async def manual_recover(self, session_id: str) -> SessionCloseReport:
+        """Operator path for a ``MANUAL_REQUIRED`` session.
+
+        Automatic ``retry_pending`` deliberately skips these; an operator must
+        inspect the retained resource report and explicitly invoke this method.
+        """
+
+        report = self.get_report(session_id)
+        if report is not None and report.cleanup_state.value == "complete":
+            return report
+        session = self._sessions.get(str(session_id))
+        if session is None:
+            raise KeyError(session_id)
+        capture = CleanupErrorCapture()
+        with capture:
+            report = await self.retry(session_id)
+        if capture.error is not None:
+            report = session.mark_manual_required(f"manual recovery failed: {capture.error}")
+            self._reports[str(session_id)] = report
+            return report
+        if not report.cleanup_complete:
+            report = session.mark_manual_required("manual recovery still incomplete")
+            self._reports[str(session_id)] = report
+        return report
+
     async def retry_pending(
         self,
         *,
