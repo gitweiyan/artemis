@@ -18,13 +18,19 @@ __all__ = [
 class DeviceSessionError(RuntimeError):
     """A session cannot satisfy a requested perception or control capability."""
 
+    retryable = False
+
 
 class SessionClosedError(DeviceSessionError):
     """The session has been closed (or is closing) and cannot serve requests."""
 
+    retryable = False
+
 
 class ActionReceiptContractError(ValueError):
     """A component returned a receipt that did not come from a real dispatch."""
+
+    retryable = False
 
 
 class DeviceFaultKind(StrEnum):
@@ -36,6 +42,8 @@ class DeviceFaultKind(StrEnum):
 
 class DeviceFault(DeviceSessionError):
     """A classified hardware fault at a device I/O boundary."""
+
+    retryable = True
 
     def __init__(
         self,
@@ -64,6 +72,7 @@ class ObservationProcessingError(DeviceSessionError):
     """A frame could not be processed; this is not evidence the device is gone."""
 
     kind = "observation_processing_error"
+    retryable = True
 
     def __init__(self, message: str, *, source: str = "perception") -> None:
         super().__init__(message)

@@ -259,6 +259,8 @@ class CapabilityRecord:
 class CapabilityView(Mapping[str, CapabilityRecord]):
     """Immutable per-session capability snapshot."""
 
+    __slots__ = ("_records",)
+
     def __init__(self, records: Iterable[CapabilityRecord]) -> None:
         values: dict[str, CapabilityRecord] = {}
         for record in records:

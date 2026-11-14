@@ -21,6 +21,8 @@ from artemis.perception.app_automation import AppAutomationSource
 from artemis.perception.base import Frame, PerceptionSource
 from artemis.perception.composite import CompositePerception
 from artemis.perception.uvc import UvcSource
+from artemis.devices.geometry import ScreenGeometry
+from artemis.devices.session import DeviceSession
 
 
 class _Capture:
@@ -196,3 +198,23 @@ def test_app_control_sink_preserves_the_action_result_contract():
     refused = asyncio.run(sink.tap_rel(1, 2))
     assert refused.ok is False
     assert refused.incident == "unsupported"
+
+
+def test_device_session_contract_is_platform_neutral():
+    """Android, iOS and future Profiles must fit the same source/sink/session shape."""
+
+    source = _Source(name="platform-neutral")
+    sink = _Sink(absolute=True)
+    session = DeviceSession(
+        [source],
+        [sink],
+        ScreenGeometry((449, 974), (1080, 2400)),
+    )
+
+    assert isinstance(source, PerceptionSource)
+    assert isinstance(sink, ControlSink)
+    assert session.control_for(absolute=True) is sink
+    frame = asyncio.run(session.snapshot())
+    assert frame.source == "platform-neutral"
+    result = asyncio.run(session.control_for(absolute=True).tap_abs(10, 20))
+    assert isinstance(result, ActionResult)

@@ -105,3 +105,62 @@ R4 is complete only when:
 - Current test baseline and real-device evidence are linked from
   `CURRENT_ARCHITECTURE.md`; fixture-only adapter tests do not claim hardware
   verification.
+
+## Final R4 freeze — error responsibility and retryability
+
+| Error | Owner / boundary | Retryable | Session effect |
+|---|---|---|---|
+| `DeviceFault` / `DeviceDisconnectedError` | L4 adapter/session I/O | yes (new attempt/session after recovery) | `FAILED` |
+| `DeviceFaultKind.TRANSPORT_FAILED` | L4 transport/firmware | yes | `FAILED` |
+| `DeviceFaultKind.CAPTURE_UNHEALTHY` | L4 capture health policy | yes after bounded unhealthy threshold | `FAILED` |
+| `ObservationProcessingError` | L3/L4 OCR/XML/decode/model processing | yes at observation layer | not automatically `FAILED` |
+| `SessionClosedError` | L4 lifecycle | no | closed session |
+| `ActionReceiptContractError` | L3 action contract | no | no device receipt |
+
+`DeviceSession.record_fault()` owns the transition to `FAILED`; adapters do not
+mutate Session state directly. A recovered device is a **new Session**, not a
+reset of the failed one.
+
+## Evidence correlation
+
+```text
+ObservationEvidence.frame_id
+        |
+        +-- ActionEvidence.ids.frame_id
+        +-- ActionEvidence.post_verification
+        +-- ActionReceipt.evidence_refs
+
+ActionReceipt.state:
+  dispatched -> adapter_acknowledged -> observed_effect
+  observed_effect is effect evidence, not goal completion
+
+ActionEvidence.goal_verified:
+  false for an action record
+RunOutcome.goal_verified:
+  written only by the final Checker path
+```
+
+`tests/unit/contracts/test_error_and_evidence_contracts.py` pins these links.
+
+## Compatibility exits
+
+| Compatibility surface | Owner | Exit condition |
+|---|---|---|
+| `McpActionExecutor` legacy execute path | L1 | after all helper/device callers use `ActionService` + explicit ports; remove with test migration |
+| `BaseDeviceDriver` / `UnifiedMobileController` | L4/L1 | after Android/iOS non-Agent callers use Session/Ports; P9-B blocked on real non-mobile Profile |
+| `get_screen_data()` helper | L3/L1 | only external/legacy callers; Agent/Graph already fail if `ctx.observation_port` is absent |
+| `DeviceSession.pointer` | L4 compatibility | after iOS pointer adapter callers use the Session adapter state |
+| `devices.capabilities` / `actions.session` shims | L3/L2 | after no imports remain; allowlist stays empty |
+
+## Unified Adapter Contract Test
+
+`tests/unit/contracts/test_adapter_contracts.py` now includes a platform-neutral
+`DeviceSession` composition test in addition to UVC, App Automation, Composite
+Perception/Control, and HID/App sink checks. A new platform must supply
+source/sink fixtures and Profile wiring; it must not add Agent platform branches.
+
+## Completion decision
+
+R4 contract surfaces are frozen for the current mobile runtime. macOS and TV
+remain explicitly **not started**; their future Profiles must pass this suite
+without changing Planner, Operator, Checker, or Flash/Pro Graph.

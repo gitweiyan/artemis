@@ -15,6 +15,9 @@ from artemis.core.capabilities import CapabilityId, CapabilitySet
 from artemis.data_engine.ids import ActionEvidence, ArtifactRef, DataIds
 from artemis.perception.base import Frame, PerceptionSource, Target, TextBox, UIElement
 from artemis.perception.observation import ObservationEvidence, ScreenData
+from artemis.devices.geometry import ScreenGeometry
+from artemis.devices.session import DeviceSession
+from artemis.core.capabilities import CapabilityRecord, CapabilityView, CapabilityState
 
 
 def _names(cls) -> list[str]:
@@ -183,3 +186,52 @@ def test_perception_and_control_protocol_methods_are_frozen():
         assert callable(getattr(PerceptionSource, method))
     for method in ("tap_abs", "tap_rel", "swipe", "input_text", "press_key"):
         assert callable(getattr(ControlSink, method))
+
+
+def test_device_session_public_surface_and_screen_geometry_are_frozen():
+    assert [field.name for field in fields(DeviceSession) if not field.name.startswith("_")] == [
+        "perception",
+        "control",
+        "geometry",
+        "descriptor",
+        "leases",
+        "session_id",
+        "capability_registry",
+        "capability_probes",
+        "adapter_state",
+        "last_frame_id",
+        "unhealthy_snapshot_limit",
+        "fault_source",
+        "fault_reason",
+        "last_close_report",
+    ]
+    for method in (
+        "open",
+        "snapshot",
+        "control_for",
+        "validate_target",
+        "close",
+        "retry_cleanup",
+    ):
+        assert callable(getattr(DeviceSession, method))
+
+    geometry = ScreenGeometry((100, 200), (1000, 2000))
+    assert geometry.frame_size == (100, 200)
+    assert geometry.screen_size == (1000, 2000)
+    assert geometry.normalized_to_screen(500, 500) == (500, 1000)
+    assert geometry.screen_to_normalized(500, 1000) == (500, 500)
+    assert geometry.transform().params.frame_size == (100, 200)
+
+
+def test_capability_view_public_surface_and_immutability_are_frozen():
+    record = CapabilityRecord(
+        capability_id="frame.capture",
+        state=CapabilityState.AVAILABLE,
+        source="contract",
+    )
+    view = CapabilityView([record])
+
+    assert view.records == (record,)
+    assert view.supports("frame.capture")
+    assert view.by_domain("observation") == (record,)
+    assert not hasattr(view, "__dict__")
