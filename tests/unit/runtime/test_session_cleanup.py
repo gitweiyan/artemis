@@ -104,7 +104,7 @@ async def test_real_context_session_and_lease_retry_closure(tmp_path, monkeypatc
     from artemis.devices.geometry import ScreenGeometry
     from artemis.devices.session import DeviceSession
     from artemis.runtime import lease_primitives
-    from artemis.runtime.resource_lease import LeaseSet
+    from artemis.runtime.resource_lease import LeaseSet, ResourceBusyError
 
     class Sink:
         capabilities = CapabilitySet(supports_absolute_tap=True)
@@ -141,6 +141,10 @@ async def test_real_context_session_and_lease_retry_closure(tmp_path, monkeypatc
     assert leases.resource_ids == ("uvc:host:one/capture",)
     assert sink.closes == 1
 
+    contender = LeaseSet(host_id="host", session_id="new-session", lease_dir=tmp_path)
+    with pytest.raises(ResourceBusyError):
+        contender.acquire(["uvc:host:one/capture"], blocking=False)
+
     monkeypatch.setattr(lease_primitives, "safe_unlink", original)
     reports = await registry.retry_pending(max_attempts=2)
 
@@ -148,6 +152,9 @@ async def test_real_context_session_and_lease_retry_closure(tmp_path, monkeypatc
     assert leases.resource_ids == ()
     assert session.leases is None
     assert sink.closes == 1, "successful adapters must not be closed twice"
+
+    contender.acquire(["uvc:host:one/capture"], blocking=False)
+    contender.release()
 
     await session.close()
     assert sink.closes == 1
