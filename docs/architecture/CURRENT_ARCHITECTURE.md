@@ -1,7 +1,7 @@
 # ARTEMIS Current Architecture Snapshot — 2026-11-13
 
 - **Branch:** `integration/10101205-all-fixes`
-- **Code baseline:** `e9914c8` (UVC config/inventory hardening); docs HEAD may be newer
+- **Code baseline:** `1daf3cf` (Host cleanup recovery lifecycle); docs HEAD may be newer
 - **Normative contract:** [`ARCHITECTURE_CONTRACT.md`](ARCHITECTURE_CONTRACT.md)
 - **Historical execution plan:** [`REFACTOR_EXECUTION_PLAN.md`](REFACTOR_EXECUTION_PLAN.md)
 - **Current test baseline:** [`TEST_BASELINE.md`](TEST_BASELINE.md)
@@ -113,11 +113,13 @@ CleanupState:
 ```
 
 `DeviceSession` owns:
+- a stable `runtime_id` UUID when no explicit `session_id` exists;
 - ordered control/perception participants;
 - a `LeaseSet`;
 - optional external cleanup owners (Action/MCP);
-- `SessionCloseReport` with released/retained/failed/closed participants;
-- `retry_cleanup()`.
+- `SessionCloseReport` with released/retained/failed/closed participants,
+  current `errors`, and `previous_errors`;
+- `retry_cleanup()` and manual-required marking.
 
 Close order:
 
@@ -135,6 +137,10 @@ state and is retried; `LeaseSet` removes only successfully released leases.
 
 `SessionCleanupRegistry` is Host Runtime owned and receives incomplete Sessions
 from `ArtemisContext.__aexit__` before the Context releases its active reference.
+`AgentBase._recover_pending_sessions()` runs one bounded `retry_pending()` pass
+after each task and during `clean()`; unrecovered sessions are logged as
+`MANUAL_REQUIRED`. Context cleanup uses a capture boundary so unexpected ordinary
+exceptions are registered before the active reference is released.
 
 ### 2.5 Device fault classification
 
@@ -196,7 +202,8 @@ CREATED / DISPATCHED -> ADAPTER_ACKNOWLEDGED -> OBSERVED_EFFECT
 | ObservationPort injection | Complete | `ctx.observation_port` required; no `get_screen_data` in Agent/Graph |
 | ActionReceipt source | Complete | only `ActionDispatchResult`; helper/legacy no ACK |
 | LangChain DTO isolation | Complete | `actions/results.py` has no LangChain import; interface adapter |
-| Session cleanup state/report/retry | Complete | `CleanupState`, `SessionCloseReport`, retry tests |
+| Session cleanup state/report/retry | Complete | `CleanupState`, `SessionCloseReport`, retry/manual tests |
+| Host cleanup recovery | Complete | bounded `retry_pending` after task/clean, manual-required result |
 | Host CleanupRegistry | Complete | AgentBase creates/injects; Context registration test |
 | Lease failure retention | Complete | `safe_unlink=False` and retry tests |
 | UVC inventory/config | Complete for code; real multi-card unavailable | schema/config/CLI/factory tests |

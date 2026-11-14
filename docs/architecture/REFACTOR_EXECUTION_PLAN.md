@@ -740,6 +740,7 @@ it does not rewrite the original phase history.
 | R3.6.2 | complete | only `ActionDispatchResult` produces ActionReceipt |
 | R3.7.1 | complete for code; real two-card test unavailable | host inventory tri-state, schema validation, exact `port_hint` |
 | R3.7.2 | complete | cleanup state/report/retry, external owner barrier, Lease retention |
+| R3.7.3 | complete | Host retry loop, exception-safe Context boundary, UUID runtime ID, per-attempt errors |
 | R3.8 | partial | iOS UVC/ESP32 and Android USB/Helper fault paths pass; TCP ADB unavailable; multi-card unavailable |
 | Phase 7 (macOS) | not started | ADR-012 Proposed |
 | Phase 8 (TV) | deferred | contract/design only |

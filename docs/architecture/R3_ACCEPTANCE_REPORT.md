@@ -181,7 +181,7 @@ then the following were implemented and verified:
 - UVC inventory schema/tri-state, profile `ios.uvc_port_hint`, exact port hint;
 - iOS UVC/ESP32 and Android USB/Helper fault injection.
 
-Current automated baseline: `3923 passed, 9 skipped`; architecture `17 passed`.
+Current automated baseline: `3931 passed, 9 skipped`; architecture `17 passed`.
 Current real-device details: `R3_FAULT_INJECTION_REPORT.md`.
 
 R3.8 remains **partial** only where the environment cannot provide the scenario

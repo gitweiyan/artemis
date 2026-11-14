@@ -238,3 +238,5 @@ Action/MCP ports without Controller passthrough, real-dispatch ActionReceipts,
 and a retryable Session cleanup state machine. See
 [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md) and
 [`R3_FAULT_INJECTION_REPORT.md`](R3_FAULT_INJECTION_REPORT.md).
+
+- R3.7.3 closure (2026-11-13): Session runtime IDs are stable UUIDs when no explicit session ID exists; `SessionCloseReport` separates current/previous errors; Host `AgentBase` runs a bounded pending-cleanup retry after tasks and clean, with manual-required reporting; Context registration is exception-safe.
