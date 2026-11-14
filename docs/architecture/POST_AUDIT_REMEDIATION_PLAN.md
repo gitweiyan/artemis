@@ -1,5 +1,8 @@
-# Post-Audit Runtime Convergence Plan
+# Post-Audit Runtime Convergence Plan (historical)
 
+> **Historical plan.** This records the 2026-11-11 remediation state, not the
+> current runtime. Current architecture is in
+> [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md).
 - **Status:** Proposed remediation plan
 - **Audit object:** `docs/SHOWCASE_RESULT_20261111.md`（代码审计基线 `c4455da`）
 - **Current branch:** `integration/10101205-all-fixes`
