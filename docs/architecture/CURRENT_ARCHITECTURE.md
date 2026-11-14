@@ -113,7 +113,7 @@ CleanupState:
 ```
 
 `DeviceSession` owns:
-- a stable `runtime_id` UUID when no explicit `session_id` exists;
+- an immutable `runtime_id` UUID assigned at construction; explicit `session_id` remains separate metadata;
 - ordered control/perception participants;
 - a `LeaseSet`;
 - optional external cleanup owners (Action/MCP);
