@@ -215,5 +215,8 @@ CREATED / DISPATCHED -> ADAPTER_ACKNOWLEDGED -> OBSERVED_EFFECT
   DataEngine; this is action-evidence absorption, not the Agent ObservationPort path.
 - `get_screen_data()` remains public for non-Agent/legacy callers; Agent/Graph
   callers are forbidden by architecture tests.
+- `tests/unit/architecture/test_observation_injection_identity.py` proves Planner,
+  Checker, Graph and ActionService all consume the exact same
+  `ctx.observation_port` object instance, not merely four values read separately.
 - No real multi-capture-card selection, TCP ADB, or real `safe_unlink` failure has
   been demonstrated on hardware.
