@@ -205,6 +205,7 @@ class Agent(AgentBase):
         if not self._initialized and not force:
             return
 
+        await self._recover_pending_sessions()
         if self._ui_adb_client is not None:
             await asyncio.to_thread(self._ui_adb_client.disconnect)
         self._initialized = False

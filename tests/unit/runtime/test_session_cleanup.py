@@ -35,3 +35,63 @@ async def test_registry_retains_and_retries_a_session():
     assert report.cleanup_complete is True
     assert session.retries == 1
     assert registry.get_report("session-1") is report
+
+
+@pytest.mark.asyncio
+async def test_retry_pending_completes_and_removes_a_recovered_session():
+    class Report:
+        cleanup_complete = True
+        cleanup_state = type("State", (), {"value": "complete"})()
+        session_id = "runtime-1"
+        retained = ()
+
+    class Session:
+        runtime_id = "runtime-1"
+        last_close_report = type(
+            "Report",
+            (),
+            {
+                "cleanup_complete": False,
+                "cleanup_state": type("State", (), {"value": "retryable"})(),
+            },
+        )()
+
+        async def retry_cleanup(self):
+            return Report()
+
+    registry = SessionCleanupRegistry()
+    registry.register(Session())
+
+    reports = await registry.retry_pending(max_attempts=1)
+
+    assert len(reports) == 1
+    assert reports[0].cleanup_complete is True
+    assert registry.pending() == []
+
+
+@pytest.mark.asyncio
+async def test_retry_pending_marks_an_unrecoverable_session_manual_required():
+    class Report:
+        cleanup_complete = False
+        cleanup_state = type("State", (), {"value": "retryable"})()
+        session_id = "runtime-2"
+        retained = ("uvc:host:one/capture",)
+
+    class Session:
+        runtime_id = "runtime-2"
+        last_close_report = Report()
+
+        async def retry_cleanup(self):
+            return Report()
+
+        def mark_manual_required(self, reason):
+            report = Report()
+            report.cleanup_state = type("State", (), {"value": "manual_required"})()
+            return report
+
+    registry = SessionCleanupRegistry()
+    registry.register(Session())
+
+    reports = await registry.retry_pending(max_attempts=1)
+
+    assert reports[0].cleanup_state.value == "manual_required"

@@ -825,6 +825,27 @@ class AgentBase:
                     except asyncio.CancelledError:
                         pass
 
+    async def _recover_pending_sessions(self) -> None:
+        """Run the Host-owned bounded cleanup retry and report manual residue."""
+
+        registry = getattr(self, "_cleanup_registry", None)
+        if registry is None:
+            return
+        try:
+            reports = await registry.retry_pending(max_attempts=1, timeout_s=5.0)
+        except Exception as exc:  # cleanup recovery must not mask task outcome
+            logger.error(f"Host cleanup recovery failed: {exc}")
+            return
+        for report in reports:
+            state = getattr(getattr(report, "cleanup_state", None), "value", None)
+            if getattr(report, "cleanup_complete", False):
+                logger.info(f"Host cleanup recovered session {report.session_id}")
+            else:
+                logger.error(
+                    f"Host cleanup MANUAL_REQUIRED for session {report.session_id}:"
+                    f" state={state} retained={list(getattr(report, 'retained', ()))}"
+                )
+
     def stop_current_task(self):
         """Requests cancellation of the currently running automation task."""
         if self._current_task and not self._current_task.done():

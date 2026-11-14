@@ -690,3 +690,51 @@ def test_a_black_source_downshifts_to_the_healthy_source():
     frame = asyncio.run(session.snapshot())
     assert frame.image == b"ok"
     assert session.state.value == "ready"
+
+
+def test_runtime_id_is_uuid_even_without_an_explicit_session_id():
+    session = DeviceSession([], [], geometry())
+    runtime_id = session.runtime_id
+
+    assert len(runtime_id) == 32
+    assert session.runtime_id == runtime_id
+    report = asyncio.run(session.close())
+    assert report.session_id == runtime_id
+
+
+def test_retry_report_separates_current_and_previous_errors():
+    class FlakySink(Sink):
+        def __init__(self):
+            super().__init__(absolute=True)
+            self.fail = True
+
+        def close(self):
+            if self.fail:
+                raise ValueError("old failure")
+
+    sink = FlakySink()
+    session = DeviceSession([], [sink], geometry())
+    first = asyncio.run(session.close())
+    assert any("old failure" in error for error in first.errors)
+
+    sink.fail = False
+    second = asyncio.run(session.retry_cleanup())
+
+    assert second.cleanup_complete is True
+    assert second.errors == ()
+    assert any("old failure" in error for error in second.previous_errors)
+
+
+def test_unexpected_external_owner_error_still_produces_a_retryable_report():
+    class Owner:
+        async def close(self):
+            raise TypeError("bad owner")
+
+    session = DeviceSession([], [], geometry())
+    session.register_cleanup_owner("action", Owner().close)
+
+    report = asyncio.run(session.close())
+
+    assert report.cleanup_complete is False
+    assert report.retryable is True
+    assert any("bad owner" in error for error in report.errors)

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 import asyncio
 import inspect
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from artemis.control.base import ControlSink
@@ -26,6 +27,7 @@ from artemis.core.errors import (
     SessionClosedError,
 )
 from artemis.core.reflex_contract import CaptureError
+from artemis.runtime.cleanup_errors import CleanupErrorCapture
 from artemis.devices.capabilities import CapabilitySet
 from artemis.devices.capabilities_compat import manifest_from_capability_set
 from artemis.devices.geometry import ScreenGeometry
@@ -72,6 +74,7 @@ class SessionCloseReport:
     cleanup_complete: bool = False
     retryable: bool = False
     errors: tuple[str, ...] = ()
+    previous_errors: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -88,6 +91,7 @@ class SessionCloseReport:
             "cleanup_complete": self.cleanup_complete,
             "retryable": self.retryable,
             "errors": list(self.errors),
+            "previous_errors": list(self.previous_errors),
         }
 
 
@@ -107,6 +111,7 @@ class DeviceSession:
     adapter_state: dict[str, Any] = field(default_factory=dict)
     last_frame_id: str | None = None
     unhealthy_snapshot_limit: int = 3
+    _runtime_id: str = field(default_factory=lambda: uuid.uuid4().hex, init=False, repr=False)
     fault_source: str | None = None
     fault_reason: str | None = None
     _state: SessionState = field(default=SessionState.NEW, init=False, repr=False)
@@ -122,11 +127,18 @@ class DeviceSession:
     _unhealthy_snapshots: int = field(default=0, init=False, repr=False)
     _last_closed_now: list[str] = field(default_factory=list, init=False, repr=False)
     _last_released_now: list[str] = field(default_factory=list, init=False, repr=False)
+    _previous_errors: list[str] = field(default_factory=list, init=False, repr=False)
     last_close_report: SessionCloseReport | None = field(default=None, init=False, repr=False)
 
     @property
     def state(self) -> SessionState:
         return self._state
+
+    @property
+    def runtime_id(self) -> str:
+        """Stable lifecycle identifier; explicit session_id wins, else UUID."""
+
+        return str(self.session_id or self._runtime_id)
 
     @property
     def cleanup_state(self) -> CleanupState:
@@ -283,7 +295,7 @@ class DeviceSession:
             tuple(getattr(self.leases, "resource_ids", ())) if self.leases is not None else ()
         )
         return SessionCloseReport(
-            session_id=str(self.session_id or ""),
+            session_id=self.runtime_id,
             session_state=self._state,
             cleanup_state=self._cleanup_state,
             attempt=self._cleanup_attempt,
@@ -300,6 +312,7 @@ class DeviceSession:
             cleanup_complete=self._cleanup_state is CleanupState.COMPLETE,
             retryable=self._cleanup_state is CleanupState.RETRYABLE,
             errors=tuple(self._close_errors),
+            previous_errors=tuple(self._previous_errors),
         )
 
     async def _close_cleanup_owners(self) -> tuple[list[str], list[str]]:
@@ -432,7 +445,7 @@ class DeviceSession:
             self._cleanup_attempt = max(1, self._cleanup_attempt)
         self._state = SessionState.CLOSED
         report = SessionCloseReport(
-            session_id=str(self.session_id or ""),
+            session_id=self.runtime_id,
             session_state=self._state,
             cleanup_state=self._cleanup_state,
             attempt=self._cleanup_attempt,
@@ -447,9 +460,18 @@ class DeviceSession:
             cleanup_complete=self._cleanup_state is CleanupState.COMPLETE,
             retryable=self._cleanup_state is CleanupState.RETRYABLE,
             errors=tuple(self._close_errors),
+            previous_errors=tuple(self._previous_errors),
         )
         self.last_close_report = report
         return report
+
+    def mark_manual_required(self, reason: str) -> SessionCloseReport:
+        """Mark a failed cleanup as requiring operator/manual recovery."""
+
+        self._cleanup_state = CleanupState.MANUAL_REQUIRED
+        self._close_errors.append(f"manual_required: {reason}")
+        self.last_close_report = self._report()
+        return self.last_close_report
 
     async def close(self) -> SessionCloseReport:
         """Close business operations and run one cleanup attempt.
@@ -466,17 +488,27 @@ class DeviceSession:
             self._cleanup_state = CleanupState.IN_PROGRESS
             self._cleanup_attempt += 1
             self._close_errors.clear()
+            self._previous_errors = []
             self._cancel_signal = None
             self._last_closed_now = []
             self._last_released_now = []
+            capture = CleanupErrorCapture()
             try:
-                report = await self._run_cleanup()
-            except asyncio.CancelledError as exc:
+                with capture:
+                    report = await self._run_cleanup()
+            except asyncio.CancelledError:
                 self._state = SessionState.CLOSED
                 self._cleanup_state = CleanupState.RETRYABLE
-                report = self._report()
-                self.last_close_report = report
+                self.last_close_report = self._report()
                 raise
+            if capture.error is not None:
+                self._state = SessionState.CLOSED
+                self._cleanup_state = CleanupState.RETRYABLE
+                self._close_errors.append(
+                    f"cleanup: {type(capture.error).__name__}: {capture.error}"
+                )
+                self.last_close_report = self._report()
+                report = self.last_close_report
             if self._cancel_signal is not None:
                 cancelled = self._cancel_signal
                 self._cancel_signal = None
@@ -502,16 +534,26 @@ class DeviceSession:
                 raise DeviceSessionError("cleanup is not retryable")
             self._cleanup_state = CleanupState.IN_PROGRESS
             self._cleanup_attempt += 1
+            self._previous_errors = list(self._close_errors)
+            self._close_errors = []
             self._cancel_signal = None
             self._last_closed_now = []
             self._last_released_now = []
+            capture = CleanupErrorCapture()
             try:
-                report = await self._run_cleanup(retry=True)
+                with capture:
+                    report = await self._run_cleanup(retry=True)
             except asyncio.CancelledError:
                 self._cleanup_state = CleanupState.RETRYABLE
-                report = self._report()
-                self.last_close_report = report
+                self.last_close_report = self._report()
                 raise
+            if capture.error is not None:
+                self._cleanup_state = CleanupState.RETRYABLE
+                self._close_errors.append(
+                    f"cleanup: {type(capture.error).__name__}: {capture.error}"
+                )
+                self.last_close_report = self._report()
+                report = self.last_close_report
             if self._cancel_signal is not None:
                 cancelled = self._cancel_signal
                 self._cancel_signal = None

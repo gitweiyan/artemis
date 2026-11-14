@@ -35,6 +35,7 @@ from artemis.utils.video import detect_video_tools_enabled
 
 from artemis.config import ExplorerConfig, LLMConfig, OutputterConfig
 from artemis.core.identity import DeviceDescriptor
+from artemis.runtime.cleanup_errors import CleanupErrorCapture
 
 
 from third_party.mobile_use.context import (
@@ -251,24 +252,56 @@ class ArtemisContext(DeviceClientAccessors, BaseModel):
         # its cleanup barrier. Only a run without a Session closes ActionSession
         # directly. This keeps the Lease-release decision tied to one owner.
         if self.device_session is not None:
+            session = self.device_session
+            report = None
+
+            def register_incomplete() -> bool:
+                nonlocal report
+                if report is not None and getattr(report, "cleanup_complete", False):
+                    return True
+                registry = getattr(self, "cleanup_registry", None)
+                if registry is None:
+                    # Direct contexts outside the SDK still must not drop a failed
+                    # Session without an owner. Use a local emergency registry;
+                    # the Host Agent normally injects the shared one.
+                    from artemis.runtime.session_cleanup import SessionCleanupRegistry
+
+                    registry = SessionCleanupRegistry()
+                    self.cleanup_registry = registry
+                try:
+                    registry.register(session)
+                except (OSError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
+                    logger.error(
+                        f"Could not register incomplete DeviceSession {getattr(session, 'runtime_id', '?')}:"
+                        f" {exc}"
+                    )
+                    return False
+                return True
+
+            keep_session = False
+            capture = CleanupErrorCapture()
             try:
-                report = await self.device_session.close()
-                if not getattr(report, "cleanup_complete", True):
-                    registry = getattr(self, "cleanup_registry", None)
-                    if registry is not None:
-                        registry.register(self.device_session)
+                with capture:
+                    report = await session.close()
+                if capture.error is not None:
+                    report = getattr(session, "last_close_report", None)
+                    logger.error(
+                        f"Device session close raised {type(capture.error).__name__}:"
+                        f" {capture.error}"
+                    )
+                    keep_session = not register_incomplete()
+                elif not getattr(report, "cleanup_complete", True):
+                    keep_session = not register_incomplete()
             except asyncio.CancelledError:
-                report = getattr(self.device_session, "last_close_report", None)
-                if report is not None and not getattr(report, "cleanup_complete", True):
-                    registry = getattr(self, "cleanup_registry", None)
-                    if registry is not None:
-                        registry.register(self.device_session)
+                report = getattr(session, "last_close_report", None)
+                if report is None or not getattr(report, "cleanup_complete", True):
+                    keep_session = not register_incomplete()
                 raise
-            except (OSError, RuntimeError, ValueError, AttributeError) as exc:
-                logger.debug(f"Device session close failed; skipped: {exc}", exc_info=True)
             finally:
                 self.action_session = None
-                self.device_session = None
+                if not keep_session:
+                    self.device_session = None
+
         elif self.action_session is not None:
             try:
                 await self.action_session.aclose()

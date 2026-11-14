@@ -135,3 +135,75 @@ async def test_context_registers_incomplete_session_in_the_host_registry():
 
     assert registry.registered == [session]
     assert context.device_session is None
+
+
+@pytest.mark.asyncio
+async def test_context_registers_a_session_when_close_raises_an_unexpected_type_error():
+    class Registry:
+        def __init__(self):
+            self.registered = []
+
+        def register(self, session):
+            self.registered.append(session)
+
+    class Session:
+        async def close(self):
+            raise TypeError("unexpected cleanup owner error")
+
+    session = Session()
+    registry = Registry()
+    context = ArtemisContext(
+        device=DeviceContext(device_id="dummy"),
+        device_session=session,
+        cleanup_registry=registry,
+    )
+
+    await context.__aexit__(None, None, None)
+
+    assert registry.registered == [session]
+    assert context.device_session is None
+
+
+@pytest.mark.asyncio
+async def test_real_session_cleanup_failure_registry_retry_closes_the_loop():
+    from artemis.devices.geometry import ScreenGeometry
+    from artemis.devices.session import DeviceSession
+    from artemis.runtime.session_cleanup import SessionCleanupRegistry
+
+    class Sink:
+        capabilities = __import__(
+            "artemis.devices.capabilities", fromlist=["CapabilitySet"]
+        ).CapabilitySet(supports_absolute_tap=True)
+
+        def __init__(self):
+            self.fail = True
+
+        def close(self):
+            if self.fail:
+                raise ValueError("hardware still open")
+
+    sink = Sink()
+    session = DeviceSession(
+        [],
+        [sink],
+        ScreenGeometry((10, 20), (10, 20)),
+    )
+    registry = SessionCleanupRegistry()
+    context = ArtemisContext(
+        device=DeviceContext(device_id="dummy"),
+        device_session=session,
+        cleanup_registry=registry,
+    )
+
+    await context.__aexit__(None, None, None)
+
+    assert context.device_session is None
+    assert len(registry.pending()) == 1
+    assert registry.pending()[0].cleanup_complete is False
+
+    sink.fail = False
+    reports = await registry.retry_pending(max_attempts=2)
+
+    assert reports and reports[-1].cleanup_complete is True
+    assert session.cleanup_state.value == "complete"
+    assert registry.pending() == []
