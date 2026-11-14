@@ -139,10 +139,21 @@ state and is retried; `LeaseSet` removes only successfully released leases.
 from `ArtemisContext.__aexit__` before the Context releases its active reference.
 `AgentBase._recover_pending_sessions()` runs one bounded `retry_pending()` pass
 after each task and during `clean()`; unrecovered sessions are logged as
-`MANUAL_REQUIRED`. `SessionCleanupRegistry.manual_recover(session_id)` is the
-explicit operator path for those sessions. Context cleanup uses a capture boundary
-so unexpected ordinary exceptions are registered before the active reference is
-released. A cancelled `retry_cleanup()` always leaves `RETRYABLE`.
+`MANUAL_REQUIRED`. Context cleanup uses a capture boundary so unexpected ordinary
+exceptions are registered before the active reference is released. A cancelled
+`retry_cleanup()` always leaves `RETRYABLE`.
+
+### Manual recovery procedure
+
+`MANUAL_REQUIRED` is not automatically retried by `retry_pending()`:
+
+1. Read `registry.get_report(session_id)`.
+2. Inspect `retained`, `errors`, and `previous_errors`.
+3. Fix the physical/adapter cause (close the process, release the handle, remove
+   the stale resource only after confirming its owner).
+4. Call `await registry.manual_recover(session_id)` once the cause is cleared.
+5. If it still fails, the report returns to `MANUAL_REQUIRED`; repeat the
+   operator diagnosis. Never delete another process's lock file blindly.
 
 ### 2.5 Device fault classification
 
