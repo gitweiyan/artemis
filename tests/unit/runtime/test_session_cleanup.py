@@ -95,3 +95,59 @@ async def test_retry_pending_marks_an_unrecoverable_session_manual_required():
     reports = await registry.retry_pending(max_attempts=1)
 
     assert reports[0].cleanup_state.value == "manual_required"
+
+
+@pytest.mark.asyncio
+async def test_real_context_session_and_lease_retry_closure(tmp_path, monkeypatch):
+    from artemis.context import ArtemisContext, DeviceContext
+    from artemis.core.capabilities import CapabilitySet
+    from artemis.devices.geometry import ScreenGeometry
+    from artemis.devices.session import DeviceSession
+    from artemis.runtime import lease_primitives
+    from artemis.runtime.resource_lease import LeaseSet
+
+    class Sink:
+        capabilities = CapabilitySet(supports_absolute_tap=True)
+
+        def __init__(self):
+            self.closes = 0
+
+        def close(self):
+            self.closes += 1
+
+    leases = LeaseSet(host_id="host", session_id="lease-session", lease_dir=tmp_path)
+    leases.acquire(["uvc:host:one/capture"])
+    sink = Sink()
+    session = DeviceSession(
+        [],
+        [sink],
+        ScreenGeometry((10, 20), (10, 20)),
+        leases=leases,
+    )
+    registry = SessionCleanupRegistry()
+    context = ArtemisContext(
+        device=DeviceContext(device_id="dummy"),
+        device_session=session,
+        cleanup_registry=registry,
+    )
+    original = lease_primitives.safe_unlink
+    monkeypatch.setattr(lease_primitives, "safe_unlink", lambda _path: False)
+
+    await context.__aexit__(None, None, None)
+
+    assert context.device_session is None
+    assert registry.pending()
+    assert registry.pending()[0].cleanup_complete is False
+    assert leases.resource_ids == ("uvc:host:one/capture",)
+    assert sink.closes == 1
+
+    monkeypatch.setattr(lease_primitives, "safe_unlink", original)
+    reports = await registry.retry_pending(max_attempts=2)
+
+    assert reports[-1].cleanup_complete is True
+    assert leases.resource_ids == ()
+    assert session.leases is None
+    assert sink.closes == 1, "successful adapters must not be closed twice"
+
+    await session.close()
+    assert sink.closes == 1

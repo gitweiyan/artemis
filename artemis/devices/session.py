@@ -136,9 +136,9 @@ class DeviceSession:
 
     @property
     def runtime_id(self) -> str:
-        """Stable lifecycle identifier; explicit session_id wins, else UUID."""
+        """Immutable UUID lifecycle identifier, independent of caller IDs."""
 
-        return str(self.session_id or self._runtime_id)
+        return self._runtime_id
 
     @property
     def cleanup_state(self) -> CleanupState:
