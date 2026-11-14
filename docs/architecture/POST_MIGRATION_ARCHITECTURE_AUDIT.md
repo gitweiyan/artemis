@@ -240,3 +240,5 @@ and a retryable Session cleanup state machine. See
 [`R3_FAULT_INJECTION_REPORT.md`](R3_FAULT_INJECTION_REPORT.md).
 
 - R3.7.3 closure (2026-11-13): Session runtime IDs are stable UUIDs when no explicit session ID exists; `SessionCloseReport` separates current/previous errors; Host `AgentBase` runs a bounded pending-cleanup retry after tasks and clean, with manual-required reporting; Context registration is exception-safe.
+
+- R3.7.3 cleanup/cancellation closure (2026-11-13): `retry_cleanup()` cancellation always leaves `RETRYABLE`; current/prior errors are separate; `SessionCleanupRegistry.manual_recover()` is the explicit operator path for `MANUAL_REQUIRED`; real DeviceSession+LeaseSet tests cover safe_unlink failure, retained locks, blocked new Session, and successful retry.

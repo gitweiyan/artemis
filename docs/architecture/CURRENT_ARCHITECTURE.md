@@ -1,7 +1,7 @@
 # ARTEMIS Current Architecture Snapshot — 2026-11-13
 
 - **Branch:** `integration/10101205-all-fixes`
-- **Code baseline:** `1daf3cf` (Host cleanup recovery lifecycle); docs HEAD may be newer
+- **Code baseline:** `a2323ea` (cleanup retry cancellation/manual recovery); docs HEAD may be newer
 - **Normative contract:** [`ARCHITECTURE_CONTRACT.md`](ARCHITECTURE_CONTRACT.md)
 - **Historical execution plan:** [`REFACTOR_EXECUTION_PLAN.md`](REFACTOR_EXECUTION_PLAN.md)
 - **Current test baseline:** [`TEST_BASELINE.md`](TEST_BASELINE.md)
@@ -139,8 +139,10 @@ state and is retried; `LeaseSet` removes only successfully released leases.
 from `ArtemisContext.__aexit__` before the Context releases its active reference.
 `AgentBase._recover_pending_sessions()` runs one bounded `retry_pending()` pass
 after each task and during `clean()`; unrecovered sessions are logged as
-`MANUAL_REQUIRED`. Context cleanup uses a capture boundary so unexpected ordinary
-exceptions are registered before the active reference is released.
+`MANUAL_REQUIRED`. `SessionCleanupRegistry.manual_recover(session_id)` is the
+explicit operator path for those sessions. Context cleanup uses a capture boundary
+so unexpected ordinary exceptions are registered before the active reference is
+released. A cancelled `retry_cleanup()` always leaves `RETRYABLE`.
 
 ### 2.5 Device fault classification
 
@@ -203,7 +205,7 @@ CREATED / DISPATCHED -> ADAPTER_ACKNOWLEDGED -> OBSERVED_EFFECT
 | ActionReceipt source | Complete | only `ActionDispatchResult`; helper/legacy no ACK |
 | LangChain DTO isolation | Complete | `actions/results.py` has no LangChain import; interface adapter |
 | Session cleanup state/report/retry | Complete | `CleanupState`, `SessionCloseReport`, retry/manual tests |
-| Host cleanup recovery | Complete | bounded `retry_pending` after task/clean, manual-required result |
+| Host cleanup recovery | Complete | bounded `retry_pending` after task/clean, `manual_recover`, manual-required result |
 | Host CleanupRegistry | Complete | AgentBase creates/injects; Context registration test |
 | Lease failure retention | Complete | `safe_unlink=False` and retry tests |
 | UVC inventory/config | Complete for code; real multi-card unavailable | schema/config/CLI/factory tests |
