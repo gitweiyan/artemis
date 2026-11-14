@@ -4,13 +4,13 @@
 
 ## 2026-11-13 当前基线（最新）
 
-> 审计对象：`integration/10101205-all-fixes` @ `d999300`
+> 审计对象：`integration/10101205-all-fixes` @ `332caa2`
 > 环境：macOS 26.4 (Darwin arm64)、`uv 0.7.13`、项目 Python `3.12.11`
 > 工作区：`config/artemis.jsonc` 仍有用户未提交修改（provider=openai）；`docs/SHOWCASE_RESULT_20261111.md` 未纳入提交
 
 | 门禁 | 结果 |
 |---|---|
-| `uv run pytest tests/unit -q` | **0 failed, 3933 passed, 9 skipped**, 88 warnings, 148.05s |
+| `uv run pytest tests/unit -q` | **0 failed, 3933 passed, 9 skipped**, 88 warnings, 147.84s |
 | `uv run ruff check` | All checks passed |
 | `uv run ruff format --check .` | **27 files would be reformatted**（既有文件；非新增；本轮改动文件已格式检查通过） |
 | `quality_ratchet` | broad_exception_handlers=772, silent=0, type_ignore_comments=18（当前基线 774/18；2 below） |
